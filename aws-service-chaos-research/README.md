@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Skill Name | `aws-service-chaos-research` |
-| Version | 3.0 |
+| Version | 3.1 |
 | Type | Research & Guidance Generation |
 | Target Users | SA / DevOps / SRE，需要对特定 AWS 服务做混沌工程和高可用验证 |
 
@@ -62,28 +62,10 @@
 | Sub-Req | Description |
 |---|---|
 | FR-1.1 | 从用户自然语言输入中提取目标 AWS 服务名称 |
-| FR-1.2 | 将别名归一化为 FIS action ID 中的 service keyword（见下方映射表） |
-| FR-1.3 | 支持任意 AWS 服务，未列出的服务用小写去空格去连字符作为 keyword |
-| FR-1.4 | 歧义时主动询问用户澄清 |
-
-**归一化映射表（核心条目）：**
-
-| 用户输入 | Search Keyword |
-|---|---|
-| RDS / MySQL / PostgreSQL / Aurora | `rds` |
-| EC2 / instances | `ec2` |
-| ECS / Fargate | `ecs` |
-| EKS / Kubernetes / k8s | `eks` |
-| ElastiCache / Redis | `elasticache` |
-| DynamoDB / DDB | `dynamodb` |
-| S3 | `s3` |
-| EBS | `ebs` |
-| Lambda | `lambda` |
-| MSK / Kafka | `msk` |
-| OpenSearch | `opensearch` |
-| MemoryDB | `memorydb` |
-| DSQL | `dsql` |
-| 其他 | 小写服务名 |
+| FR-1.2 | 先检测 Region（见 FR-2），再通过 `aws fis list-actions --region <REGION> \| jq '.actions[].id' \| awk -F':' '{print $2}' \| sort -u` 动态获取 FIS 支持的 service keyword 列表 |
+| FR-1.3 | 将用户输入匹配到动态列表中的 keyword（如 "Aurora" -> `rds`，"Kubernetes" -> `eks`） |
+| FR-1.4 | CLI 不可用时，小写服务名去空格去连字符作为 keyword |
+| FR-1.5 | 歧义时主动询问用户澄清 |
 
 ### FR-2: Region 检测
 
@@ -120,14 +102,14 @@
 |---|---|
 | FR-5.1 | 将 action 按 failure domain 分组（Instance / Storage / Network / AZ / Region / API） |
 | FR-5.2 | 查找服务自带的 fault injection 能力（如 Aurora `ALTER SYSTEM CRASH`） |
-| FR-5.3 | 跑 5 组并行文档搜索（blogs / HA docs / API ref / troubleshooting / Well-Architected） |
+| FR-5.3 | 跑 5 组顺序文档搜索（blogs / HA docs / API ref / troubleshooting / Well-Architected） |
 | FR-5.4 | 读取 top 3-5 页，再用 `aws___recommend` 发现关联内容 |
 
 ### FR-6: Documentation-Only Path（无原生 Action 时）
 
 | Sub-Req | Description |
 |---|---|
-| FR-6.1 | 跑 6 组并行文档搜索（HA / DR / chaos / best practices / troubleshooting / API ref） |
+| FR-6.1 | 跑 6 组顺序文档搜索（HA / DR / chaos / best practices / troubleshooting / API ref） |
 | FR-6.2 | 读取 top 5 页 + `aws___recommend` |
 | FR-6.3 | 编制 Scenario Library 间接影响 + Service API/Console 替代方案表 |
 
@@ -182,7 +164,7 @@
 5. **不编造链接.** 只引用实际搜索结果或已读页面的 URL。
 6. **服务特异性.** 不给泛泛的 "test your database" 建议，所有建议必须关联具体服务的 HA 机制和指标。
 7. **Cross-cutting actions are optional.** 根据服务特性决定是否包含，不强制要求。
-8. **并行搜索.** 文档搜索步骤的多组查询应并行执行以提升效率。
+8. **顺序搜索.** AWS Knowledge MCP 工具不支持并行调用，文档搜索步骤的多组查询必须顺序执行。
 9. **语言跟随用户.** 输出语言与用户对话语言一致。
 
 ---
@@ -193,7 +175,7 @@
 用户输入服务名
     │
     ▼
-[Step 1] 服务识别 & 归一化 + Region 检测
+[Step 1] Region 检测 + 服务识别（动态 list-actions 获取 keyword）
     │
     ▼
 [Step 2] 读取 FIS Scenario Library 文档（最高优先级）
@@ -211,9 +193,9 @@
 │                                  │                                  │
 ▼                                  ▼                                  │
 [Step 4] FIS-Enriched Path    [Step 5] Documentation-Only Path        │
-├── 4a: 按 failure domain 分组  ├── 5a: 6 组并行文档搜索              │
+├── 4a: 按 failure domain 分组  ├── 5a: 6 组顺序文档搜索              │
 ├── 4b: 查服务自带 fault inject ├── 5b: 读 top 5 页 + recommend      │
-└── 4c: 5 组并行文档搜索        └── 5c: 编制替代方案表                │
+└── 4c: 5 组顺序文档搜索        └── 5c: 编制替代方案表                │
 │                                  │                                  │
 └──────────────────┬───────────────┘                                  │
                    ▼                                                  │
@@ -225,6 +207,35 @@
            ├── Implementation Best Practices                          │
            ├── Reference Materials                                    │
            └── Next Steps                                             │
+```
+
+### Decision Flowchart
+
+```dot
+digraph skill_workflow {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+
+    start [label="User inputs\nservice name", shape=ellipse];
+    step1 [label="Step 1: Region Detection\n+ Service Keyword Resolution\n(dynamic list-actions | jq | awk)"];
+    step2 [label="Step 2: Read FIS Scenario Library\n(console-only, must read docs)\n[HIGHEST PRIORITY]"];
+    step3 [label="Step 3: Query FIS Actions\n(list-actions --region)"];
+    decision [label="Service-specific\nactions found?", shape=diamond];
+    step4 [label="Step 4: FIS-Enriched Path\n4a: group by failure domain\n4b: service built-in faults\n4c: 5 sequential doc searches"];
+    step5 [label="Step 5: Documentation-Only Path\n5a: 6 sequential doc searches\n5b: read top pages + recommend\n5c: compile alternatives"];
+    step6 [label="Step 6: Compile Output\n(7 sections)"];
+    done [label="Deliver Report", shape=ellipse];
+
+    start -> step1;
+    step1 -> step2;
+    step2 -> step3;
+    step3 -> decision;
+    decision -> step4 [label="YES (≥1)"];
+    decision -> step5 [label="NO (0)"];
+    step4 -> step6;
+    step5 -> step6;
+    step6 -> done;
+}
 ```
 
 ---
