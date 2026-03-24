@@ -2,7 +2,7 @@
 name: aws-bestpractice-research
 description: >
   Research and compile comprehensive best-practice checklists for ANY AWS service by searching
-  official AWS documentation using aws-knowledge-mcp-server. Produces categorized HA/DR/security
+  official AWS documentation using aws knowledge mcp server. Produces categorized HA/DR/security
   checklist tables with source annotations and reference links. Optionally audits live AWS resources
   against the compiled checklist when the user provides credentials, region, or resource identifiers.
   Use when the user wants to:
@@ -22,12 +22,12 @@ description: >
 # AWS Best Practice Research (with Optional Live Audit)
 
 Research and compile comprehensive best-practice checklists for any AWS service using the
-aws-knowledge-mcp-server documentation search tools. Optionally audit live AWS resources
+[aws knowledge mcp server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) documentation search tools. Optionally audit live AWS resources
 against the compiled checklist.
 
 ## Prerequisites
 
-This skill requires the **aws-knowledge-mcp-server** tools to be available:
+This skill requires the **[aws knowledge mcp server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server)** tools to be available:
 - `aws___search_documentation` — search across AWS documentation topics
 - `aws___read_documentation` — read full documentation pages
 - `aws___recommend` — get related documentation recommendations
@@ -57,7 +57,7 @@ Record whether a live audit is requested:
 ### Step 2: Sequential Documentation Search
 
 Run the following 6 search queries **one at a time, sequentially** using `aws___search_documentation`.
-**Do NOT run them in parallel** — the aws-knowledge-mcp-server has rate limits and parallel
+**Do NOT run them in parallel** — the aws knowledge mcp server has rate limits and parallel
 requests will trigger "Too many requests" errors.
 
 Wait for each query to return results before sending the next one. Replace `{SERVICE}` with
@@ -249,7 +249,7 @@ After presenting the audit results, suggest:
 - **Always cite sources**: Every check item must have a source annotation.
   Users need to know where each recommendation comes from.
 - **Always use sequential requests**: All searches and page reads must be executed one at a
-  time, sequentially. **Never send multiple aws-knowledge-mcp-server requests in parallel.**
+  time, sequentially. **Never send multiple aws knowledge mcp server requests in parallel.**
   The MCP server has rate limits that will reject concurrent requests with "Too many requests"
   errors. Sequential execution is slower but reliable.
 - **Rate limit protection**: If any MCP request returns a "Too many requests" error, wait
