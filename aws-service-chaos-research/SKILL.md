@@ -58,6 +58,11 @@ limits and will reject concurrent requests with "Too many requests" errors.
 Wait for each request to return a complete response before sending the next one.
 This applies to ALL steps below (Step 2, 4b, 4c, 5a, 5b).
 
+**Retry on failure:** If any MCP call (especially `aws___read_documentation`) returns
+a rate limit error ("Too many requests") or any other transient error, **retry up to
+10 times** with a 5-second wait between retries. Only skip the request after all 10
+retries have failed.
+
 **Multi-service requests:** When the user asks about multiple services (e.g.,
 "EKS, RDS, MSK, and ElastiCache"), process them **one service at a time**. Complete
 all research steps (Steps 2-5) for one service before starting the next. Do NOT
@@ -363,4 +368,6 @@ The report must include all sections in this order:
   Wait for each response before sending the next request. Parallel calls will trigger
   "Too many requests" errors from the aws-knowledge-mcp-server. This is the single
   most common cause of failures — enforce strictly in every step.
+- **Retry on failure — up to 10 times.** If any MCP call fails with a rate limit or
+  transient error, wait 5 seconds and retry. Repeat up to 10 times before skipping.
 - **Respect language.** Output in the same language as the user's conversation.

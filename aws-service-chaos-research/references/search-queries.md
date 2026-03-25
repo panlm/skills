@@ -188,5 +188,6 @@ Supplementary pages (fetch if needed):
 
 ## Rate Limit Protection
 
-If any MCP request returns a "Too many requests" error, wait 5 seconds and retry once.
-If it fails again, skip that request and continue with the next one.
+If any MCP request returns a "Too many requests" error or any other transient error,
+**retry up to 10 times** with a 5-second wait between retries. Only skip the request
+and continue with the next one after all 10 retries have failed.
