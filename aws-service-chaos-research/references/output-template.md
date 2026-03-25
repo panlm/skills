@@ -169,25 +169,33 @@ has **no native FIS actions**. Include a note explaining this.
 |---|---|---|---|
 | 1 | {scenario} | `{CLI/API/Console method}` | {what it validates} |
 
-##### Recommended Testing Scenario Matrix
+##### Recommended Testing Scenario Matrix (REQUIRED)
 
-**IMPORTANT — This is the per-service scenario matrix.** Combine FIS native actions,
-service built-in methods, and relevant Scenario Library references into a single
-prioritized matrix for this service.
+**IMPORTANT — This sub-section is MANDATORY for every service.** It is the single
+authoritative test plan for this service. All other sub-sections above (FIS Native,
+Built-in, Testing Methods) are reference information only — they list available
+capabilities, NOT the test plan.
 
-**Test ID format:** Use `{SERVICE_SHORT}-{NUMBER}` as the test ID. The service short
-name should be a concise, recognizable abbreviation:
-- EKS → `EKS-1`, `EKS-2`, ...
-- ElastiCache Redis → `Redis-1`, `Redis-2`, ...
+This matrix combines FIS native actions, service built-in methods, Scenario Library
+references, and indirect methods into ONE prioritized table with unique Test IDs.
+
+**Test ID format:** Use `{SERVICE_SHORT}-{NUMBER}` as the FIRST column. The service
+short name MUST be a 3-letter (or short) abbreviation. Numbers are sequential starting
+from 1:
+- EKS → `EKS-1`, `EKS-2`, `EKS-3`, ...
+- ElastiCache Redis → `RDS-1`, `RDS-2`, ... (use `RDS` for Redis to keep 3 chars; or `RED` if RDS MySQL also present)
 - RDS MySQL → `RDS-1`, `RDS-2`, ...
 - MSK → `MSK-1`, `MSK-2`, ...
 - DynamoDB → `DDB-1`, `DDB-2`, ...
-- Other services → use a short recognizable name
+- When both ElastiCache Redis and RDS MySQL are in the same report, use distinct prefixes:
+  ElastiCache → `ECR-1` or `RED-1`, RDS → `RDS-1`
+
+**Table format (use exactly these columns):**
 
 | Test ID | Test Scenario | Method | Verification Target | Priority |
 |---|---|---|---|---|
-| {SVC}-1 | {scenario name} | {FIS action / API / Scenario Library ref} | {what it validates} | P0 |
-| {SVC}-2 | {scenario name} | {method} | {what it validates} | P1 |
+| EKS-1 | {scenario name} | {FIS action / API / Scenario Library ref} | {what it validates} | P0 |
+| EKS-2 | {scenario name} | {method} | {what it validates} | P1 |
 
 When referencing a Scenario Library composite scenario, use the format:
 "Scenario Library: {Scenario Name}" in the Method column.
@@ -211,16 +219,15 @@ research. Include:
 ### {N+1}. Recommended Test Priority (Consolidated)
 
 This section consolidates all per-service test scenarios into a single priority-ranked
-table. **Reference the Test IDs from per-service sections** — do NOT repeat the full
-scenario descriptions.
+table. **You MUST reference the Test IDs** (e.g., `EKS-1`, `RDS-3`, `MSK-2`) from the
+per-service "Recommended Testing Scenario Matrix" tables. Do NOT invent new scenario
+names or repeat full descriptions — use the Test ID as the primary reference.
 
 | Priority | Test ID | Scenario (brief) | Target Service | Reason |
 |---|---|---|---|---|
-| **P0 Must Test** | {SVC}-1 | {brief name} | {service} | {why it's critical} |
-| **P0 Must Test** | {SVC}-2 | {brief name} | {service} | {why it's critical} |
-| **P1 High** | {SVC}-3 | {brief name} | {service} | {why it's important} |
-| **P2 Medium** | {SVC}-4 | {brief name} | {service} | {good to have} |
-| **P3 Optional** | {SVC}-5 | {brief name} | {service} | {edge case or advanced} |
+| **P0 Must Test** | EKS-1 | {brief name from matrix} | EKS | {why it's critical} |
+| **P0 Must Test** | RDS-1 | {brief name from matrix} | RDS MySQL | {why it's critical} |
+| **P1 High** | MSK-3 | {brief name from matrix} | MSK | {why it's important} |
 
 Priority guidelines:
 - **P0**: FIS Scenario Library composite scenarios directly affecting the service; failover / primary failure (impacts RTO)
