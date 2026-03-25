@@ -24,7 +24,8 @@ When planning chaos engineering or HA verification for AWS services, engineers f
 
 | Dependency | Required For | Notes |
 |-----------|-------------|-------|
-| [aws-knowledge-mcp-server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) | Scenario Library + documentation research | Provides `aws___search_documentation`, `aws___read_documentation`, `aws___recommend` tools |
+| [aws-knowledge-mcp-server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) | Documentation search + discovery | Provides `aws___search_documentation` and `aws___recommend` tools |
+| WebFetch (or equivalent URL fetcher) | Reading documentation pages | Reads pages by URL without MCP rate limits; preferred over `aws___read_documentation` |
 | AWS CLI (`aws`) | FIS action discovery (preferred) | Falls back to documentation search if unavailable |
 
 ## Workflow Overview
@@ -95,14 +96,13 @@ The skill automatically selects one of two paths based on FIS action availabilit
 
 | Group | Tool | Purpose |
 |---|---|---|
-| **A — Scenario Library** | `aws___read_documentation` | Read FIS Scenario Library pages (console-only, cannot be queried via CLI) |
+| **A — Page Reading** | WebFetch (or equivalent URL fetcher) | Read documentation pages by URL; avoids MCP rate limits |
 | **B — FIS Actions** | AWS CLI `aws fis list-actions` | Preferred: real-time FIS action query for target region |
 | **B — FIS Actions** | `aws___search_documentation` | Fallback: search FIS action reference when CLI is unavailable |
-| **C — Documentation** | `aws___search_documentation` | Search official docs (blogs, user guides, troubleshooting) |
-| **C — Documentation** | `aws___read_documentation` | Read full documentation pages |
-| **C — Documentation** | `aws___recommend` | Discover related documentation |
+| **C — Search & Discovery** | `aws___search_documentation` | Search official docs to find relevant URLs |
+| **C — Search & Discovery** | `aws___recommend` | Discover related documentation from a given URL |
 
-**Constraint:** All documentation research uses only Group A/B/C tools. SearXNG and other external search engines are not used.
+**Constraint:** Use `aws___search_documentation` and `aws___recommend` only for searching and discovering URLs. Use WebFetch (Group A) for all page reads. This minimizes MCP rate limit pressure.
 
 ## Directory Structure
 
@@ -146,7 +146,7 @@ aws-service-chaos-research/
 
 3. **Region-aware throughout** — FIS action availability varies by region. The skill resolves the target region first, passes `--region` to all CLI calls, and clearly states the region in the output.
 
-4. **Sequential MCP requests** — All documentation searches and page reads are executed one at a time to avoid rate limiting from aws-knowledge-mcp-server. Slower but reliable.
+4. **WebFetch for page reads, MCP only for search** — Page reads use WebFetch (direct URL fetch) instead of `aws___read_documentation` to avoid MCP rate limits. Only `aws___search_documentation` and `aws___recommend` go through the MCP server, and these are executed sequentially.
 
 5. **Cross-cutting actions are optional** — Network disruption, API fault injection, and EC2 actions can affect almost any service indirectly. They are included only when relevant, and explicitly marked as optional in the output.
 
@@ -156,8 +156,8 @@ aws-service-chaos-research/
 
 ## Limitations
 
-- Depends on aws-knowledge-mcp-server availability; if the MCP server is not configured, documentation research cannot run (FIS CLI queries still work).
-- Sequential documentation gathering takes ~30-60 seconds for 5-6 queries + 3-5 page reads.
+- Depends on aws-knowledge-mcp-server availability for documentation search; if the MCP server is not configured, only FIS CLI queries and WebFetch of known URLs work.
+- MCP search queries (`aws___search_documentation`) are rate-limited and must be sequential; page reads use WebFetch and are not rate-limited.
 - Scenario Library content reflects documentation state at read time; newly added scenarios require re-reading the docs.
 - The skill generates testing recommendations and report only — it does not execute FIS experiments or create experiment templates automatically.
 - Cross-cutting action relevance depends on context; the skill uses heuristics (VPC-based, EC2-based, PrivateLink) to decide inclusion.

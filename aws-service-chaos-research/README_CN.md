@@ -24,7 +24,8 @@
 
 | 依赖 | 用于 | 说明 |
 |------|------|------|
-| [aws-knowledge-mcp-server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) | Scenario Library + 文档研究 | 提供 `aws___search_documentation`、`aws___read_documentation`、`aws___recommend` 工具 |
+| [aws-knowledge-mcp-server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) | 文档搜索 + 发现 | 提供 `aws___search_documentation` 和 `aws___recommend` 工具 |
+| WebFetch（或等效的 URL 读取工具） | 读取文档页面 | 通过 URL 直接读取页面，不受 MCP 速率限制；优先于 `aws___read_documentation` |
 | AWS CLI (`aws`) | FIS Action 发现（首选） | CLI 不可用时回退到文档搜索 |
 
 ## 工作流程概览
@@ -95,14 +96,13 @@ Skill 根据 FIS action 可用性自动选择路径：
 
 | 分组 | 工具 | 用途 |
 |------|------|------|
-| **A — Scenario Library** | `aws___read_documentation` | 读取 FIS Scenario Library 页面（仅控制台可见，无法通过 CLI 查询） |
+| **A — 页面读取** | WebFetch（或等效的 URL 读取工具） | 通过 URL 读取文档页面；不受 MCP 速率限制 |
 | **B — FIS Actions** | AWS CLI `aws fis list-actions` | 首选：实时查询目标 Region 的 FIS action |
 | **B — FIS Actions** | `aws___search_documentation` | 备选：CLI 不可用时搜索 FIS action 参考文档 |
-| **C — 文档研究** | `aws___search_documentation` | 搜索官方文档（博客、用户指南、故障排查） |
-| **C — 文档研究** | `aws___read_documentation` | 读取完整文档页面 |
-| **C — 文档研究** | `aws___recommend` | 发现关联文档 |
+| **C — 搜索与发现** | `aws___search_documentation` | 搜索官方文档，获取相关 URL |
+| **C — 搜索与发现** | `aws___recommend` | 从已知页面发现关联文档 |
 
-**约束：** 所有文档研究仅使用 A/B/C 组工具，不使用 SearXNG 或其他外部搜索引擎。
+**约束：** `aws___search_documentation` 和 `aws___recommend` 仅用于搜索和发现 URL。所有页面读取使用 WebFetch（A 组），最大限度减少 MCP 速率限制压力。
 
 ## 目录结构
 
@@ -146,7 +146,7 @@ aws-service-chaos-research/
 
 3. **全程 Region 感知** — FIS action 可用性因 Region 而异。Skill 先确定目标 Region，所有 CLI 调用传 `--region`，输出中明确标注 Region。
 
-4. **顺序执行 MCP 请求** — 所有文档搜索和页面读取逐一顺序执行，避免 aws-knowledge-mcp-server 的速率限制。速度较慢但可靠。
+4. **WebFetch 读取页面，MCP 仅用于搜索** — 页面读取使用 WebFetch（直接 URL 获取）而非 `aws___read_documentation`，避免 MCP 速率限制。只有 `aws___search_documentation` 和 `aws___recommend` 走 MCP 服务器，且顺序执行。
 
 5. **Cross-cutting actions 为可选** — 网络中断、API 故障注入和 EC2 操作可以间接影响几乎任何服务。仅在相关时包含，在输出中明确标记为可选。
 
@@ -156,8 +156,8 @@ aws-service-chaos-research/
 
 ## 已知限制
 
-- 依赖 aws-knowledge-mcp-server 的可用性；如果 MCP 服务器未配置，文档研究无法运行（FIS CLI 查询仍可使用）。
-- 顺序文档采集需要约 30-60 秒（5-6 次查询 + 3-5 次页面读取）。
+- 依赖 aws-knowledge-mcp-server 进行文档搜索；如果 MCP 服务器未配置，仅 FIS CLI 查询和 WebFetch 已知 URL 可用。
+- MCP 搜索查询（`aws___search_documentation`）有速率限制且必须顺序执行；页面读取使用 WebFetch，不受速率限制。
 - Scenario Library 内容反映读取时的文档状态；新增场景需要重新读取文档。
 - Skill 仅生成测试建议和报告，不会自动执行 FIS 实验或创建实验模板。
 - Cross-cutting action 的相关性取决于上下文；Skill 使用启发式规则（VPC、EC2、PrivateLink）来决定是否包含。

@@ -31,32 +31,37 @@ Detect the language of the user's conversation and use the **same language** for
 
 Required tools (at least one of each group):
 
-**FIS Scenario Library (Group A — documentation-based, always available):**
-- `aws___read_documentation` — read FIS Scenario Library pages directly (scenarios are
-  console-only and cannot be queried via CLI, so reading the latest docs is the only way
-  to discover them)
+**Page Reading (Group A — for reading documentation pages):**
+- **WebFetch** (or equivalent URL fetching tool) — read AWS documentation pages
+  directly by URL. Preferred over `aws___read_documentation` because it does not
+  consume MCP rate limits. Use this for ALL page reads including FIS Scenario Library
+  pages, service documentation, blog posts, and reference pages.
 
 **FIS Actions Discovery (Group B — use in order of preference):**
 1. **AWS CLI** `aws fis list-actions` — definitive, real-time list of FIS actions from user's region
 2. **aws___search_documentation** — FIS actions reference page as fallback when CLI is unavailable
 
-**Documentation Research (Group C):**
-- `aws___search_documentation` — search AWS official docs
-- `aws___read_documentation` — read full doc pages
-- `aws___recommend` — discover related pages
+**Documentation Search & Discovery (Group C — MCP-based, rate-limited):**
+- `aws___search_documentation` — search AWS official docs (returns URLs, not full content)
+- `aws___recommend` — discover related pages from a given URL
 
-All documentation research uses **only** the AWS Knowledge MCP tools above.
-Do NOT use SearXNG or other web search tools for documentation research.
+**IMPORTANT:** Use `aws___search_documentation` and `aws___recommend` only for
+**searching and discovering** URLs. Once you have a URL, use **WebFetch** (Group A)
+to read the page content. This minimizes MCP rate limit pressure.
 
 ## Workflow
 
-**CRITICAL — Sequential execution of all AWS Knowledge MCP calls:**
-All calls to `aws___search_documentation`, `aws___read_documentation`, and
-`aws___recommend` MUST be executed **one at a time, sequentially**. NEVER send
-multiple MCP requests in parallel — the aws-knowledge-mcp-server has strict rate
-limits and will reject concurrent requests with "Too many requests" errors.
-Wait for each request to return a complete response before sending the next one.
-This applies to ALL steps below (Step 2, 4b, 4c, 5a, 5b).
+**CRITICAL — Sequential execution of all MCP calls:**
+All calls to `aws___search_documentation` and `aws___recommend` MUST be executed
+**one at a time, sequentially**. NEVER send multiple MCP requests in parallel —
+the aws-knowledge-mcp-server has strict rate limits and will reject concurrent
+requests with "Too many requests" errors. Wait for each MCP request to return a
+complete response before sending the next one.
+
+**Use WebFetch for page reads:** When you need to read a documentation page, use
+WebFetch (or equivalent URL fetching tool) instead of `aws___read_documentation`.
+WebFetch does not go through the MCP server and is not subject to its rate limits.
+This is the primary way to avoid throttling.
 
 **Multi-service requests:** When the user asks about multiple services (e.g.,
 "EKS, RDS, MSK, and ElastiCache"), process them **one service at a time**. Complete
@@ -120,9 +125,8 @@ Scenario Library scenarios are **console-only** — they cannot be listed or que
 AWS CLI or API. The only way to discover them is by reading the latest documentation.
 
 Fetch the Scenario Library pages listed in `references/search-queries.md` under
-"FIS Scenario Library Pages (Always Fetch)". Read both the overview and detailed scenario
-pages relevant to the target service. **Read pages one at a time, sequentially** —
-wait for each `aws___read_documentation` call to complete before starting the next one.
+"FIS Scenario Library Pages (Always Fetch)". Use **WebFetch** to read each page by URL.
+Read both the overview and detailed scenario pages relevant to the target service.
 
 #### From the scenario documentation, extract for each relevant scenario:
 
@@ -208,12 +212,9 @@ aws___search_documentation(
 )
 ```
 
-Then read the FIS actions reference page:
+Then read the FIS actions reference page using **WebFetch**:
 ```
-aws___read_documentation(
-  url="https://docs.aws.amazon.com/fis/latest/userguide/fis-actions-reference.html",
-  max_length=10000
-)
+WebFetch(url="https://docs.aws.amazon.com/fis/latest/userguide/fis-actions-reference.html")
 ```
 
 #### Decision Point: FIS Actions Found?
@@ -262,19 +263,9 @@ Group scenarios by failure domain:
 5. **Region Level** — cross-region failover
 6. **API/Control Plane** — AWS API errors
 
-**Scenario Library cross-reference:** For each FIS action, check whether it also
-appears as a sub-action in any Scenario Library composite scenario discovered in
-Step 2. If it does, append a note in the "HA Verification Purpose" column (e.g.,
-"Also a sub-action of AZ Power Interruption — see Scenario Library section"). If
-**all** service-specific FIS actions are sub-actions of Scenario Library scenarios,
-omit the "FIS Native Fault Injection Scenarios" sub-section entirely and replace
-it with a note: "All FIS native actions for this service are covered by Scenario
-Library composite scenarios — see the Scenario Library and Cross-Cutting section."
-
 #### 4b: Enrich with Service-Specific Capabilities
 
-Some services have **built-in fault injection** beyond FIS. Search for these
-(**sequentially** — wait for the search to complete before reading any result pages):
+Some services have **built-in fault injection** beyond FIS. Search for these:
 
 ```
 aws___search_documentation(
@@ -284,15 +275,17 @@ aws___search_documentation(
 )
 ```
 
+Then use **WebFetch** to read any relevant result pages found.
+
 If found, add a "Service Built-in Fault Injection" section using the table format from
 `references/output-template.md`.
 
 #### 4c: Deep Documentation Research
 
 Use the search queries from `references/search-queries.md` under "FIS-Enriched Path".
-Run all 5 queries **sequentially** (one at a time). After searches, read the top 3-5
-most relevant pages **one at a time** and use `aws___recommend` on the most relevant
-page for discovery. Never send multiple read or recommend requests in parallel.
+Run all 5 queries **sequentially** (one MCP call at a time). After searches, use
+**WebFetch** to read the top 3-5 most relevant pages, and use `aws___recommend` on
+the most relevant page for discovery.
 
 ### Step 5: Documentation-Only Path (No FIS Actions)
 
@@ -306,9 +299,8 @@ Run all 6 queries **sequentially** (one at a time, wait for each to complete).
 
 #### 5b: Read Key Pages and Discover Related Content
 
-From the combined search results, read the **top 5 most relevant pages** following the
-priority order in `references/search-queries.md`. Read pages **one at a time** — wait
-for each `aws___read_documentation` call to complete before the next. Then use
+From the combined search results, use **WebFetch** to read the **top 5 most relevant
+pages** following the priority order in `references/search-queries.md`. Then use
 `aws___recommend` on the service's main documentation page to discover related content.
 
 Extract from all pages:
@@ -352,15 +344,17 @@ The report must include all sections in this order:
   service, its HA mechanisms, and its specific metrics.
 - **Cross-cutting actions are optional context.** Include them when they add value,
   but focus on service-specific actions and Scenario Library scenarios first.
-- **AWS Knowledge MCP only for docs research.** Do NOT use SearXNG or other web search.
-  Use `aws___search_documentation`, `aws___read_documentation`, and `aws___recommend`.
+- **Use WebFetch for all page reads.** When you have a URL to read (from search results,
+  Scenario Library pages, or known documentation URLs), use WebFetch instead of
+  `aws___read_documentation`. This avoids MCP rate limiting entirely for page reads.
+- **MCP tools only for search and recommend.** Use `aws___search_documentation` to
+  find URLs, and `aws___recommend` to discover related pages. Do NOT use
+  `aws___read_documentation` — use WebFetch instead.
 - **Search across multiple topics.** Use different `topics` values (`general`,
   `reference_documentation`, `troubleshooting`) sequentially.
 - **Use aws___recommend for discovery.** After reading a key page, call `aws___recommend`
   to find related content that keyword search may miss.
-- **NEVER send MCP requests in parallel.** All calls to `aws___search_documentation`,
-  `aws___read_documentation`, and `aws___recommend` MUST be executed one at a time.
-  Wait for each response before sending the next request. Parallel calls will trigger
-  "Too many requests" errors from the aws-knowledge-mcp-server. This is the single
-  most common cause of failures — enforce strictly in every step.
+- **NEVER send MCP requests in parallel.** All calls to `aws___search_documentation`
+  and `aws___recommend` MUST be executed one at a time. Wait for each response before
+  sending the next request. Parallel calls will trigger "Too many requests" errors.
 - **Respect language.** Output in the same language as the user's conversation.

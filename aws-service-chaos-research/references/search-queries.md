@@ -132,9 +132,9 @@ limit: 10
 
 ## Page Reading Priority
 
-After searches complete, read the **top 3-5 most relevant pages** using
-`aws___read_documentation` with `max_length: 8000`. Read pages **sequentially**
-(one at a time).
+After searches complete, read the **top 3-5 most relevant pages** using **WebFetch**
+(fetch by URL). Do NOT use `aws___read_documentation` for page reads — WebFetch avoids
+MCP rate limits entirely.
 
 ### FIS-Enriched Path Priority:
 
@@ -159,15 +159,14 @@ recommendations).
 
 ## FIS Scenario Library Pages (Always Fetch)
 
-These pages are **always** fetched in Step 2 regardless of which path is taken:
+These pages are **always** fetched in Step 2 regardless of which path is taken.
+Use **WebFetch** to read each page by URL:
 
 ```
-Required reads:
+Required reads (use WebFetch):
   url: "https://docs.aws.amazon.com/fis/latest/userguide/scenario-library.html"
-  max_length: 10000
 
   url: "https://docs.aws.amazon.com/fis/latest/userguide/scenario-library-scenarios.html"
-  max_length: 10000
 ```
 
 Detailed scenario pages (fetch based on relevance to target service):
@@ -187,6 +186,9 @@ Supplementary pages (fetch if needed):
 | FIS Document History | `https://docs.aws.amazon.com/fis/latest/userguide/doc-history.html` |
 
 ## Rate Limit Protection
+
+MCP rate limits apply to `aws___search_documentation` and `aws___recommend` only.
+Page reads use WebFetch and are not rate-limited by the MCP server.
 
 If any MCP request returns a "Too many requests" error, wait 5 seconds and retry once.
 If it fails again, skip that request and continue with the next one.
