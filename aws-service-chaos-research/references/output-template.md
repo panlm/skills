@@ -42,6 +42,23 @@ following sub-sections. If only one service is being tested, use Section 2 only.
 
 Use this sub-section when FIS has native actions for the service.
 
+**IMPORTANT — Scenario Library deduplication:** Before building this table, check
+each FIS action against the Scenario Library composite scenarios in the report.
+If an action already appears as a sub-action there (e.g., `aws:rds:failover-db-cluster`
+is a sub-action of AZ Power Interruption), you MUST append a note to the
+"HA Verification Purpose" cell:
+
+> "(Also sub-action of AZ Power Interruption — see Scenario Library section)"
+
+**All actions covered:** If EVERY FIS action for this service is a Scenario Library
+sub-action (e.g., ElastiCache has only `replicationgroup-interrupt-az-power` which
+is covered by AZ Power Interruption), OMIT this entire sub-section and replace with:
+
+> All FIS native actions for {SERVICE} are covered by Scenario Library composite
+> scenarios. See the Scenario Library and Cross-Cutting section for details.
+
+**Otherwise**, list the remaining actions in this table:
+
 | # | Test Scenario | FIS Action | Description | HA Verification Purpose |
 |---|---|---|---|---|
 | 1 | {scenario name} | `aws:{service}:{action}` | {what the action does} | {what resilience property it validates} |
@@ -51,17 +68,6 @@ Group scenarios by failure domain when there are many:
 2. **Storage Level** — disk/volume failure or degradation
 3. **Network Level** — connectivity disruption
 4. **AZ Level** — availability zone failure simulation
-
-**Scenario Library cross-reference:** If a FIS action also appears as a sub-action
-of a Scenario Library composite scenario, append a note to the "HA Verification
-Purpose" cell, e.g.: "(Also sub-action of AZ Power Interruption — see Scenario
-Library section)".
-
-**All actions covered:** If every FIS action for this service is a Scenario Library
-sub-action, omit this entire sub-section and replace with:
-
-> All FIS native actions for {SERVICE} are covered by Scenario Library composite
-> scenarios. See the Scenario Library and Cross-Cutting section for details.
 
 ##### Service Built-in Fault Injection
 
@@ -199,6 +205,13 @@ Priority guidelines:
 - **P1**: AZ-level failure, network isolation (multi-AZ resilience); service-specific critical tests
 - **P2**: Performance degradation, replica failure (read availability)
 - **P3**: API throttling, cross-region DR, cross-cutting actions (advanced scenarios)
+
+**Dedup with Scenario Library:** Do NOT list a FIS action as a separate priority item
+if it is already covered as a sub-action of a Scenario Library composite scenario
+listed in this same table. For example, if "AZ Power Interruption" is listed as P0
+and it already includes `aws:rds:failover-db-cluster` as a sub-action, do NOT add
+a separate P0 row for `aws:rds:failover-db-cluster`. The Scenario Library composite
+scenario entry already covers it.
 
 ---
 

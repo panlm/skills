@@ -214,8 +214,29 @@ with FIS-action-specific details.
 
 #### 4a: Organize FIS Actions into Testing Scenarios
 
-Map each FIS action to a testing scenario. Use the "FIS 原生故障注入场景" table format
-from `references/output-template.md`.
+Map each FIS action to a testing scenario. Use the "FIS Native Fault Injection
+Scenarios" table format from `references/output-template.md`.
+
+**IMPORTANT — Scenario Library deduplication (must apply before building the table):**
+Before listing any FIS action in the per-service table, check whether that exact
+action ID appeared as a sub-action in any Scenario Library composite scenario
+discovered in Step 2. Common examples of overlap:
+- `aws:rds:failover-db-cluster` — sub-action of AZ Power Interruption
+- `aws:elasticache:replicationgroup-interrupt-az-power` — sub-action of AZ Power Interruption
+- `aws:eks:pod-network-latency` — sub-action of AZ Application Slowdown
+- `aws:eks:pod-network-packet-loss` — sub-action of Cross-AZ Traffic Slowdown
+- `aws:ec2:stop-instances` — sub-action of AZ Power Interruption
+
+Rules:
+1. If an action **is** a Scenario Library sub-action, **still list it** in the
+   per-service table but append to the "HA Verification Purpose" column:
+   "(Also sub-action of {Scenario Name} — see Scenario Library section)".
+2. If **all** service-specific FIS actions are Scenario Library sub-actions (e.g.,
+   ElastiCache has only `replicationgroup-interrupt-az-power` which is covered by
+   AZ Power Interruption), **omit** the "FIS Native Fault Injection Scenarios"
+   sub-section entirely and replace with:
+   > All FIS native actions for {SERVICE} are covered by Scenario Library composite
+   > scenarios. See the Scenario Library and Cross-Cutting section for details.
 
 Group scenarios by failure domain:
 1. **Instance/Task Level** — individual resource failure
@@ -246,7 +267,7 @@ aws___search_documentation(
 )
 ```
 
-If found, add a "服务内置故障注入" section using the table format from
+If found, add a "Service Built-in Fault Injection" section using the table format from
 `references/output-template.md`.
 
 #### 4c: Deep Documentation Research
@@ -279,7 +300,7 @@ Extract from all pages:
 
 #### 5c: Compile Alternative Testing Approaches
 
-Use the "测试方法（无原生 FIS Actions）" section format from `references/output-template.md`,
+Use the "Testing Methods (No Native FIS Actions)" section format from `references/output-template.md`,
 including both indirect FIS actions and AWS API/Console methods.
 
 ### Step 6: Compile Output
@@ -287,13 +308,13 @@ including both indirect FIS actions and AWS API/Console methods.
 Output the report using the exact format defined in `references/output-template.md`.
 The report must include all numbered sections from the template:
 
-1. **执行摘要** — overview with region, FIS support status, key recommendation
+1. **Executive Summary** — overview with region, FIS support status, key recommendation
 2. **Per-service sections** — each with FIS scenarios, built-in methods, and environment observations
 3. **Scenario Library and Cross-Cutting** — Scenario Library composite scenarios first (highest priority), cross-cutting actions as optional supplement
-4. **推荐测试优先级** — all scenarios ranked P0-P3
-5. **实施最佳实践** — stop conditions, steady state, DNS/connection, blast radius
-6. **参考资料** — only URLs from actual search results or pages read
-7. **下一步建议** — 3-4 actionable next steps
+4. **Recommended Test Priority** — all scenarios ranked P0-P3; do NOT list a FIS action as a separate priority item if it is already a sub-action of a Scenario Library scenario listed in the same table
+5. **Implementation Best Practices** — stop conditions, steady state, DNS/connection, blast radius
+6. **Reference Materials** — only URLs from actual search results or pages read
+7. **Next Steps** — 3-4 actionable next steps
 
 ## Important Guidelines
 
