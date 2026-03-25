@@ -9,14 +9,19 @@ description: >
   (AZ Power Interruption, AZ Application Slowdown, etc.) and custom single FIS actions
   (aws:rds:failover-db-cluster, aws:ec2:stop-instances, etc.). Generates all files
   needed to run the experiment: JSON template, IAM policy, CloudFormation template,
-  CloudWatch alarms, dashboard, and expected-behavior documentation.
+  CloudWatch alarms, dashboard, and expected-behavior documentation. After generating
+  files, automatically deploys the CFN template with self-healing iteration — if
+  deployment fails, analyzes the error, fixes the template, deletes the failed stack,
+  and retries until the deployment succeeds (up to 5 retries).
 ---
 
 # AWS FIS Experiment Prepare
 
-Generate all configuration files needed to run an AWS FIS experiment. Outputs a
+Generate all configuration files needed to run an AWS FIS experiment, then **deploy
+via CloudFormation with self-healing iteration** until the stack succeeds. Outputs a
 self-contained directory with experiment template, IAM policy, CloudFormation template,
-monitoring config, and expected-behavior documentation.
+monitoring config, and expected-behavior documentation — plus a deployed, validated
+CFN stack ready for experiment execution.
 
 ## Output Language Rule
 
@@ -167,7 +172,140 @@ Generate files following the templates in `references/output-structure.md`:
 See `references/output-structure.md` for exact file formats.
 See `references/scenario-templates.md` for Scenario Library JSON templates.
 
-### Step 5: Present Summary and Confirm
+### Step 5: Deploy CFN Template (Self-Healing Loop)
+
+After generating all files, **immediately attempt to deploy the CFN template** to
+validate that the generated configuration actually works. If deployment fails, analyze
+the error, fix the template, delete the failed stack, and retry — repeating until the
+deployment succeeds.
+
+**This step ensures the user receives a working, validated configuration — not just
+files that might contain errors.**
+
+#### 5a. Validate Template Syntax First
+
+```bash
+aws cloudformation validate-template \
+  --template-body "file://${OUTPUT_DIR}/cfn-template.yaml" \
+  --region ${TARGET_REGION}
+```
+
+If validation fails, fix the YAML syntax error in `cfn-template.yaml` and re-validate.
+Do NOT proceed to deployment until validation passes.
+
+#### 5b. Deploy the Stack
+
+```bash
+STACK_NAME="fis-${SCENARIO_SLUG}-$(date +%Y%m%d-%H%M%S)"
+
+aws cloudformation deploy \
+  --template-file "${OUTPUT_DIR}/cfn-template.yaml" \
+  --stack-name "${STACK_NAME}" \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region ${TARGET_REGION} \
+  --no-fail-on-empty-changeset
+```
+
+#### 5c. Self-Healing Iteration Loop
+
+```dot
+digraph cfn_loop {
+    "Deploy CFN stack" [shape=box];
+    "Wait for completion" [shape=box];
+    "Deployment succeeded?" [shape=diamond];
+    "Extract error from stack events" [shape=box];
+    "Analyze root cause" [shape=box];
+    "Fix cfn-template.yaml" [shape=box];
+    "Delete failed stack" [shape=box];
+    "Max retries exceeded?" [shape=diamond];
+    "Report failure to user" [shape=box, style=bold, color=red];
+    "Save stack outputs" [shape=box];
+    "Update local files with real ARNs" [shape=box];
+
+    "Deploy CFN stack" -> "Wait for completion";
+    "Wait for completion" -> "Deployment succeeded?";
+    "Deployment succeeded?" -> "Save stack outputs" [label="Yes"];
+    "Deployment succeeded?" -> "Extract error from stack events" [label="No"];
+    "Extract error from stack events" -> "Analyze root cause";
+    "Analyze root cause" -> "Fix cfn-template.yaml";
+    "Fix cfn-template.yaml" -> "Delete failed stack";
+    "Delete failed stack" -> "Max retries exceeded?";
+    "Max retries exceeded?" -> "Report failure to user" [label="Yes (>5)"];
+    "Max retries exceeded?" -> "Deploy CFN stack" [label="No, retry"];
+    "Save stack outputs" -> "Update local files with real ARNs";
+}
+```
+
+**On deployment failure:**
+
+1. **Get the failure reason** from stack events:
+   ```bash
+   aws cloudformation describe-stack-events \
+     --stack-name "${STACK_NAME}" \
+     --region ${TARGET_REGION} \
+     --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`].{Resource:LogicalResourceId, Reason:ResourceStatusReason}' \
+     --output table
+   ```
+
+2. **Analyze the root cause.** Common errors and fixes:
+
+   | Error Pattern | Root Cause | Fix |
+   |---|---|---|
+   | `Property validation failure` | Invalid CFN property name or value | Fix the resource property in YAML |
+   | `Template format error` | YAML syntax or structure issue | Fix indentation / structure |
+   | `Resource type not supported` | CFN resource type unavailable in region | Check regional availability, use alternative |
+   | `Invalid template property` | Wrong property for resource type | Consult CFN docs for correct schema |
+   | `Circular dependency` | Resources reference each other | Use `DependsOn` or restructure |
+   | `RoleArn ... is invalid` | IAM role not yet propagated | Add `DependsOn` for IAM role |
+   | `Limit exceeded` | Account resource limits | Reduce resource count or request limit increase |
+   | `AccessDenied` | Caller lacks permissions | Check caller's IAM permissions |
+
+3. **Fix `cfn-template.yaml`** in the output directory based on the error analysis.
+   Also update `experiment-template.json` if the fix affects the experiment template
+   structure (e.g., changed action parameters, modified targets).
+
+4. **Delete the failed stack** before retrying:
+   ```bash
+   aws cloudformation delete-stack \
+     --stack-name "${STACK_NAME}" \
+     --region ${TARGET_REGION}
+
+   aws cloudformation wait stack-delete-complete \
+     --stack-name "${STACK_NAME}" \
+     --region ${TARGET_REGION}
+   ```
+
+5. **Retry deployment** with the fixed template. Use the same stack name.
+
+6. **Maximum 5 retries.** If deployment still fails after 5 attempts, stop and report
+   the error to the user with:
+   - The last error message
+   - All fixes attempted
+   - The current state of `cfn-template.yaml`
+   - Suggestion to manually review and fix
+
+#### 5d. On Successful Deployment
+
+After the stack deploys successfully:
+
+1. **Extract stack outputs** (Experiment Template ID, Role ARN, Dashboard URL):
+   ```bash
+   aws cloudformation describe-stacks \
+     --stack-name "${STACK_NAME}" \
+     --query 'Stacks[0].Outputs' \
+     --region ${TARGET_REGION} --output table
+   ```
+
+2. **Update `experiment-template.json`** with real ARNs from the stack (role ARN,
+   alarm ARNs) so it stays in sync with what was actually deployed.
+
+3. **Update `README.md`** to include:
+   - The actual stack name
+   - The experiment template ID
+   - The CloudWatch dashboard URL
+   - Cleanup command for this specific stack
+
+### Step 6: Present Summary
 
 Present to the user:
 1. Scenario name and description
@@ -175,12 +313,24 @@ Present to the user:
 3. Affected resources summary
 4. Experiment duration
 5. Files generated and their locations
-6. **Next step**: How to execute (point to aws-fis-experiment-execute skill or manual CLI/CFN commands in README.md)
+6. **CFN deployment status**: Stack name, deployed resources, experiment template ID
+7. **CloudWatch Dashboard URL** for monitoring
+8. **Next step**: How to start the experiment
+   - Use aws-fis-experiment-execute skill, OR
+   - Manually: `aws fis start-experiment --experiment-template-id {ID} --region {REGION}`
 
 ## Important Guidelines
 
-- **Never execute the experiment in this skill.** This skill only generates files.
-  Execution is handled by aws-fis-experiment-execute or manually by the user.
+- **Never start the FIS experiment in this skill.** This skill deploys the supporting
+  infrastructure (IAM role, alarms, dashboard, experiment template) via CloudFormation,
+  but does NOT start the actual fault injection experiment. Starting the experiment is
+  handled by aws-fis-experiment-execute or manually by the user.
+- **Always deploy and validate.** Do not just generate files — deploy the CFN template
+  and iterate until it succeeds. The user should receive a working, deployed experiment
+  template ready to start.
+- **Self-heal on CFN errors.** When deployment fails, read the stack events, diagnose
+  the issue, fix the template, delete the failed stack, and retry. Do not ask the user
+  to fix CFN errors — fix them yourself.
 - **Always verify FIS action availability.** Use `aws fis list-actions` or
   `aws fis get-action` to confirm actions exist in the target region before
   generating templates.
@@ -196,3 +346,6 @@ Present to the user:
 - **Sequential MCP calls.** All `aws___read_documentation` and
   `aws___search_documentation` calls must be sequential, never parallel.
   Retry up to 10 times on rate limit errors.
+- **Keep local files in sync.** After successful deployment, update local files
+  (experiment-template.json, README.md) with real ARNs and stack outputs so the
+  directory is a complete, accurate record of the deployed experiment.
