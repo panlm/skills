@@ -58,6 +58,13 @@ limits and will reject concurrent requests with "Too many requests" errors.
 Wait for each request to return a complete response before sending the next one.
 This applies to ALL steps below (Step 2, 4b, 4c, 5a, 5b).
 
+**Multi-service requests:** When the user asks about multiple services (e.g.,
+"EKS, RDS, MSK, and ElastiCache"), process them **one service at a time**. Complete
+all research steps (Steps 2-5) for one service before starting the next. Do NOT
+launch parallel research for multiple services — this will trigger rate limiting.
+The Scenario Library fetch (Step 2) only needs to run once since it covers all
+services; the per-service steps (3-5) must be repeated sequentially for each service.
+
 ### Step 1: Identify Target Service
 
 Extract the target AWS service from the user's message and determine the target region.
