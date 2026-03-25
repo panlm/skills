@@ -52,6 +52,17 @@ Group scenarios by failure domain when there are many:
 3. **Network Level** — connectivity disruption
 4. **AZ Level** — availability zone failure simulation
 
+**Scenario Library cross-reference:** If a FIS action also appears as a sub-action
+of a Scenario Library composite scenario, append a note to the "HA Verification
+Purpose" cell, e.g.: "(Also sub-action of AZ Power Interruption — see Scenario
+Library section)".
+
+**All actions covered:** If every FIS action for this service is a Scenario Library
+sub-action, omit this entire sub-section and replace with:
+
+> All FIS native actions for {SERVICE} are covered by Scenario Library composite
+> scenarios. See the Scenario Library and Cross-Cutting section for details.
+
 ##### Service Built-in Fault Injection
 
 Use this sub-section for service-native fault injection methods (not FIS).

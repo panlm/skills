@@ -225,6 +225,15 @@ Group scenarios by failure domain:
 5. **Region Level** — cross-region failover
 6. **API/Control Plane** — AWS API errors
 
+**Scenario Library cross-reference:** For each FIS action, check whether it also
+appears as a sub-action in any Scenario Library composite scenario discovered in
+Step 2. If it does, append a note in the "HA Verification Purpose" column (e.g.,
+"Also a sub-action of AZ Power Interruption — see Scenario Library section"). If
+**all** service-specific FIS actions are sub-actions of Scenario Library scenarios,
+omit the "FIS Native Fault Injection Scenarios" sub-section entirely and replace
+it with a note: "All FIS native actions for this service are covered by Scenario
+Library composite scenarios — see the Scenario Library and Cross-Cutting section."
+
 #### 4b: Enrich with Service-Specific Capabilities
 
 Some services have **built-in fault injection** beyond FIS. Search for these:
