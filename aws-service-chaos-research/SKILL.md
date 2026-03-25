@@ -306,13 +306,13 @@ including both indirect FIS actions and AWS API/Console methods.
 ### Step 6: Compile Output
 
 Output the report using the exact format defined in `references/output-template.md`.
-The report must include all numbered sections from the template:
+The report must include all sections in this order:
 
 1. **Executive Summary** — overview with region, FIS support status, key recommendation
-2. **Per-service sections** — each with FIS scenarios, built-in methods, and environment observations
-3. **Scenario Library and Cross-Cutting** — Scenario Library composite scenarios first (highest priority), cross-cutting actions as optional supplement
-4. **Recommended Test Priority** — all scenarios ranked P0-P3; do NOT list a FIS action as a separate priority item if it is already a sub-action of a Scenario Library scenario listed in the same table
-5. **Implementation Best Practices** — stop conditions, steady state, DNS/connection, blast radius
+2. **Scenario Library and Cross-Cutting** — Scenario Library composite scenarios (highest priority), cross-cutting actions as optional supplement. **This section comes BEFORE per-service sections.**
+3. **Per-service sections** — each with: FIS scenarios (using `{SVC}-#` test IDs, e.g., `EKS-1`, `Redis-1`), built-in methods, recommended testing scenario matrix, environment observations, and stop conditions
+4. **Recommended Test Priority (Consolidated)** — references test IDs from per-service sections; do NOT duplicate full descriptions; do NOT list a FIS action separately if already covered by a Scenario Library scenario in the same table
+5. **Implementation Best Practices** — steady state, DNS/connection, blast radius
 6. **Reference Materials** — only URLs from actual search results or pages read
 7. **Next Steps** — 3-4 actionable next steps
 

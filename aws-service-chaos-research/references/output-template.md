@@ -31,10 +31,76 @@ Followed by a brief paragraph highlighting key findings across all services.
 
 ---
 
-### 2-N. Per-Service Sections
+### 2. FIS Scenario Library Composite Scenarios
 
-For **each service**, create a numbered section (Section 2, 3, 4, ...) with the
-following sub-sections. If only one service is being tested, use Section 2 only.
+**This section comes BEFORE per-service sections** because Scenario Library composite
+scenarios have the highest priority — they represent AWS's own curated resilience
+testing recommendations and simulate realistic multi-service failure patterns.
+
+Present an overview table of all relevant Scenario Library scenarios, then provide
+detail sub-sections for each.
+
+#### Overview Table
+
+| # | Scenario | Scope | {SERVICE_1} | {SERVICE_2} | ... | Default Duration |
+|---|---|---|---|---|---|---|
+| 1 | **AZ Availability: Power Interruption** | Full AZ power failure | Direct | Direct | ... | 30min + 30min recovery |
+| 2 | **AZ: Application Slowdown** | Intra-AZ latency injection | Direct | Indirect | ... | 30min |
+
+Use "Direct" when the scenario includes sub-actions that explicitly target the service,
+"Indirect" when it affects infrastructure the service depends on.
+
+#### 2.x {Scenario Name} Detail
+
+For each relevant Scenario Library scenario, create a detail sub-section containing:
+
+**Sub-Actions Table:**
+
+| Sub-Action | FIS Action | Affected Service | Resource Tag |
+|---|---|---|---|
+| {sub-action name} | `{action}` | {service} | `{TagKey}: {TagValue}` |
+
+List only the sub-actions that are relevant to the user's environment.
+
+**Required Resource Tags** (if applicable):
+
+| Resource Type | Tag Key | Tag Value | Description |
+|---|---|---|---|
+| {resource type} | `AzImpairmentPower` | `{value}` | {description} |
+
+**Why This Scenario Matters:** Brief paragraph on why this composite scenario matters.
+
+**Default Duration:** Interruption + recovery phases.
+
+#### Cross-Cutting Actions — Optional
+
+> Cross-cutting actions are optional supplementary scenarios for testing infrastructure-level
+> fault impact on services indirectly.
+
+| # | Test Scenario | FIS Action | Applicable Services |
+|---|---|---|---|
+| 1 | {scenario} | `{action}` | {which services are affected} |
+
+Cross-cutting actions to include when relevant:
+- `aws:network:disrupt-connectivity` — any VPC-based service (simulates AZ network failure)
+- `aws:network:disrupt-vpc-endpoint` — PrivateLink services
+- `aws:fis:inject-api-internal-error` — AWS API failures (any AWS service control plane)
+- `aws:fis:inject-api-throttle-error` — API throttling (any AWS service API calls)
+- `aws:fis:inject-api-unavailable-error` — graceful degradation (any AWS service control plane)
+- `aws:ec2:stop-instances` / `terminate-instances` — EC2-based services
+- `aws:network:route-table-disrupt-cross-region-connectivity` — cross-region DR
+- `aws:ssm:send-command` — custom fault injection scripts
+
+**When to include**: only when the user's service runs on EC2, uses VPC networking,
+or the user explicitly requests infrastructure-level failure testing. **Skip** when
+the user is focused only on service-native failures.
+
+---
+
+### 3-N. Per-Service Sections
+
+For **each service**, create a numbered section (Section 3, 4, 5, ...) with the
+following sub-sections. If only one service is being tested, use Section 3 only.
 
 #### {N}. {SERVICE} — {RESOURCE_ID}
 
@@ -43,7 +109,7 @@ following sub-sections. If only one service is being tested, use Section 2 only.
 Use this sub-section when FIS has native actions for the service.
 
 **IMPORTANT — Scenario Library deduplication:** Before building this table, check
-each FIS action against the Scenario Library composite scenarios in the report.
+each FIS action against the Scenario Library composite scenarios in Section 2.
 If an action already appears as a sub-action there (e.g., `aws:rds:failover-db-cluster`
 is a sub-action of AZ Power Interruption), you MUST append a note to the
 "HA Verification Purpose" cell:
@@ -55,9 +121,9 @@ sub-action (e.g., ElastiCache has only `replicationgroup-interrupt-az-power` whi
 is covered by AZ Power Interruption), OMIT this entire sub-section and replace with:
 
 > All FIS native actions for {SERVICE} are covered by Scenario Library composite
-> scenarios. See the Scenario Library and Cross-Cutting section for details.
+> scenarios. See Section 2 for details.
 
-**Otherwise**, list the remaining actions in this table:
+**Otherwise**, list the actions in this table:
 
 | # | Test Scenario | FIS Action | Description | HA Verification Purpose |
 |---|---|---|---|---|
@@ -103,6 +169,29 @@ has **no native FIS actions**. Include a note explaining this.
 |---|---|---|---|
 | 1 | {scenario} | `{CLI/API/Console method}` | {what it validates} |
 
+##### Recommended Testing Scenario Matrix
+
+**IMPORTANT — This is the per-service scenario matrix.** Combine FIS native actions,
+service built-in methods, and relevant Scenario Library references into a single
+prioritized matrix for this service.
+
+**Test ID format:** Use `{SERVICE_SHORT}-{NUMBER}` as the test ID. The service short
+name should be a concise, recognizable abbreviation:
+- EKS → `EKS-1`, `EKS-2`, ...
+- ElastiCache Redis → `Redis-1`, `Redis-2`, ...
+- RDS MySQL → `RDS-1`, `RDS-2`, ...
+- MSK → `MSK-1`, `MSK-2`, ...
+- DynamoDB → `DDB-1`, `DDB-2`, ...
+- Other services → use a short recognizable name
+
+| Test ID | Test Scenario | Method | Verification Target | Priority |
+|---|---|---|---|---|
+| {SVC}-1 | {scenario name} | {FIS action / API / Scenario Library ref} | {what it validates} | P0 |
+| {SVC}-2 | {scenario name} | {method} | {what it validates} | P1 |
+
+When referencing a Scenario Library composite scenario, use the format:
+"Scenario Library: {Scenario Name}" in the Method column.
+
 ##### Environment Observations
 
 Brief bullet-point notes about the actual resource configuration discovered during
@@ -111,94 +200,27 @@ research. Include:
 - Important observations or warnings
 - Architecture notes that affect testing strategy
 
----
+##### Stop Conditions for {SERVICE}
 
-### Scenario Library and Cross-Cutting Section
-
-After all per-service sections, include this section. **Scenario Library composite
-scenarios have the highest priority** — they represent AWS's own curated resilience
-testing recommendations and simulate realistic multi-service failure patterns.
-Cross-cutting actions are supplementary and optional.
-
-#### {N+1}. Scenario Library and Cross-Cutting
-
-For each relevant Scenario Library scenario discovered in Step 2, create a dedicated
-sub-section. The most common scenarios are listed below, but include **any** scenario
-from the Scenario Library that is relevant to the target service(s).
-
-##### AZ-Level Composite Scenario: Power Interruption
-
-> **AZ Availability: Power Interruption** is a pre-built FIS Scenario Library composite
-> experiment that simulates a complete AZ power failure. It orchestrates multiple actions
-> simultaneously to create realistic AZ-level fault impact.
-
-###### Environment-Relevant Sub-Actions
-
-| # | Sub-Action | FIS Action | Impact on Environment |
-|---|---|---|---|
-| 1 | {sub-action name} | `{action}` | {impact on the environment} |
-
-List only the sub-actions that are relevant to the user's environment. Map each
-sub-action to the specific resources it would affect (e.g., "Stops EKS nodes in the
-affected AZ, triggering Pod rescheduling").
-
-###### Required Resource Tags
-
-| Resource Type | Tag Key | Tag Value | Description |
-|---|---|---|---|
-| {resource type} | `AzImpairmentPower` | `{value}` | {description} |
-
-###### Why This Scenario Matters Most
-
-Brief paragraph explaining why this composite scenario provides the most realistic
-resilience validation. Key point: real AZ failures affect compute, network, and
-database simultaneously — testing services individually cannot validate end-to-end
-resilience under concurrent failures.
-
-###### Default Duration
-- Interruption phase: **30 minutes**
-- Recovery phase: **30 minutes**
-
-##### Other Scenario Library Scenarios
-
-If additional Scenario Library scenarios are relevant (e.g., AZ Application Slowdown,
-Cross-AZ Traffic Slowdown, Cross-Region Connectivity), add a sub-section for each
-following the same structure: description, relevant sub-actions table, resource tags,
-and duration.
-
-##### Cross-Cutting Actions — Optional
-
-> Cross-cutting actions are optional supplementary scenarios for testing infrastructure-level
-> fault impact on services indirectly.
-
-| # | Test Scenario | FIS Action | Applicable Services |
-|---|---|---|---|
-| 1 | {scenario} | `{action}` | {which services are affected} |
-
-Cross-cutting actions to include when relevant:
-- `aws:network:disrupt-connectivity` — any VPC-based service (simulates AZ network failure)
-- `aws:network:disrupt-vpc-endpoint` — PrivateLink services
-- `aws:fis:inject-api-internal-error` — AWS API failures (any AWS service control plane)
-- `aws:fis:inject-api-throttle-error` — API throttling (any AWS service API calls)
-- `aws:fis:inject-api-unavailable-error` — graceful degradation (any AWS service control plane)
-- `aws:ec2:stop-instances` / `terminate-instances` — EC2-based services
-- `aws:network:route-table-disrupt-cross-region-connectivity` — cross-region DR
-- `aws:ssm:send-command` — custom fault injection scripts
-
-**When to include**: only when the user's service runs on EC2, uses VPC networking,
-or the user explicitly requests infrastructure-level failure testing. **Skip** when
-the user is focused only on service-native failures.
+| Metric | Source | Recommended Threshold |
+|---|---|---|
+| `{CloudWatch metric}` | {source} | {threshold} |
 
 ---
 
-### {N+2}. Recommended Test Priority
+### {N+1}. Recommended Test Priority (Consolidated)
 
-| Priority | Scenario | Target Service | Reason |
-|---|---|---|---|
-| **P0 Must Test** | {scenario} | {service} | {why it's critical} |
-| **P1 High** | {scenario} | {service} | {why it's important} |
-| **P2 Medium** | {scenario} | {service} | {good to have} |
-| **P3 Optional** | {scenario} | {service} | {edge case or advanced} |
+This section consolidates all per-service test scenarios into a single priority-ranked
+table. **Reference the Test IDs from per-service sections** — do NOT repeat the full
+scenario descriptions.
+
+| Priority | Test ID | Scenario (brief) | Target Service | Reason |
+|---|---|---|---|---|
+| **P0 Must Test** | {SVC}-1 | {brief name} | {service} | {why it's critical} |
+| **P0 Must Test** | {SVC}-2 | {brief name} | {service} | {why it's critical} |
+| **P1 High** | {SVC}-3 | {brief name} | {service} | {why it's important} |
+| **P2 Medium** | {SVC}-4 | {brief name} | {service} | {good to have} |
+| **P3 Optional** | {SVC}-5 | {brief name} | {service} | {edge case or advanced} |
 
 Priority guidelines:
 - **P0**: FIS Scenario Library composite scenarios directly affecting the service; failover / primary failure (impacts RTO)
@@ -215,13 +237,7 @@ scenario entry already covers it.
 
 ---
 
-### {N+3}. Implementation Best Practices
-
-#### Stop Conditions (Safety Guardrails)
-
-| Service | Metric | Alarm Threshold | Description |
-|---|---|---|---|
-| {SERVICE} | `{CloudWatch metric}` | {threshold} | {description} |
+### {N+2}. Implementation Best Practices
 
 #### Steady State Definition
 
@@ -239,7 +255,7 @@ scenario entry already covers it.
 
 ---
 
-### {N+4}. Reference Materials
+### {N+3}. Reference Materials
 
 | # | Type | Title | Link |
 |---|---|---|---|
@@ -250,7 +266,7 @@ Never fabricate links.
 
 ---
 
-### {N+5}. Next Steps
+### {N+4}. Next Steps
 
 Suggest 3-4 actionable next steps tailored to the service(s), for example:
 1. Generate a complete FIS experiment template (JSON) for {scenario}
@@ -262,13 +278,15 @@ Suggest 3-4 actionable next steps tailored to the service(s), for example:
 
 ## Formatting Rules
 
-1. **Section numbering** is sequential across the entire report (1, 2, 3, ..., N)
-2. **Per-service sections** each get their own numbered section with service name and resource ID
-3. **Table consistency**: All tables within the same sub-section type use identical column headers
-4. **FIS Action IDs** always in backtick code format: `aws:service:action`
-5. **CLI commands** in backtick code format
-6. **Service names** in bold when used as labels
-7. **Priority labels** in bold: **P0 Must Test**, **P1 High**, **P2 Medium**, **P3 Optional**
-8. **Environment observations** use bullet points, keep concise
-9. **Scenario Library and Cross-Cutting section**: Scenario Library composite scenarios always come first as the primary content; cross-cutting actions are explicitly marked as optional and come after
-10. **Language**: Follow the same language as the conversation throughout
+1. **Section ordering**: Executive Summary → Scenario Library & Cross-Cutting → Per-Service sections → Consolidated Priority → Best Practices → References → Next Steps
+2. **Test ID format**: `{SERVICE_SHORT}-{NUMBER}` (e.g., `EKS-1`, `Redis-3`, `RDS-2`, `MSK-1`). IDs are unique per service and sequential
+3. **Consolidated priority table**: References Test IDs from per-service sections; does NOT duplicate full scenario descriptions
+4. **Per-service sections** each get their own numbered section with service name and resource ID
+5. **Table consistency**: All tables within the same sub-section type use identical column headers
+6. **FIS Action IDs** always in backtick code format: `aws:service:action`
+7. **CLI commands** in backtick code format
+8. **Service names** in bold when used as labels
+9. **Priority labels** in bold: **P0 Must Test**, **P1 High**, **P2 Medium**, **P3 Optional**
+10. **Environment observations** use bullet points, keep concise
+11. **Scenario Library section comes BEFORE per-service sections**: Scenario Library composite scenarios are the primary content with highest priority
+12. **Language**: Follow the same language as the conversation throughout
