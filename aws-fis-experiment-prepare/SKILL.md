@@ -110,11 +110,101 @@ aws fis get-action --id "ACTION_ID" --region TARGET_REGION
 ```
 
 Extract from the action:
-- Required `targets` (resource types)
+- Required `targets` (resource types, e.g., `aws:rds:cluster`, `aws:ec2:instance`)
 - Required `parameters` (duration, percentage, etc.)
 - Ask the user for target resource details
 
-### Step 3: Determine Monitoring Configuration
+### Step 3: Validate Resource-Action Compatibility
+
+**This step is CRITICAL.** Before generating any files, verify that the user's actual
+resources are compatible with the chosen FIS action(s). Skipping this step leads to
+wasted effort — generating templates, deploying CFN stacks, only to discover at
+experiment start that the action cannot target the resource.
+
+#### 3a. Inspect the Actual Resource
+
+Use AWS CLI to query the real resource and determine its exact type, engine, and
+configuration:
+
+| User Says | CLI Command | Key Fields to Check |
+|---|---|---|
+| RDS database name/ID | `aws rds describe-db-instances --db-instance-identifier {ID}` | `Engine`, `DBClusterIdentifier` (null = standalone RDS, non-null = Aurora cluster member) |
+| RDS/Aurora cluster | `aws rds describe-db-clusters --db-cluster-identifier {ID}` | `Engine`, `EngineMode`, `MultiAZ` |
+| EC2 instance | `aws ec2 describe-instances --instance-ids {ID}` | `InstanceType`, `State`, `Placement.AvailabilityZone` |
+| EKS cluster | `aws eks describe-cluster --name {NAME}` | `status`, `version`, `resourcesVpcConfig` |
+| ElastiCache | `aws elasticache describe-replication-groups --replication-group-id {ID}` | `NodeGroupConfiguration`, `MultiAZ`, `AutomaticFailover` |
+| ASG | `aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names {NAME}` | `AvailabilityZones`, `Instances` |
+
+#### 3b. Cross-Check Against FIS Action Requirements
+
+Get the FIS action's required target resource type:
+
+```bash
+aws fis get-action --id "ACTION_ID" --region TARGET_REGION \
+  --query 'action.targets' --output json
+```
+
+This returns the expected `resourceType` (e.g., `aws:rds:cluster` for
+`aws:rds:failover-db-cluster`).
+
+**Common incompatibility traps:**
+
+| FIS Action | Required resourceType | Incompatible With | How to Detect |
+|---|---|---|---|
+| `aws:rds:failover-db-cluster` | `aws:rds:cluster` | Standalone RDS instances (non-Aurora) | `describe-db-instances`: `DBClusterIdentifier` is null |
+| `aws:rds:reboot-db-instances` | `aws:rds:db` | Aurora clusters (use failover instead) | `describe-db-instances`: `Engine` starts with `aurora` |
+| `aws:elasticache:replicationgroup-interrupt-az-power` | `aws:elasticache:replicationgroup` | Standalone ElastiCache nodes (no replication group) | `describe-cache-clusters`: `ReplicationGroupId` is null |
+| `aws:ec2:stop-instances` | `aws:ec2:instance` | Spot instances (may terminate instead of stop) | `describe-instances`: `InstanceLifecycle` = `spot` |
+| `aws:eks:pod-network-latency` | `aws:eks:pod` | EKS clusters without Chaos Mesh or FIS agent | `describe-cluster`: check addon list |
+
+#### 3c. Decision Gate
+
+```dot
+digraph compat_check {
+    "Resource matches action resourceType?" [shape=diamond];
+    "Proceed to Step 4" [shape=box];
+    "Suggest alternative action" [shape=box];
+    "User confirms alternative?" [shape=diamond];
+    "Abort and explain" [shape=box, style=bold, color=red];
+
+    "Resource matches action resourceType?" -> "Proceed to Step 4" [label="Yes"];
+    "Resource matches action resourceType?" -> "Suggest alternative action" [label="No"];
+    "Suggest alternative action" -> "User confirms alternative?";
+    "User confirms alternative?" -> "Proceed to Step 4" [label="Yes, use alternative"];
+    "User confirms alternative?" -> "Abort and explain" [label="No"];
+}
+```
+
+**If incompatible:**
+
+1. **Explain clearly** what the mismatch is:
+   > "The action `aws:rds:failover-db-cluster` requires an Aurora cluster
+   > (`aws:rds:cluster`), but your database `mydb` is a standalone RDS MySQL
+   > instance (Engine: mysql, no DBClusterIdentifier). This action cannot
+   > target standalone RDS instances."
+
+2. **Suggest alternatives** based on the actual resource type:
+   - Standalone RDS Multi-AZ -> `aws:rds:reboot-db-instances` with `--force-failover`
+   - Standalone RDS Single-AZ -> explain no failover is possible, suggest `aws:ec2:stop-instances` on the underlying host
+   - Aurora cluster -> `aws:rds:failover-db-cluster`
+   - ElastiCache standalone -> explain replication group is required
+
+3. **Ask the user** whether to proceed with the alternative action or abort.
+
+**If compatible:** proceed to Step 4.
+
+#### 3d. For Scenario Library Scenarios
+
+For composite scenarios (e.g., AZ Power Interruption), validate EACH sub-action
+against its respective target resources. For example:
+- RDS sub-action: verify the user's RDS resource is actually an Aurora cluster
+- ElastiCache sub-action: verify the user's cache is a replication group
+- EC2 sub-action: verify instances exist in the target AZ
+
+Sub-actions with no matching resources are automatically skipped by FIS (this is
+fine), but if the user's **primary** resource fails validation, stop and report.
+
+### Step 4: Determine Monitoring Configuration
 
 Based on the scenario and affected services, determine:
 
@@ -145,7 +235,7 @@ For observation during the experiment, include:
 - Application-level metrics (if provided)
 - Experiment status (manual check via CLI)
 
-### Step 4: Generate Configuration Files
+### Step 5: Generate Configuration Files
 
 Create the output directory:
 ```bash
@@ -172,7 +262,7 @@ Generate files following the templates in `references/output-structure.md`:
 See `references/output-structure.md` for exact file formats.
 See `references/scenario-templates.md` for Scenario Library JSON templates.
 
-### Step 5: Deploy CFN Template (Self-Healing Loop)
+### Step 6: Deploy CFN Template (Self-Healing Loop)
 
 After generating all files, **immediately attempt to deploy the CFN template** to
 validate that the generated configuration actually works. If deployment fails, analyze
@@ -182,7 +272,7 @@ deployment succeeds.
 **This step ensures the user receives a working, validated configuration — not just
 files that might contain errors.**
 
-#### 5a. Validate Template Syntax First
+#### 6a. Validate Template Syntax First
 
 ```bash
 aws cloudformation validate-template \
@@ -193,7 +283,7 @@ aws cloudformation validate-template \
 If validation fails, fix the YAML syntax error in `cfn-template.yaml` and re-validate.
 Do NOT proceed to deployment until validation passes.
 
-#### 5b. Deploy the Stack
+#### 6b. Deploy the Stack
 
 ```bash
 STACK_NAME="fis-${SCENARIO_SLUG}-$(date +%Y%m%d-%H%M%S)"
@@ -206,7 +296,7 @@ aws cloudformation deploy \
   --no-fail-on-empty-changeset
 ```
 
-#### 5c. Self-Healing Iteration Loop
+#### 6c. Self-Healing Iteration Loop
 
 ```dot
 digraph cfn_loop {
@@ -284,7 +374,7 @@ digraph cfn_loop {
    - The current state of `cfn-template.yaml`
    - Suggestion to manually review and fix
 
-#### 5d. On Successful Deployment
+#### 6d. On Successful Deployment
 
 After the stack deploys successfully:
 
@@ -305,7 +395,7 @@ After the stack deploys successfully:
    - The CloudWatch dashboard URL
    - Cleanup command for this specific stack
 
-### Step 6: Present Summary
+### Step 7: Present Summary
 
 Present to the user:
 1. Scenario name and description
@@ -325,6 +415,11 @@ Present to the user:
   infrastructure (IAM role, alarms, dashboard, experiment template) via CloudFormation,
   but does NOT start the actual fault injection experiment. Starting the experiment is
   handled by aws-fis-experiment-execute or manually by the user.
+- **Validate resource-action compatibility BEFORE generating files.** Always inspect
+  the user's actual resources (describe-db-instances, describe-db-clusters, etc.) and
+  cross-check against the FIS action's required `resourceType`. Never assume a resource
+  type from its name — always verify via CLI. This is the most common source of wasted
+  effort: generating and deploying a template that targets an incompatible resource.
 - **Always deploy and validate.** Do not just generate files — deploy the CFN template
   and iterate until it succeeds. The user should receive a working, deployed experiment
   template ready to start.

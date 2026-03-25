@@ -26,14 +26,17 @@ CloudFormation with self-healing iteration; Skill 2 starts and monitors the expe
 ### Workflow
 1. Identify scenario (Scenario Library or custom FIS action)
 2. Discover target resources (CLI: list-actions, user provides tags/ARNs)
-3. Determine monitoring metrics per affected service
-4. Generate all config files to local directory
-5. **Deploy CFN template with self-healing loop:**
+3. **Validate resource-action compatibility** — inspect actual resources via CLI
+   (describe-db-instances, describe-db-clusters, etc.), cross-check against FIS
+   action's required `resourceType`, suggest alternatives if incompatible
+4. Determine monitoring metrics per affected service
+5. Generate all config files to local directory
+6. **Deploy CFN template with self-healing loop:**
    - Validate template syntax (`validate-template`)
    - Deploy stack (`cloudformation deploy`)
    - On failure: read stack events -> diagnose error -> fix `cfn-template.yaml` -> delete failed stack -> retry
    - Max 5 retries; on success extract outputs and update local files with real ARNs
-6. Present summary (stack name, experiment template ID, dashboard URL, next steps)
+7. Present summary (stack name, experiment template ID, dashboard URL, next steps)
 
 ### Output Directory
 ```
@@ -78,4 +81,5 @@ CloudFormation with self-healing iteration; Skill 2 starts and monitors the expe
 - **Both CLI + CFN:** Single CFN template contains all resources
 - **Prepare deploys CFN:** Prepare skill auto-deploys and self-heals on failure (up to 5 retries), so user receives a validated, working stack
 - **Strict confirmation:** Experiment start requires explicit user approval (Prepare deploys infra automatically, but never starts the experiment)
+- **Resource-action compatibility gate:** Before generating any files, inspect the actual resource type via CLI and verify it matches the FIS action's required resourceType. Prevents wasted effort (e.g., `aws:rds:failover-db-cluster` targeting standalone RDS instead of Aurora)
 - **Language follows user:** Output matches conversation language
