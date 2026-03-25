@@ -103,48 +103,10 @@ AWS's own recommendations for how to test resilience.
 
 Scenario Library scenarios are **console-only** — they cannot be listed or queried via
 AWS CLI or API. The only way to discover them is by reading the latest documentation.
-This is why documentation fetching is essential and not optional.
 
-#### Required reads (always fetch these first):
-
-```
-aws___read_documentation(
-  url="https://docs.aws.amazon.com/fis/latest/userguide/scenario-library.html",
-  max_length=10000
-)
-```
-
-```
-aws___read_documentation(
-  url="https://docs.aws.amazon.com/fis/latest/userguide/scenario-library-scenarios.html",
-  max_length=10000
-)
-```
-
-#### Detailed scenario pages (fetch based on relevance to user's target service):
-
-Read the pages that are most likely to contain scenarios affecting the target service.
-For most services, read all of these — they cover different failure domains:
-
-- **AZ Power Interruption** — simulates complete AZ power failure:
-  `https://docs.aws.amazon.com/fis/latest/userguide/az-availability-scenario.html`
-
-- **AZ Application Slowdown** — simulates degraded performance within a single AZ:
-  `https://docs.aws.amazon.com/fis/latest/userguide/az-application-slowdown-scenario.html`
-
-- **Cross-AZ Traffic Slowdown** — simulates traffic disruption between AZs:
-  `https://docs.aws.amazon.com/fis/latest/userguide/cross-az-traffic-slowdown-scenario.html`
-
-- **Cross-Region Connectivity** — simulates cross-region connectivity failure:
-  `https://docs.aws.amazon.com/fis/latest/userguide/cross-region-scenario.html`
-
-#### Supplementary (fetch if needed for deeper context):
-
-- **FIS Actions Reference** — full list of individual FIS actions:
-  `https://docs.aws.amazon.com/fis/latest/userguide/fis-actions-reference.html`
-
-- **FIS Document History** — check for recently added scenarios or actions:
-  `https://docs.aws.amazon.com/fis/latest/userguide/doc-history.html`
+Fetch the Scenario Library pages listed in `references/search-queries.md` under
+"FIS Scenario Library Pages (Always Fetch)". Read both the overview and detailed scenario
+pages relevant to the target service.
 
 #### From the scenario documentation, extract for each relevant scenario:
 
@@ -187,25 +149,18 @@ If no region was determined, omit `--region` to use the CLI default, but **warn
 the user** that results reflect their default region and may differ in other regions.
 
 **Step 3b: Filter for target service** — from the full list, find actions whose `id`
-contains the search keyword(s) from Step 1. The FIS action ID format is
-`aws:<service-name>:<action-type>`, so match the keyword against the service-name
-segment.
-
-For example, if keyword is `msk`, look for any action ID matching `aws:msk:*`.
-If keyword is `rds`, look for `aws:rds:*`.
+contains the search keyword(s) from Step 1:
 
 ```bash
 aws fis list-actions --region TARGET_REGION --query 'actions[?starts_with(id, `aws:KEYWORD:`)].{id:id, description:description}' --output json
 ```
 
 Also scan the description field for the service name, because some actions may
-reference a service in their description even if the action prefix is different
-(e.g., an SSM action that mentions RDS in its description).
+reference a service in their description even if the action prefix is different.
 
 **Step 3c (Optional): Collect cross-cutting actions** — these affect services
-indirectly and can be useful for building custom experiments. Include them if the
-user's service would benefit from network, API, or infrastructure-level fault
-injection testing:
+indirectly. Include them if the user's service would benefit from network, API, or
+infrastructure-level fault injection testing:
 
 ```bash
 aws fis list-actions --region TARGET_REGION --query 'actions[?starts_with(id, `aws:network:`) || starts_with(id, `aws:fis:inject`) || starts_with(id, `aws:ssm:`) || starts_with(id, `aws:ec2:stop`) || starts_with(id, `aws:ec2:terminate`)].{id:id, description:description}' --output json
@@ -245,8 +200,6 @@ aws___read_documentation(
 )
 ```
 
-Scan the page content for the search keyword(s) from Step 1.
-
 #### Decision Point: FIS Actions Found?
 
 Count the number of **service-specific** actions found (exclude cross-cutting actions).
@@ -256,20 +209,13 @@ Count the number of **service-specific** actions found (exclude cross-cutting ac
 
 ### Step 4: FIS-Enriched Path
 
-When FIS has native actions for the target service, the output should combine
-Scenario Library findings with FIS-action-specific details.
+When FIS has native actions for the target service, combine Scenario Library findings
+with FIS-action-specific details.
 
 #### 4a: Organize FIS Actions into Testing Scenarios
 
-Map each FIS action to a **testing scenario** with a clear HA verification purpose:
-
-```markdown
-## FIS Native Fault Injection Scenarios
-
-| # | Testing Scenario | FIS Action | What It Does | HA Verification Purpose |
-|---|---|---|---|---|
-| 1 | [scenario name] | `aws:xxx:yyy` | [action description] | [what resilience property it validates] |
-```
+Map each FIS action to a testing scenario. Use the "FIS 原生故障注入场景" table format
+from `references/output-template.md`.
 
 Group scenarios by failure domain:
 1. **Instance/Task Level** — individual resource failure
@@ -291,138 +237,30 @@ aws___search_documentation(
 )
 ```
 
-Known built-in capabilities to check:
-- **Aurora MySQL/PostgreSQL**: `ALTER SYSTEM CRASH`, `ALTER SYSTEM SIMULATE READ REPLICA FAILURE`,
-  `ALTER SYSTEM SIMULATE DISK FAILURE`, `ALTER SYSTEM SIMULATE DISK CONGESTION`
-- **RDS Multi-AZ**: Reboot with Failover option
-- **ElastiCache**: Test Failover API
-- **DynamoDB**: On-demand backup/restore testing
+If found, add a "服务内置故障注入" section using the table format from
+`references/output-template.md`.
 
-If found, add a separate section:
+#### 4c: Deep Documentation Research
 
-```markdown
-## Service Built-in Fault Injection
-
-| # | Method | Command/API | What It Simulates | Notes |
-|---|---|---|---|---|
-```
-
-#### 4c: Deep Documentation Research via AWS Knowledge MCP
-
-Use **only** `aws___search_documentation` and `aws___read_documentation` for this step.
-Run **5 sequential searches** across different topic dimensions to get comprehensive coverage
-of official docs, reference pages, blogs, and troubleshooting guides:
-
-```
-Search 1 (blogs & best practices):
-  search_phrase: "[SERVICE_NAME] chaos engineering fault injection best practices"
-  topics: ["general"]
-  limit: 10
-  — Targets: AWS Architecture Blog, DevOps Blog, Database Blog articles
-
-Search 2 (official docs & user guides):
-  search_phrase: "[SERVICE_NAME] high availability failover testing Multi-AZ"
-  topics: ["general"]
-  limit: 10
-  — Targets: service user guide, HA/DR documentation pages
-
-Search 3 (API & CLI reference):
-  search_phrase: "[SERVICE_NAME] resilience testing AWS FIS"
-  topics: ["reference_documentation"]
-  limit: 10
-  — Targets: FIS action reference, API reference, CLI reference pages
-
-Search 4 (troubleshooting & failure modes):
-  search_phrase: "[SERVICE_NAME] failover failure troubleshooting recovery"
-  topics: ["troubleshooting"]
-  limit: 10
-  — Targets: repost.aws knowledge center, troubleshooting guides, known issues
-
-Search 5 (Well-Architected & current awareness):
-  search_phrase: "[SERVICE_NAME] resilience reliability Well-Architected"
-  topics: ["general"]
-  limit: 10
-  — Targets: Well-Architected reliability pillar, new features, Resilience Hub
-```
-
-After searches complete, read the top 3-5 most relevant pages using
-`aws___read_documentation` with `max_length: 8000`. Priority order:
-1. Service-specific chaos engineering / FIS blog post
-2. Official HA / failover documentation page
-3. Well-Architected guidance for this service
-4. Troubleshooting / known failure mode pages
-
-Also use `aws___recommend` on the most relevant page found to discover
-related content that may not appear in search results (especially "New"
-and "Similar" recommendations).
+Use the search queries from `references/search-queries.md` under "FIS-Enriched Path".
+Run all 5 queries **sequentially**. After searches, read the top 3-5 most relevant
+pages and use `aws___recommend` on the most relevant page for discovery.
 
 ### Step 5: Documentation-Only Path (No FIS Actions)
 
 When FIS has no native actions for the target service, fall back to comprehensive
-documentation research to find alternative testing approaches. Note that Scenario
-Library findings from Step 2 still apply — composite scenarios may affect this service
-indirectly even without dedicated FIS actions.
+documentation research. Note that Scenario Library findings from Step 2 still apply.
 
-#### 5a: Deep Documentation Search via AWS Knowledge MCP
+#### 5a: Deep Documentation Search
 
-Since FIS has no native actions, thorough documentation research is critical.
-Use **only** `aws___search_documentation` and `aws___read_documentation`.
-
-Run **6 sequential searches** to cover all documentation dimensions:
-
-```
-Search 1 (HA & failover):
-  search_phrase: "[SERVICE_NAME] high availability failover testing"
-  topics: ["general"]
-  limit: 10
-  — Targets: HA architecture docs, failover procedures, Multi-AZ guides
-
-Search 2 (DR & resilience):
-  search_phrase: "[SERVICE_NAME] resilience disaster recovery Multi-AZ Multi-Region"
-  topics: ["general"]
-  limit: 10
-  — Targets: DR strategy docs, cross-region replication, backup/restore
-
-Search 3 (chaos & fault injection):
-  search_phrase: "[SERVICE_NAME] chaos engineering fault injection testing"
-  topics: ["general"]
-  limit: 10
-  — Targets: any chaos/FIS blog posts mentioning this service
-
-Search 4 (best practices & reliability):
-  search_phrase: "[SERVICE_NAME] best practices reliability availability"
-  topics: ["general"]
-  limit: 10
-  — Targets: Well-Architected guidance, service-specific best practices
-
-Search 5 (troubleshooting & failure modes):
-  search_phrase: "[SERVICE_NAME] failure troubleshooting recovery error"
-  topics: ["troubleshooting"]
-  limit: 10
-  — Targets: repost.aws knowledge center, known failure modes, recovery steps
-
-Search 6 (API & configuration reference):
-  search_phrase: "[SERVICE_NAME] reboot failover replication configuration API"
-  topics: ["reference_documentation"]
-  limit: 10
-  — Targets: API actions that can trigger failover/reboot, config parameters
-```
+Use the search queries from `references/search-queries.md` under "Documentation-Only Path".
+Run all 6 queries **sequentially**.
 
 #### 5b: Read Key Pages and Discover Related Content
 
-From the combined search results, read the **top 5 most relevant pages** using
-`aws___read_documentation` with `max_length: 8000`. Priority order:
-
-1. **Service HA/resilience overview page** — architecture, failure domains
-2. **Failover/recovery documentation** — how the service handles failures
-3. **Best practices page** — official recommendations for reliability
-4. **Troubleshooting guide** — known failure modes and recovery procedures
-5. **Any chaos/FIS blog post** mentioning this service
-
-Then use `aws___recommend` on the service's main documentation page to discover:
-- **"New" recommendations** — recently added features (may include new resilience capabilities)
-- **"Similar" recommendations** — related HA/DR content
-- **"Journey" recommendations** — what other users read next (often testing/monitoring guides)
+From the combined search results, read the **top 5 most relevant pages** following the
+priority order in `references/search-queries.md`. Then use `aws___recommend` on the
+service's main documentation page to discover related content.
 
 Extract from all pages:
 - **Failure modes** the service can experience
@@ -432,160 +270,44 @@ Extract from all pages:
 
 #### 5c: Compile Alternative Testing Approaches
 
-Since FIS cannot directly inject faults into this service, organize alternatives:
-
-```markdown
-## Testing Approaches (No Native FIS Actions)
-
-> **Note:** AWS FIS does not currently have dedicated actions for [SERVICE].
-> The following approaches use FIS Scenario Library composite scenarios,
-> indirect FIS actions, AWS APIs, and manual methods.
-
-### FIS Scenario Library (from Step 2)
-
-[Include relevant scenarios discovered in Step 2 — these may affect the service
-indirectly through network disruption, EC2 stoppage, or other sub-actions]
-
-### Service API / Console Methods
-
-| # | Testing Scenario | Method | What It Validates |
-|---|---|---|---|
-| 1 | [scenario from docs] | [API/Console/CLI command] | [what it tests] |
-```
+Use the "测试方法（无原生 FIS Actions）" section format from `references/output-template.md`,
+including both indirect FIS actions and AWS API/Console methods.
 
 ### Step 6: Compile Output
 
-Regardless of which path was taken, always produce the following sections:
+Output the report using the exact format defined in `references/output-template.md`.
+The report must include all numbered sections from the template:
 
-#### Section 1: Executive Summary
-
-A 2-3 sentence overview:
-- Target service and its HA architecture
-- **Target region** and whether FIS has native support in that region (and how many actions)
-- Which FIS Scenario Library scenarios are relevant
-- Key testing recommendation
-
-Always state the region in the summary so the user knows the results are region-specific.
-Example: "In **us-east-1**, AWS FIS provides 2 native actions for Amazon RDS. The FIS
-Scenario Library offers 3 composite scenarios relevant to RDS, including AZ Power
-Interruption which directly triggers RDS failover..."
-
-#### Section 2: FIS Scenario Library Scenarios (from Step 2)
-
-Present the relevant scenarios from the Scenario Library. This section has the highest
-priority because these are AWS-curated, production-tested composite scenarios.
-
-```markdown
-## FIS Scenario Library
-
-| # | Scenario | Relevance | Sub-Actions for [SERVICE] | Resource Tags Required | Duration |
-|---|---|---|---|---|---|
-| 1 | AZ Power Interruption | Direct — triggers [SERVICE] failover | [list sub-actions] | [tags] | [duration] |
-| 2 | AZ Application Slowdown | Indirect — degrades network for [SERVICE] | [list sub-actions] | [tags] | [duration] |
-```
-
-For each scenario, include:
-- **Why it matters for [SERVICE]**: explain the specific impact
-- **Prerequisites**: what the user needs to prepare (tags, IAM roles, etc.)
-- **Limitations**: any caveats from the documentation
-
-If no Scenario Library scenarios are relevant to the target service, state this
-explicitly and explain why.
-
-#### Section 3: Testing Scenario Matrix (from Step 4 or Step 5)
-
-The organized scenario tables of individual FIS actions or alternative approaches.
-
-#### Section 4: Recommended Test Priority
-
-Rank all scenarios by priority:
-
-```markdown
-## Recommended Test Priority
-
-| Priority | Scenario | Reason |
-|---|---|---|
-| **P0 Must Test** | [scenario] | [why it's critical] |
-| **P1 High** | [scenario] | [why it's important] |
-| **P2 Medium** | [scenario] | [good to have] |
-| **P3 Optional** | [scenario] | [edge case or advanced] |
-```
-
-Priority guidelines:
-- **P0**: Scenario Library composite scenarios that directly affect the service — the
-  most realistic end-to-end resilience tests
-- **P0**: Failover / primary failure — directly impacts RTO
-- **P1**: AZ-level failure, network isolation — impacts multi-AZ resilience
-- **P2**: Performance degradation, read replica failure — impacts read availability
-- **P3**: API throttling, cross-region DR, cross-cutting actions — advanced scenarios
-
-#### Section 5: Implementation Best Practices
-
-Include these guidelines tailored to the specific service:
-- **Stop Conditions**: Which CloudWatch metrics/alarms to use as guardrails
-  (be specific to the service, e.g., `DatabaseConnections`, `ReplicaLag` for RDS)
-- **Steady State Definition**: What metrics define "normal" for this service
-- **DNS/Connection Handling**: Service-specific reconnection considerations
-  (e.g., JVM TTL for RDS, connection pool recycle for databases)
-- **Blast Radius**: How to start small and expand
-- **Monitoring**: Which CloudWatch dashboards/metrics to watch during experiments
-
-#### Section 6: Reference Materials
-
-```markdown
-## Reference Materials
-
-| # | Type | Title | Link |
-|---|---|---|---|
-```
-
-Only include URLs from actual search results or documentation pages read. Never
-fabricate links.
-
-#### Section 7: Next Steps
-
-Suggest 3-4 actionable next steps tailored to the service, for example:
-- "I can generate a complete FIS experiment template (JSON) for [specific scenario]."
-- "I can walk you through setting up the [Scenario Library scenario] in the FIS console."
-- "I can help design CloudWatch alarms to use as Stop Conditions."
-- "I can compare Multi-AZ vs Multi-Region HA approaches for [SERVICE]."
+1. **执行摘要** — overview with region, FIS support status, key recommendation
+2. **Per-service sections** — each with FIS scenarios, built-in methods, and environment observations
+3. **Scenario Library and Cross-Cutting** — Scenario Library composite scenarios first (highest priority), cross-cutting actions as optional supplement
+4. **推荐测试优先级** — all scenarios ranked P0-P3
+5. **实施最佳实践** — stop conditions, steady state, DNS/connection, blast radius
+6. **参考资料** — only URLs from actual search results or pages read
+7. **下一步建议** — 3-4 actionable next steps
 
 ## Important Guidelines
 
 - **Scenario Library first, always.** The FIS Scenario Library represents AWS's own
-  curated resilience testing scenarios. These composite experiments are the most
-  realistic and valuable because they simulate real-world failure patterns (e.g., an
-  AZ power outage affects compute, network, and database simultaneously). Always read
-  the latest Scenario Library documentation before anything else.
-- **Scenario Library is documentation-based.** Unlike FIS actions which can be queried
-  via `list-actions`, Scenario Library scenarios are console-only and can only be
-  discovered by reading AWS documentation. Step 2 is therefore a documentation fetch
-  step, not a CLI step. This makes it especially important — if you skip it, you miss
-  the most valuable testing scenarios.
+  curated resilience testing scenarios. Always read the latest Scenario Library
+  documentation before anything else. These are documentation-based (console-only),
+  not CLI-queryable.
 - **Region matters.** Always resolve the target region before querying FIS actions.
-  FIS action availability varies by region — an action available in `us-east-1` may
-  not exist in `ap-southeast-1`. Always pass `--region` to the AWS CLI and clearly
-  state the region in the output so the user knows the results are region-specific.
+  FIS action availability varies by region. Always pass `--region` to the AWS CLI and
+  clearly state the region in the output.
 - **Don't fabricate FIS actions.** If an action doesn't exist, say so clearly. The
   fallback path exists precisely for services FIS doesn't cover.
 - **Don't fabricate links.** Only include URLs from actual search results or known
   documentation pages you've read.
-- **Be specific about the service.** Generic "test your database" advice is not useful.
-  Every recommendation should reference the specific service, its HA mechanisms, and
-  its specific metrics.
-- **Cross-cutting actions are optional context.** Network disruption, API fault
-  injection, and EC2 stop actions can affect almost any service indirectly. Include
-  them when they add value for the user's specific scenario, but don't treat them as
-  mandatory — focus on service-specific actions and Scenario Library scenarios first.
+- **Be specific about the service.** Every recommendation should reference the specific
+  service, its HA mechanisms, and its specific metrics.
+- **Cross-cutting actions are optional context.** Include them when they add value,
+  but focus on service-specific actions and Scenario Library scenarios first.
 - **AWS Knowledge MCP only for docs research.** Do NOT use SearXNG or other web search.
-  All documentation research (Steps 4c and 5a) must go through `aws___search_documentation`,
-  `aws___read_documentation`, and `aws___recommend`. These tools cover official docs,
-  blogs, reference pages, troubleshooting guides, and What's New — which is sufficient.
+  Use `aws___search_documentation`, `aws___read_documentation`, and `aws___recommend`.
 - **Search across multiple topics.** Use different `topics` values (`general`,
-  `reference_documentation`, `troubleshooting`) sequentially to cover blogs, user guides,
-  API references, and troubleshooting content.
+  `reference_documentation`, `troubleshooting`) sequentially.
 - **Use aws___recommend for discovery.** After reading a key page, call `aws___recommend`
   to find related content that keyword search may miss.
-- **Run searches sequentially.** AWS Knowledge MCP tools do not support parallel
-  calls. Execute all queries in Steps 4c and 5a one at a time.
+- **Run searches sequentially.** AWS Knowledge MCP tools do not support parallel calls.
 - **Respect language.** Output in the same language as the user's conversation.
