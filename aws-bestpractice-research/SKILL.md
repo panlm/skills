@@ -1,22 +1,13 @@
 ---
-name: aws-bestpractice-research
+name: aws-best-practice-research
 description: >
-  Research and compile comprehensive best-practice checklists for ANY AWS service by searching
-  official AWS documentation using aws knowledge mcp server. Produces categorized HA/DR/security
-  checklist tables with source annotations and reference links. Optionally audits live AWS resources
-  against the compiled checklist when the user provides credentials, region, or resource identifiers.
-  Use when the user wants to:
-  (1) research/compile/summarize best practices for an AWS service,
-  (2) build a checklist for auditing HA, DR, or security configurations,
-  (3) find what the official AWS documentation says about configuring a service correctly,
-  (4) generate a best-practice reference table they can use to check existing clusters/resources,
-  (5) check whether a live AWS resource (cluster, instance, table, etc.) follows best practices,
-  (6) audit an existing AWS environment against official recommendations.
-  Triggers on keywords like "research best practices", "compile checklist", "summarize HA/DR best practices",
-  "build a checklist table", "what are the best practices for", "find all best practices",
-  "check my cluster", "audit my redis", "是否符合最佳实践", "检查现有资源",
-  "查找最佳实践", "编译检查清单", "总结最佳实践", "帮我查找", "汇总成表",
-  "帮我检查", "审计一下".
+  Use when researching, compiling, or auditing best practices for any AWS service,
+  building HA/DR/security checklists from official AWS documentation, or checking whether
+  live AWS resources follow official recommendations. Requires aws-knowledge-mcp-server.
+  Triggers on "best practices", "compile checklist", "summarize HA/DR best practices",
+  "what are the best practices for", "find all best practices", "check my cluster",
+  "audit my redis", "是否符合最佳实践", "检查现有资源", "查找最佳实践",
+  "编译检查清单", "总结最佳实践", "帮我查找", "汇总成表", "帮我检查", "审计一下".
 ---
 
 # AWS Best Practice Research (with Optional Live Audit)
