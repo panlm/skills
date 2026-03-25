@@ -150,7 +150,9 @@ aws-service-chaos-research/
 
 5. **Cross-cutting actions 为可选** — 网络中断、API 故障注入和 EC2 操作可以间接影响几乎任何服务。仅在相关时包含，在输出中明确标记为可选。
 
-6. **语言跟随用户** — 所有输出使用与用户对话相同的语言（中文、英文等）。
+6. **Scenario Library 交叉引用去重** — 如果某个 FIS action 已作为 Scenario Library 复合场景的 sub-action 出现，则在 per-service 表格中标注（如 "同时是 AZ 电力中断的 sub-action"），而非重复列出。如果某服务的所有 FIS action 均被 Scenario Library 场景覆盖，则省略该服务的 FIS 原生小节，替换为一句说明指向 Scenario Library 章节。
+
+7. **语言跟随用户** — 所有输出使用与用户对话相同的语言（中文、英文等）。
 
 ## 已知限制
 

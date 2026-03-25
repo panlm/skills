@@ -150,7 +150,9 @@ aws-service-chaos-research/
 
 5. **Cross-cutting actions are optional** — Network disruption, API fault injection, and EC2 actions can affect almost any service indirectly. They are included only when relevant, and explicitly marked as optional in the output.
 
-6. **Language follows user** — All output matches the language of the user's conversation (English, Chinese, etc.).
+6. **Scenario Library cross-reference dedup** — If a FIS action already appears as a sub-action in a Scenario Library composite scenario, it is annotated in the per-service table (e.g., "Also sub-action of AZ Power Interruption") rather than listed redundantly. If all FIS actions for a service are covered by Scenario Library scenarios, the per-service FIS Native sub-section is replaced with a note pointing to the Scenario Library section.
+
+7. **Language follows user** — All output matches the language of the user's conversation (English, Chinese, etc.).
 
 ## Limitations
 
