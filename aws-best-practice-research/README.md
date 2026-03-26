@@ -107,9 +107,32 @@ The skill works with **any AWS service** that has documentation indexed by aws-k
 - **Amazon RDS / Aurora** — Primary describe commands
 - **Amazon MSK** — Cluster and configuration commands
 - **Amazon DynamoDB** — Table, backup, and global table commands
-- **Amazon EKS** — Cluster, nodegroup, and addon commands
+- **Amazon EKS** — Cluster, nodegroup, addon, access entries, and upgrade insights commands (infrastructure-level only; see Scope Boundary below)
 
 Other services are supported for checklist compilation; live audit commands are derived from the service's AWS CLI reference.
+
+## Scope Boundary for Container / Orchestration Platforms
+
+When the target service is a **container or orchestration platform** (EKS, ECS, Fargate, App Runner, Elastic Beanstalk), this skill focuses **exclusively on the AWS infrastructure layer** — items verifiable through AWS APIs (`aws eks`, `aws ecs`, `aws ec2`, `aws iam`, etc.).
+
+Check items that require `kubectl`, ECS Exec, or any in-cluster / in-task inspection are **out of scope** and belong to a dedicated workload-level assessment skill.
+
+### EKS Example: In Scope vs Out of Scope
+
+| In Scope (AWS API verifiable) | Out of Scope (requires kubectl / workload context) |
+|-------------------------------|-----------------------------------------------------|
+| Control plane config (K8s version, API endpoint access, logging) | Pod Disruption Budgets (PDB) |
+| Node group config (instance types, scaling, AMI, AZ distribution) | Topology Spread Constraints |
+| Cluster networking (VPC, subnets, security groups) | Liveness / readiness / startup probes |
+| Add-on presence and versions | Container resource requests / limits |
+| Secrets envelope encryption (KMS) | Pod securityContext (runAsNonRoot, capabilities) |
+| Authentication mode and Access Entries | Pod Security Admission (PSA) namespace labels |
+| Control plane audit logging | Network Policies (K8s resource level) |
+| Cluster deletion protection | Pod graceful termination (terminationGracePeriodSeconds) |
+| OIDC provider configuration (for IRSA) | OPA Gatekeeper / Kyverno policies |
+| GuardDuty EKS protection | Service mesh (mTLS) configuration |
+
+The generated checklist includes a **Scope Notice** at the end directing users to a workload-level skill for the items that are out of scope.
 
 ## Directory Structure
 
@@ -152,6 +175,8 @@ aws-bestpractice-research/
 
 5. **Language respect** — All output follows the language of the user's conversation (English, Chinese, etc.).
 
+6. **Infrastructure-only scope for container platforms** — For services like EKS and ECS, this skill strictly limits its scope to what AWS APIs can verify. Workload-level concerns (pods, tasks, containers) require different tools (`kubectl`, ECS Exec) and application context that this skill does not assume access to.
+
 ## Limitations
 
 - Depends on aws-knowledge-mcp-server availability; if the MCP server is not configured, the skill cannot run.
@@ -159,3 +184,4 @@ aws-bestpractice-research/
 - Live audit requires read-only IAM permissions for the target service; write permissions are never needed.
 - Audit field mappings are pre-built for a limited set of services; other services derive audit commands dynamically.
 - Client-side configurations (connection pooling, retry logic, timeouts) can only be flagged as WARN during live audit since they require application-level verification.
+- For container/orchestration platforms (EKS, ECS), this skill only covers infrastructure-level best practices. Workload-level items (PDB, topology constraints, probes, resource limits, pod security) require a dedicated workload assessment skill with `kubectl` access.

@@ -74,6 +74,34 @@ List the 5-10 most important documentation pages used to compile this checklist.
 
 ---
 
+### Scope Notice (Container / Orchestration Platforms Only)
+
+**Include this section only when the target service is a container or orchestration platform
+(EKS, ECS, Fargate, App Runner, Elastic Beanstalk).** Omit this section for non-container
+services like RDS, ElastiCache, MSK, DynamoDB, etc.
+
+> **Scope**: This checklist covers **AWS infrastructure-level** best practices only — items
+> verifiable through AWS APIs (e.g., `aws eks`, `aws ecs`, `aws ec2`).
+>
+> **Workload-level items not covered** (require `kubectl` / in-cluster access and application context):
+> - Pod Disruption Budgets (PDB) and replica counts per Deployment
+> - Topology Spread Constraints and pod anti-affinity
+> - Liveness / readiness / startup probes
+> - Container resource requests and limits
+> - Pod security context (runAsNonRoot, capabilities, privilege escalation)
+> - Pod Security Admission (PSA) namespace labels
+> - Network Policies (Kubernetes resource level)
+> - Service Account token auto-mounting
+> - Pod graceful termination (terminationGracePeriodSeconds, preStop hooks)
+> - Application-level Velero backup schedules
+> - OPA Gatekeeper / Kyverno policies
+> - Service mesh mTLS configuration
+>
+> For a comprehensive workload-level assessment, use a dedicated **container workload assessment skill**
+> which can inspect Deployments, PDBs, and pod specifications with the appropriate cluster credentials.
+
+---
+
 ## Formatting Rules
 
 1. **Check item names** should be bold and concise (e.g., "Enable Multi-AZ Auto Failover")

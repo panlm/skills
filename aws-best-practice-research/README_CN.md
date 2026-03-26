@@ -107,9 +107,32 @@
 - **Amazon RDS / Aurora** — 主要 describe 命令
 - **Amazon MSK** — 集群和配置相关命令
 - **Amazon DynamoDB** — 表、备份和全局表命令
-- **Amazon EKS** — 集群、节点组和插件命令
+- **Amazon EKS** — 集群、节点组、插件、Access Entries 和升级洞察命令（仅基础设施层；详见下方"容器/编排平台的评估范围边界"）
 
 其他服务支持检查清单编译；线上审计命令根据该服务的 AWS CLI 参考文档动态推导。
+
+## 容器/编排平台的评估范围边界
+
+当目标服务是**容器或编排平台**（EKS、ECS、Fargate、App Runner、Elastic Beanstalk）时，本 Skill **仅关注 AWS 基础设施层** — 即通过 AWS API（`aws eks`、`aws ecs`、`aws ec2`、`aws iam` 等）可验证的检查项。
+
+需要 `kubectl`、ECS Exec 或任何集群内/任务内检查才能验证的检查项**不在评估范围内**，属于专门的工作负载层评估 Skill。
+
+### EKS 示例：范围内 vs 范围外
+
+| 范围内（AWS API 可验证） | 范围外（需要 kubectl / 工作负载上下文） |
+|--------------------------|------------------------------------------|
+| 控制平面配置（K8s 版本、API 端点访问、日志） | Pod Disruption Budget (PDB) |
+| 节点组配置（实例类型、扩缩容、AMI、AZ 分布） | Topology Spread Constraints |
+| 集群网络（VPC、子网、安全组） | 存活/就绪/启动探针 |
+| 插件（Add-on）安装及版本 | 容器资源 requests / limits |
+| Secrets 信封加密（KMS） | Pod securityContext（runAsNonRoot、capabilities） |
+| 认证模式和 Access Entries | Pod Security Admission (PSA) 命名空间标签 |
+| 控制平面审计日志 | Network Policies（K8s 资源层面） |
+| 集群删除保护 | Pod 优雅终止（terminationGracePeriodSeconds） |
+| OIDC Provider 配置（用于 IRSA） | OPA Gatekeeper / Kyverno 策略 |
+| GuardDuty EKS 保护 | Service Mesh（mTLS）配置 |
+
+生成的检查清单末尾会包含一个**评估范围声明**，引导用户使用工作负载层评估 Skill 来覆盖范围外的检查项。
 
 ## 目录结构
 
@@ -153,6 +176,8 @@ aws-bestpractice-research/
 
 5. **语言跟随用户** — 所有输出均使用与用户对话相同的语言（中文、英文等）。
 
+6. **容器平台仅覆盖基础设施层** — 对于 EKS、ECS 等服务，本 Skill 严格限制评估范围在 AWS API 可验证的内容。工作负载层面的关注点（Pod、Task、容器）需要不同的工具（`kubectl`、ECS Exec）和应用上下文，本 Skill 不假设具有这些访问权限。
+
 ## 已知限制
 
 - 依赖 aws-knowledge-mcp-server 的可用性；如果 MCP 服务器未配置，Skill 无法运行。
@@ -160,3 +185,4 @@ aws-bestpractice-research/
 - 线上审计仅需目标服务的只读 IAM 权限，不需要写入权限。
 - 审计字段映射仅为部分服务预置；其他服务的审计命令为动态推导。
 - 客户端配置（连接池、重试逻辑、超时设置）在线上审计时只能标记为 WARN，因为需要应用层面的验证。
+- 对于容器/编排平台（EKS、ECS），本 Skill 仅覆盖基础设施层最佳实践。工作负载层检查项（PDB、拓扑约束、探针、资源限制、Pod 安全）需要专门的工作负载评估 Skill 配合 `kubectl` 使用。

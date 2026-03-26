@@ -119,6 +119,40 @@ Items about: encryption at-rest/in-transit, authentication (AUTH/RBAC/IAM), subn
 **Category 5: Others**
 Items not covered by the above 4 categories, including but not limited to: auto minor version upgrade, engine version, node type selection (Graviton), CloudWatch monitoring, reserved memory, connection pooling, read routing, expensive commands, slow log, IaC management, Auto Scaling, cost tags, client retry logic, performance tuning, operational best practices.
 
+#### Scope Boundary for Container / Orchestration Platforms
+
+When the target service is a **container or orchestration platform** (EKS, ECS, Fargate, App Runner,
+Elastic Beanstalk), this skill focuses **exclusively on the AWS infrastructure layer**. All check
+items must be verifiable through AWS APIs (`aws eks`, `aws ecs`, `aws ec2`, `aws iam`, etc.).
+
+**Do NOT include** check items that require `kubectl`, ECS Exec, or any in-cluster / in-task
+inspection to verify. These belong to a dedicated workload-level assessment skill.
+
+For **Amazon EKS**, the infrastructure layer scope includes:
+
+| In Scope (AWS API verifiable) | Out of Scope (requires kubectl / workload context) |
+|-------------------------------|-----------------------------------------------------|
+| Control plane configuration (K8s version, platform version, API endpoint access, logging) | Pod Disruption Budgets (PDB) |
+| Node group configuration (instance types, scaling, AMI, AZ distribution, disk size) | Topology Spread Constraints |
+| Cluster networking (VPC, subnets, security groups, service CIDR) | Liveness / readiness / startup probes |
+| Add-on presence and versions (VPC CNI, CoreDNS, kube-proxy, EBS CSI, etc.) | Container resource requests / limits |
+| Secrets envelope encryption (KMS key) | Pod securityContext (runAsNonRoot, capabilities) |
+| Authentication mode (ConfigMap vs API) and Access Entries | Pod Security Admission (PSA) namespace labels |
+| Control plane audit logging | automountServiceAccountToken |
+| Cluster deletion protection | Network Policies (K8s resource level) |
+| Node auto-repair and node monitoring agent addon | Pod graceful termination (terminationGracePeriodSeconds, preStop) |
+| Cluster tags and nodegroup tags | Workload-level Velero backups |
+| Upgrade insights and deprecation warnings | Application health check paths |
+| OIDC provider configuration (for IRSA) | Service mesh (mTLS) configuration |
+| GuardDuty EKS protection (account-level) | OPA Gatekeeper / Kyverno policies |
+
+For **Amazon ECS / Fargate**, apply the same principle: check cluster, capacity providers,
+service auto-scaling, task definition registration, VPC configuration, and IAM roles — but do
+NOT check container-level health checks, resource limits, or task-internal configuration.
+
+After generating the checklist, append a **Scope Notice** (see `references/output-template.md`
+for the exact format) directing users to a workload-level skill for the items that are out of scope.
+
 For each check item, record:
 - **ID** — category prefix + sequential number + priority suffix (e.g., `HA-01-hi`, `DR-02-md`, `SEC-03-lo`)
   - Priority suffixes: `-hi` (High), `-md` (Medium), `-lo` (Low)

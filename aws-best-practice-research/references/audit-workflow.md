@@ -136,11 +136,34 @@ aws dynamodb describe-global-table --global-table-name {TABLE_NAME} --region {RE
 
 ### Amazon EKS
 
+**Scope**: This audit covers **AWS infrastructure-level configuration only**. All commands use
+the AWS API (`aws eks`, `aws ec2`, `aws iam`). Do NOT use `kubectl` or inspect Kubernetes-internal
+resources (Pods, Deployments, PDBs, NetworkPolicies, etc.) — those require a dedicated
+workload-level assessment with cluster credentials and application context.
+
+**Primary commands** (run in parallel):
+
 ```bash
 aws eks describe-cluster --name {CLUSTER_NAME} --region {REGION} --output json
 aws eks list-nodegroups --cluster-name {CLUSTER_NAME} --region {REGION} --output json
 aws eks describe-nodegroup --cluster-name {CLUSTER_NAME} --nodegroup-name {NG_NAME} --region {REGION} --output json
 aws eks list-addons --cluster-name {CLUSTER_NAME} --region {REGION} --output json
+```
+
+**Optional / secondary commands** (for deeper infra-level checks):
+
+```bash
+# Describe each installed addon's version and configuration
+aws eks describe-addon --cluster-name {CLUSTER_NAME} --addon-name {ADDON_NAME} --region {REGION} --output json
+
+# Check OIDC provider for IRSA support
+aws iam list-open-id-connect-providers --region {REGION} --output json
+
+# List access entries (for API auth mode clusters)
+aws eks list-access-entries --cluster-name {CLUSTER_NAME} --region {REGION} --output json
+
+# Check upgrade insights
+aws eks list-insights --cluster-name {CLUSTER_NAME} --region {REGION} --output json
 ```
 
 ## Handling Errors
