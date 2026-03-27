@@ -65,10 +65,10 @@ eks-workload-best-practice-assessment/
   README_CN.md                          # 本文件
   references/
     check-dimensions.md                 # 8 个维度及基准检查项
-    kubectl-audit-commands.md           # kubectl 命令参考
+    kubectl-assessment-commands.md           # kubectl 命令参考
     search-queries.md                   # context7 + aws-knowledge-mcp 查询清单
     output-template.md                  # 详细报告模板
-    audit-output-template.md            # 结构化审计模板
+    assessment-output-template.md            # 结构化评估模板
     scorecard-template.md               # 记分卡模板
 ```
 

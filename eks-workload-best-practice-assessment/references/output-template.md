@@ -82,7 +82,7 @@ conversation is in another language.
 ### Infrastructure Layer Results (from aws-best-practice-research)
 
 *(If infrastructure layer assessment was included, insert the merged results here.
-Use the same table format as the aws-best-practice-research audit output.)*
+Use the same table format as the aws-best-practice-research assessment output.)*
 
 ---
 

@@ -36,7 +36,7 @@ Reports are saved directly to local markdown files (not printed to terminal). Fi
 use the format `YYYY-mm-dd-HH-MM-SS-{cluster}-{type}.md`:
 
 1. **Compliance Scorecard** → `{timestamp}-{cluster}-scorecard.md`
-2. **Structured Audit Report** → `{timestamp}-{cluster}-audit-report.md`
+2. **Structured Assessment Report** → `{timestamp}-{cluster}-assessment-report.md`
 3. **Detailed Markdown Report** → `{timestamp}-{cluster}-detailed-report.md`
 
 A brief summary (file paths, overall score, PASS/FAIL/WARN counts) is printed to the terminal.
@@ -53,7 +53,7 @@ A brief summary (file paths, overall score, PASS/FAIL/WARN counts) is printed to
 Trigger this skill with phrases like:
 - "Assess my EKS workloads against best practices"
 - "Check K8s best practices for my cluster"
-- "Audit container workloads in my EKS cluster"
+- "Assess container workloads in my EKS cluster"
 - "Evaluate pod security configuration"
 
 Provide:
@@ -70,10 +70,10 @@ eks-workload-best-practice-assessment/
   README_CN.md                          # Chinese version
   references/
     check-dimensions.md                 # 8 dimensions with baseline check items
-    kubectl-audit-commands.md           # kubectl command reference
+    kubectl-assessment-commands.md           # kubectl command reference
     search-queries.md                   # context7 + aws-knowledge-mcp queries
     output-template.md                  # Detailed report template
-    audit-output-template.md            # Structured audit template
+    assessment-output-template.md            # Structured assessment template
     scorecard-template.md               # Scorecard template
 ```
 

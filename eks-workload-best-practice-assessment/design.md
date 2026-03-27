@@ -18,7 +18,7 @@ complementing the existing infrastructure-layer assessment.
 Selected over two-phase split (Option B) and per-dimension split (Option C) because:
 - Consistent with existing `aws-best-practice-research` style
 - Single invocation for users
-- Research and audit are two phases of one workflow, splitting adds friction
+- Research and assessment are two phases of one workflow, splitting adds friction
 
 ### Data Sources
 
@@ -60,8 +60,8 @@ Total: ~70-88 check items (dynamic, version-dependent)
 3. **Dynamic research** — query context7 + aws-knowledge-mcp per dimension (sequential)
 4. **Infrastructure assessment** (optional) — invoke aws-best-practice-research
 5. **Workload data collection** — kubectl commands (parallelizable)
-6. **Per-dimension audit** — evaluate each workload against each check item
-7. **Report generation** — scorecard + structured audit + detailed markdown
+6. **Per-dimension assessment** — evaluate each workload against each check item
+7. **Report generation** — scorecard + structured assessment + detailed markdown
 8. **Remediation guidance** — critical issues + prioritized recommendations
 
 ## Report Outputs
@@ -71,14 +71,14 @@ Total: ~70-88 check items (dynamic, version-dependent)
 - Overall composite score
 - Infrastructure layer score (if merged)
 
-### Structured Audit Report
+### Structured Assessment Report
 - Per-dimension tables with PASS/FAIL/WARN/N/A status
 - Per-workload grouping for multi-workload checks
 
 ### Detailed Markdown Report
 - Cluster overview
 - Scorecard
-- Dimension-by-dimension audit tables
+- Dimension-by-dimension assessment tables
 - Per-workload detail
 - Critical issues
 - Prioritized remediation recommendations
@@ -93,10 +93,10 @@ eks-workload-best-practice-assessment/
   README_CN.md
   references/
     check-dimensions.md
-    kubectl-audit-commands.md
+    kubectl-assessment-commands.md
     search-queries.md
     output-template.md
-    audit-output-template.md
+    assessment-output-template.md
     scorecard-template.md
 ```
 

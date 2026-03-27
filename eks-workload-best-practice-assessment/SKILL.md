@@ -1,11 +1,11 @@
 ---
 name: eks-workload-best-practice-assessment
 description: >
-  Use when assessing, auditing, or reviewing Kubernetes workloads running on Amazon EKS
+  Use when assessing or reviewing Kubernetes workloads running on Amazon EKS
   for best practice compliance, including pod configuration, security posture, observability,
   networking, storage, image security, and CI/CD practices. Requires kubectl and awscli access
   to the target cluster. Triggers on "assess my EKS workloads", "check k8s best practices",
-  "audit container workloads", "evaluate pod security", "workload compliance check",
+  "assess container workloads", "evaluate pod security", "workload compliance check",
   "EKS workload assessment", "检查 K8s 工作负载", "评估容器最佳实践",
   "审计 EKS 应用", "检查 Pod 配置", "容器安全评估", "工作负载合规检查".
 ---
@@ -118,7 +118,7 @@ and retry once. If it fails again, skip and continue. Sequential execution is ma
 If infrastructure layer assessment is included (default: yes):
 
 1. Invoke the `aws-best-practice-research` skill for the EKS cluster
-2. Store the infrastructure-layer checklist and audit results
+2. Store the infrastructure-layer checklist and assessment results
 3. These will be merged into the final report in Step 7
 
 If the user opts out, skip this step.
@@ -128,7 +128,7 @@ If the user opts out, skip this step.
 Collect workload configurations using `kubectl`. Independent commands **can run in parallel**
 (they are not subject to MCP rate limits).
 
-See `references/kubectl-audit-commands.md` for the complete command list. Key data to collect:
+See `references/kubectl-assessment-commands.md` for the complete command list. Key data to collect:
 
 ```bash
 # Core workloads
@@ -167,7 +167,7 @@ aws ecr get-lifecycle-policy --repository-name {REPO}
 
 Filter collected data to the assessment scope (namespaces/workloads from Step 1).
 
-### Step 6: Per-Dimension Audit
+### Step 6: Per-Dimension Assessment
 
 For each check item from the research phase (Step 3), evaluate every in-scope workload:
 
@@ -202,17 +202,17 @@ CLUSTER_SLUG=$(echo "{CLUSTER_NAME}" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-'
    - Infrastructure layer score (if Step 4 was run)
    - **Save to:** `${TIMESTAMP}-${CLUSTER_SLUG}-scorecard.md`
 
-2. **Structured Audit Report** — see `references/audit-output-template.md`
+2. **Structured Assessment Report** — see `references/assessment-output-template.md`
    - Cluster summary
-   - Per-dimension audit tables
+   - Per-dimension assessment tables
    - Critical issues
    - Prioritized remediation
-   - **Save to:** `${TIMESTAMP}-${CLUSTER_SLUG}-audit-report.md`
+   - **Save to:** `${TIMESTAMP}-${CLUSTER_SLUG}-assessment-report.md`
 
 3. **Detailed Markdown Report** — see `references/output-template.md`
    - Full cluster overview
    - Scorecard
-   - Dimension-by-dimension audit tables
+   - Dimension-by-dimension assessment tables
    - Per-workload detail section
    - Data sources and reference links
    - **Save to:** `${TIMESTAMP}-${CLUSTER_SLUG}-detailed-report.md`

@@ -1,6 +1,6 @@
-# Audit Output Template — Structured Audit Report
+# Assessment Output Template — Structured Assessment Report
 
-Use this structure for the structured per-dimension audit report.
+Use this structure for the structured per-dimension assessment report.
 This is a more concise format than the full detailed report, focused on
 dimension-by-dimension results with clear status tracking.
 
@@ -8,7 +8,7 @@ dimension-by-dimension results with clear status tracking.
 
 ---
 
-## EKS Workload Audit Report: `{CLUSTER}` ({REGION})
+## EKS Workload Assessment Report: `{CLUSTER}` ({REGION})
 
 ### Cluster Summary
 
@@ -37,7 +37,7 @@ dimension-by-dimension results with clear status tracking.
 
 ---
 
-### Audit Summary
+### Assessment Summary
 
 | Dimension | Pass | Fail | Warn | N/A | Score |
 |-----------|------|------|------|-----|-------|

@@ -1,4 +1,4 @@
-# kubectl Audit Commands
+# kubectl Assessment Commands
 
 Commands for collecting workload configuration data from the EKS cluster.
 Replace `{NAMESPACE_FILTER}` with `--all-namespaces` for full cluster assessment
