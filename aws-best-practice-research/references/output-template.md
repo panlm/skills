@@ -3,6 +3,12 @@
 Use this exact structure when generating the best-practice checklist.
 Replace `{SERVICE}` with the actual AWS service name.
 
+**Output method**: Write the checklist content to a local markdown file using the Write tool.
+**File naming**: `YYYY-mm-dd-HH-MM-SS-{SERVICE}-best-practice-checklist.md`
+- `YYYY-mm-dd-HH-MM-SS` = current timestamp (e.g., `2025-07-15-14-30-00`)
+- `{SERVICE}` = lowercase, hyphen-separated service name (e.g., `elasticache-redis`, `amazon-eks`)
+- Save in the current working directory
+
 **Language**: All table headers, descriptions, and text must be in the same language as
 the user's conversation. The template below uses English as an example — translate
 all content (including category titles, column headers, and descriptions) if the

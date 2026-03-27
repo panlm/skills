@@ -1,11 +1,17 @@
-# Audit Output Template
+# Assessment Output Template
 
-Use this structure when generating the live audit report. Replace `{SERVICE}` with the
+Use this structure when generating the live assessment report. Replace `{SERVICE}` with the
 actual AWS service name and `{RESOURCE_ID}` with the resource identifier.
+
+**Output method**: Write the assessment report to a local markdown file using the Write tool.
+**File naming**: `YYYY-mm-dd-HH-MM-SS-{RESOURCE_ID}-assessment-report.md`
+- `YYYY-mm-dd-HH-MM-SS` = current timestamp (e.g., `2025-07-15-14-30-00`)
+- `{RESOURCE_ID}` = actual resource identifier, lowercase, hyphens for separators
+- Save in the current working directory
 
 ---
 
-## Live Audit Report: `{RESOURCE_ID}` ({REGION})
+## Live Assessment Report: `{RESOURCE_ID}` ({REGION})
 
 ### Resource Summary
 
@@ -22,7 +28,7 @@ actual AWS service name and `{RESOURCE_ID}` with the resource identifier.
 | Authentication | {AUTH_METHOD or NONE} |
 
 Add service-specific properties as needed. The goal is to give a quick overview of the
-resource before the detailed per-item audit.
+resource before the detailed per-item assessment.
 
 ---
 
@@ -37,7 +43,7 @@ Repeat for all 5 categories.
 
 ---
 
-### Audit Summary
+### Assessment Summary
 
 | Category | Pass | Fail | Warn | N/A |
 |----------|------|------|------|-----|

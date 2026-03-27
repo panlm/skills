@@ -1,7 +1,7 @@
-# Live Audit Workflow
+# Live Assessment Workflow
 
-This document describes how to audit a live AWS resource against the compiled best-practice
-checklist. The audit is optional — only run when the user provides credentials, region,
+This document describes how to assess a live AWS resource against the compiled best-practice
+checklist. The assessment is optional — only run when the user provides credentials, region,
 and resource identifiers.
 
 ## General Flow
@@ -10,11 +10,11 @@ and resource identifiers.
 1. Prepare environment (source credentials, verify access)
 2. Collect resource configuration (parallel AWS CLI calls)
 3. Map each check item to actual config → PASS / FAIL / WARN / N/A
-4. Generate audit report
+4. Generate assessment report
 5. Offer remediation guidance
 ```
 
-## Per-Service Audit Commands
+## Per-Service Assessment Commands
 
 ### ElastiCache Redis / Valkey
 
@@ -136,7 +136,7 @@ aws dynamodb describe-global-table --global-table-name {TABLE_NAME} --region {RE
 
 ### Amazon EKS
 
-**Scope**: This audit covers **AWS infrastructure-level configuration only**. All commands use
+**Scope**: This assessment covers **AWS infrastructure-level configuration only**. All commands use
 the AWS API (`aws eks`, `aws ec2`, `aws iam`). Do NOT use `kubectl` or inspect Kubernetes-internal
 resources (Pods, Deployments, PDBs, NetworkPolicies, etc.) — those require a dedicated
 workload-level assessment with cluster credentials and application context.
@@ -175,7 +175,7 @@ aws eks list-insights --cluster-name {CLUSTER_NAME} --region {REGION} --output j
 - **Expired credentials**: Prompt the user to refresh credentials and retry.
 - **Region mismatch**: If a describe command returns empty, confirm the correct region with the user.
 
-## Audit Status Definitions
+## Assessment Status Definitions
 
 | Status | When to use |
 |--------|-------------|

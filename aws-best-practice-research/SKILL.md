@@ -1,19 +1,20 @@
 ---
 name: aws-best-practice-research
 description: >
-  Use when researching, compiling, or auditing best practices for any AWS service,
+  Use when researching, compiling, or assessing best practices for any AWS service,
   building HA/DR/security checklists from official AWS documentation, or checking whether
   live AWS resources follow official recommendations. Requires aws-knowledge-mcp-server.
   Triggers on "best practices", "compile checklist", "summarize HA/DR best practices",
   "what are the best practices for", "find all best practices", "check my cluster",
-  "audit my redis", "是否符合最佳实践", "检查现有资源", "查找最佳实践",
-  "编译检查清单", "总结最佳实践", "帮我查找", "汇总成表", "帮我检查", "审计一下".
+  "audit my redis", "assess my redis", "assessment", "是否符合最佳实践", "检查现有资源",
+  "查找最佳实践", "编译检查清单", "总结最佳实践", "帮我查找", "汇总成表",
+  "帮我检查", "审计一下", "评估一下".
 ---
 
-# AWS Best Practice Research (with Optional Live Audit)
+# AWS Best Practice Research (with Optional Live Assessment)
 
 Research and compile comprehensive best-practice checklists for any AWS service using the
-[aws knowledge mcp server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) documentation search tools. Optionally audit live AWS resources
+[aws knowledge mcp server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) documentation search tools. Optionally assess live AWS resources
 against the compiled checklist.
 
 ## Prerequisites
@@ -23,27 +24,27 @@ This skill requires the **[aws knowledge mcp server](https://github.com/awslabs/
 - `aws___read_documentation` — read full documentation pages
 - `aws___recommend` — get related documentation recommendations
 
-For the optional live audit (Step 8), the **AWS CLI** (`aws`) must be available and
+For the optional live assessment (Step 8), the **AWS CLI** (`aws`) must be available and
 configured with credentials that have read access to the target service.
 
 ## Workflow
 
-### Step 1: Identify Target Service and Audit Scope
+### Step 1: Identify Target Service and Assessment Scope
 
 Determine from user input:
 - **AWS Service** — e.g., ElastiCache Redis, RDS MySQL, MSK, EKS, Aurora, DynamoDB, etc.
 - **Focus areas** — HA/DR, security, or all (default: all)
-- **Live audit info (optional)** — does the user provide any of the following?
+- **Live assessment info (optional)** — does the user provide any of the following?
   - AWS credentials (environment variables, profile, or credential file path)
   - AWS Region (e.g., us-west-2)
   - Resource identifiers (cluster name, instance ID, table name, etc.)
 
 If the service is ambiguous, ask the user to clarify (e.g., "RDS MySQL or RDS PostgreSQL?").
 
-Record whether a live audit is requested:
-- **If the user provides credentials + region + resource info** → run live audit after checklist
+Record whether a live assessment is requested:
+- **If the user provides credentials + region + resource info** → run live assessment after checklist
 - **If the user provides partial info** → ask for the missing pieces before proceeding
-- **If the user provides no live resource info** → skip live audit, produce checklist only
+- **If the user provides no live resource info** → skip live assessment, produce checklist only
 
 ### Step 2: Sequential Documentation Search
 
@@ -181,7 +182,14 @@ Use consistent source tags throughout the checklist:
 
 ### Step 6: Generate Checklist Output
 
-Output the checklist using the exact format defined in `references/output-template.md`.
+Generate the checklist content using the exact format defined in `references/output-template.md`,
+then **write it to a local markdown file** using the Write tool.
+
+**File naming**: `YYYY-mm-dd-HH-MM-SS-{SERVICE}-best-practice-checklist.md`
+- Replace `YYYY-mm-dd-HH-MM-SS` with the current timestamp (e.g., `2025-07-15-14-30-00`)
+- Replace `{SERVICE}` with a lowercase, hyphen-separated service name (e.g., `elasticache-redis`, `amazon-eks`)
+- Example: `2025-07-15-14-30-00-elasticache-redis-best-practice-checklist.md`
+- Save the file in the current working directory
 
 The output must include:
 1. Title with service name
@@ -189,24 +197,25 @@ The output must include:
 3. Source annotation legend
 4. Key reference links section
 
+After writing the file, inform the user of the file path.
+
 ### Step 7: Offer Next Steps
 
-After presenting the checklist, suggest:
-- "I can save this checklist as a reference file for future audits."
+After writing the checklist file, suggest:
 - "I can export this to a spreadsheet if you prefer."
 
-If the user **has already provided live audit info** in Step 1, skip the suggestion and proceed
+If the user **has already provided live assessment info** in Step 1, skip the suggestion and proceed
 directly to Step 8.
 
-If the user **has not provided live audit info**, also suggest:
-- "If you provide AWS credentials and resource identifiers, I can audit a live resource against this checklist."
+If the user **has not provided live assessment info**, also suggest:
+- "If you provide AWS credentials and resource identifiers, I can assess a live resource against this checklist."
 
-### Step 8: Live Resource Audit (Optional)
+### Step 8: Live Resource Assessment (Optional)
 
 **Only execute this step if the user has provided credentials, region, and resource identifiers.**
 If none were provided, skip this step entirely.
 
-See `references/audit-workflow.md` for the detailed per-service audit procedure. The general
+See `references/assessment-workflow.md` for the detailed per-service assessment procedure. The general
 flow is:
 
 #### 8.1 Prepare Environment
@@ -223,7 +232,7 @@ Verify access by running a simple describe command against the target service an
 Run the service-specific AWS CLI commands to gather the full configuration of the target resource.
 Execute independent commands in parallel to save time.
 
-For **ElastiCache Redis**, the key commands are (see `references/audit-workflow.md` for the full list):
+For **ElastiCache Redis**, the key commands are (see `references/assessment-workflow.md` for the full list):
 - `aws elasticache describe-replication-groups`
 - `aws elasticache describe-cache-clusters --show-cache-node-info`
 - `aws elasticache describe-cache-subnet-groups`
@@ -236,7 +245,7 @@ For other services, use the equivalent describe/list commands.
 
 #### 8.3 Map Configuration to Checklist
 
-For each check item in the checklist, determine the audit status:
+For each check item in the checklist, determine the assessment status:
 
 | Status | Meaning |
 |--------|---------|
@@ -247,22 +256,32 @@ For each check item in the checklist, determine the audit status:
 
 For each item, record:
 - The check ID and name (from the checklist)
-- The audit status (PASS / FAIL / WARN / N/A)
+- The assessment status (PASS / FAIL / WARN / N/A)
 - A specific finding describing what was observed (include actual values)
 
-#### 8.4 Generate Audit Report
+#### 8.4 Generate Assessment Report
 
-Output the audit results using the format defined in `references/audit-output-template.md`:
+Generate the assessment results using the format defined in `references/assessment-output-template.md`,
+then **write it to a local markdown file** using the Write tool.
 
-1. **Resource Summary** — key properties of the audited resource (engine, version, node type, topology, etc.)
-2. **Audit Results by Category** — one table per category with Status + Finding columns
-3. **Audit Summary** — counts of PASS/FAIL/WARN/N/A per category
+**File naming**: `YYYY-mm-dd-HH-MM-SS-{RESOURCE_ID}-assessment-report.md`
+- Replace `YYYY-mm-dd-HH-MM-SS` with the current timestamp (e.g., `2025-07-15-14-30-00`)
+- Replace `{RESOURCE_ID}` with the actual resource identifier, lowercase, hyphens for separators
+- Example: `2025-07-15-14-30-00-my-redis-cluster-assessment-report.md`
+- Save the file in the current working directory
+
+The report must include:
+1. **Resource Summary** — key properties of the assessed resource (engine, version, node type, topology, etc.)
+2. **Assessment Results by Category** — one table per category with Status + Finding columns
+3. **Assessment Summary** — counts of PASS/FAIL/WARN/N/A per category
 4. **Critical Issues** — list of all FAIL items with Priority=High, with specific remediation guidance
 5. **Recommendations** — grouped by urgency (Immediate / Short-term / Medium-term)
 
+After writing the file, inform the user of the file path.
+
 #### 8.5 Offer Remediation
 
-After presenting the audit results, suggest:
+After presenting the assessment results, suggest:
 - Which FAIL items can be fixed in-place (e.g., enabling backups, adding tags)
 - Which FAIL items require resource recreation (e.g., encryption at rest)
 - Whether you can help execute the remediation commands
@@ -286,6 +305,6 @@ After presenting the audit results, suggest:
   "reserved-memory-percent >= 25%"), include them in the check description.
 - **Note service-specific nuances**: If a check only applies under certain conditions
   (e.g., "only if cluster mode enabled"), note that in the description.
-- **Live audit is optional**: Never fail or block if the user doesn't provide credentials.
+- **Live assessment is optional**: Never fail or block if the user doesn't provide credentials.
   The checklist alone is a complete, valuable deliverable.
 - **Respect language**: Always output in the same language as the user's conversation.

@@ -2,7 +2,7 @@
 
 # AWS Best Practice Research Skill
 
-An agent skill that researches, compiles, and optionally audits AWS service best practices against official documentation.
+An agent skill that researches, compiles, and optionally assesses AWS service best practices against official documentation.
 
 ## Problem Statement
 
@@ -12,20 +12,20 @@ When configuring AWS services for production, engineers need to verify their set
 
 1. **Research** — Searches official AWS documentation via [aws-knowledge-mcp-server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) to find best practices for any AWS service.
 2. **Compile** — Organizes findings into a categorized checklist table with 5 mandatory categories, source annotations, and priority levels.
-3. **Audit (optional)** — If the user provides AWS credentials and resource identifiers, runs AWS CLI commands to check a live resource against the compiled checklist and generates an audit report with PASS/FAIL/WARN/N/A status per item.
+3. **Assessment (optional)** — If the user provides AWS credentials and resource identifiers, runs AWS CLI commands to check a live resource against the compiled checklist and generates an assessment report with PASS/FAIL/WARN/N/A status per item.
 
 ## Prerequisites
 
 | Dependency | Required For | Notes |
 |-----------|-------------|-------|
 | [aws-knowledge-mcp-server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) | Checklist compilation (Steps 1-7) | Provides `aws___search_documentation`, `aws___read_documentation`, `aws___recommend` tools |
-| AWS CLI (`aws`) | Live audit only (Step 8) | Must be configured with read access to the target service |
-| AWS credentials + region + resource ID | Live audit only (Step 8) | Can be provided via env vars, profile, or credential file |
+| AWS CLI (`aws`) | Live assessment only (Step 8) | Must be configured with read access to the target service |
+| AWS credentials + region + resource ID | Live assessment only (Step 8) | Can be provided via env vars, profile, or credential file |
 
 ## Workflow Overview
 
 ```
-Step 1: Identify target AWS service and audit scope
+Step 1: Identify target AWS service and assessment scope
          ↓
 Step 2: Search documentation (6 sequential queries)
          ↓
@@ -35,15 +35,15 @@ Step 4: Extract and categorize check items
          ↓
 Step 5: Compile source annotations
          ↓
-Step 6: Generate checklist output (5-category table)
+Step 6: Generate checklist output (5-category table, saved to local .md file)
          ↓
 Step 7: Offer next steps
          ↓
-Step 8: Live resource audit (optional, only if credentials provided)
+Step 8: Live resource assessment (optional, only if credentials provided)
          ├── 8.1 Prepare environment
          ├── 8.2 Collect resource configuration
          ├── 8.3 Map configuration to checklist
-         ├── 8.4 Generate audit report
+         ├── 8.4 Generate assessment report (saved to local .md file)
          └── 8.5 Offer remediation
 ```
 
@@ -88,9 +88,9 @@ Examples:
 | `AWS Blog` | AWS official blog post |
 | `Whitepaper` | AWS whitepaper |
 
-## Audit Status Definitions
+## Assessment Status Definitions
 
-When performing a live audit, each check item receives one of these statuses:
+When performing a live assessment, each check item receives one of these statuses:
 
 | Status | Meaning |
 |--------|---------|
@@ -101,7 +101,7 @@ When performing a live audit, each check item receives one of these statuses:
 
 ## Supported Services
 
-The skill works with **any AWS service** that has documentation indexed by aws-knowledge-mcp-server. Pre-built audit command mappings exist for:
+The skill works with **any AWS service** that has documentation indexed by aws-knowledge-mcp-server. Pre-built assessment command mappings exist for:
 
 - **ElastiCache Redis / Valkey** — Full CLI command set and check-item-to-field mapping
 - **Amazon RDS / Aurora** — Primary describe commands
@@ -109,7 +109,7 @@ The skill works with **any AWS service** that has documentation indexed by aws-k
 - **Amazon DynamoDB** — Table, backup, and global table commands
 - **Amazon EKS** — Cluster, nodegroup, addon, access entries, and upgrade insights commands (infrastructure-level only; see Scope Boundary below)
 
-Other services are supported for checklist compilation; live audit commands are derived from the service's AWS CLI reference.
+Other services are supported for checklist compilation; live assessment commands are derived from the service's AWS CLI reference.
 
 ## Scope Boundary for Container / Orchestration Platforms
 
@@ -143,8 +143,8 @@ aws-bestpractice-research/
 └── references/
     ├── search-queries.md                 # 6 search query templates + page reading priority
     ├── output-template.md                # Checklist output format specification
-    ├── audit-workflow.md                 # Per-service audit commands and field mappings
-    └── audit-output-template.md          # Audit report format specification
+    ├── assessment-workflow.md              # Per-service assessment commands and field mappings
+    └── assessment-output-template.md       # Assessment report format specification
 ```
 
 ## Usage Examples
@@ -156,22 +156,22 @@ aws-bestpractice-research/
 "Compile a HA/DR/security checklist for Aurora PostgreSQL"
 ```
 
-**Checklist + live audit:**
+**Checklist + live assessment:**
 ```
 "Check my ElastiCache Redis cluster my-redis-cluster in us-west-2"
-"审计一下我的 RDS 实例，region 是 ap-southeast-1，实例 ID 是 prod-db-01"
-"Audit my DynamoDB table orders-table against best practices"
+"评估一下我的 RDS 实例，region 是 ap-southeast-1，实例 ID 是 prod-db-01"
+"Assess my DynamoDB table orders-table against best practices"
 ```
 
 ## Key Design Decisions
 
 1. **Sequential MCP requests** — All documentation searches and page reads are executed one at a time to avoid rate limiting from aws-knowledge-mcp-server. This is slower but reliable.
 
-2. **5-category structure** — Every checklist uses the same 5 categories regardless of service, providing a consistent audit framework across different AWS services.
+2. **5-category structure** — Every checklist uses the same 5 categories regardless of service, providing a consistent assessment framework across different AWS services.
 
 3. **Embedded priority in ID** — The `-hi`/`-md`/`-lo` suffix in check IDs allows quick visual scanning without needing to read the Priority column.
 
-4. **Optional live audit** — The checklist is a complete, standalone deliverable. Live audit is only triggered when the user explicitly provides credentials and resource identifiers. The skill never blocks on missing credentials.
+4. **Optional live assessment** — The checklist is a complete, standalone deliverable. Live assessment is only triggered when the user explicitly provides credentials and resource identifiers. The skill never blocks on missing credentials.
 
 5. **Language respect** — All output follows the language of the user's conversation (English, Chinese, etc.).
 
@@ -181,7 +181,7 @@ aws-bestpractice-research/
 
 - Depends on aws-knowledge-mcp-server availability; if the MCP server is not configured, the skill cannot run.
 - Rate limits on the MCP server mean documentation gathering takes ~30-60 seconds for 6 queries + 3-5 page reads.
-- Live audit requires read-only IAM permissions for the target service; write permissions are never needed.
-- Audit field mappings are pre-built for a limited set of services; other services derive audit commands dynamically.
-- Client-side configurations (connection pooling, retry logic, timeouts) can only be flagged as WARN during live audit since they require application-level verification.
+- Live assessment requires read-only IAM permissions for the target service; write permissions are never needed.
+- Assessment field mappings are pre-built for a limited set of services; other services derive assessment commands dynamically.
+- Client-side configurations (connection pooling, retry logic, timeouts) can only be flagged as WARN during live assessment since they require application-level verification.
 - For container/orchestration platforms (EKS, ECS), this skill only covers infrastructure-level best practices. Workload-level items (PDB, topology constraints, probes, resource limits, pod security) require a dedicated workload assessment skill with `kubectl` access.
