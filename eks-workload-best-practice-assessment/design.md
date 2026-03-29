@@ -60,8 +60,8 @@ Total: ~70-88 check items (dynamic, version-dependent)
 3. **Dynamic research** — query context7 + aws-knowledge-mcp per dimension (sequential)
 4. **Infrastructure assessment** (optional) — invoke aws-best-practice-research
 5. **Workload data collection** — kubectl commands (parallelizable)
-6. **Per-dimension assessment** — evaluate each workload against each check item
-7. **Report generation** — single comprehensive assessment report
+6. **Per-dimension assessment** — evaluate each workload, output structured JSON findings
+7. **Report generation** — read JSON findings, generate markdown report (pure formatting)
 8. **Remediation guidance** — critical issues + prioritized recommendations
 
 ## Report Output
@@ -85,6 +85,7 @@ eks-workload-best-practice-assessment/
     check-dimensions.md
     kubectl-assessment-commands.md
     search-queries.md
+    findings-schema.md
     output-template.md
 ```
 
