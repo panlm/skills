@@ -61,27 +61,17 @@ Total: ~70-88 check items (dynamic, version-dependent)
 4. **Infrastructure assessment** (optional) — invoke aws-best-practice-research
 5. **Workload data collection** — kubectl commands (parallelizable)
 6. **Per-dimension assessment** — evaluate each workload against each check item
-7. **Report generation** — scorecard + structured assessment + detailed markdown
+7. **Report generation** — single comprehensive assessment report
 8. **Remediation guidance** — critical issues + prioritized recommendations
 
-## Report Outputs
+## Report Output
 
-### Compliance Scorecard
-- Per-dimension percentage score with rating (EXCELLENT/GOOD/FAIR/NEEDS WORK/POOR)
-- Overall composite score
-- Infrastructure layer score (if merged)
-
-### Structured Assessment Report
-- Per-dimension tables with PASS/FAIL/WARN/N/A status
-- Per-workload grouping for multi-workload checks
-
-### Detailed Markdown Report
+### Assessment Report (single file)
 - Cluster overview
-- Scorecard
+- Compliance scorecard with rating scale, top 3 priorities, and quick stats
 - Dimension-by-dimension assessment tables
 - Per-workload detail
-- Critical issues
-- Prioritized remediation recommendations
+- Critical issues and prioritized remediation
 - Data sources / reference links
 
 ## Directory Structure
@@ -96,8 +86,6 @@ eks-workload-best-practice-assessment/
     kubectl-assessment-commands.md
     search-queries.md
     output-template.md
-    assessment-output-template.md
-    scorecard-template.md
 ```
 
 ## Language Policy

@@ -185,42 +185,30 @@ For each finding, record:
 - The specific workload(s) affected
 - Version relevance notes (if any)
 
-### Step 7: Generate Reports and Save to Local Files
+### Step 7: Generate Report and Save to Local File
 
-Generate three report formats using the templates in `references/` and **write each
-report directly to a local markdown file** (do NOT output the full report content to
-the terminal). Use the following file naming convention:
+Generate a single comprehensive report using the template in `references/output-template.md`
+and **write it directly to a local markdown file** (do NOT output the full report content
+to the terminal). Use the following file naming convention:
 
 ```bash
 TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
 CLUSTER_SLUG=$(echo "{CLUSTER_NAME}" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-')
 ```
 
-1. **Compliance Scorecard** — see `references/scorecard-template.md`
-   - Per-dimension percentage score with rating
-   - Overall composite score
-   - Infrastructure layer score (if Step 4 was run)
-   - **Save to:** `${TIMESTAMP}-${CLUSTER_SLUG}-scorecard.md`
+**Assessment Report** — see `references/output-template.md`
+- Full cluster overview
+- Compliance scorecard with rating scale, top 3 priorities, and quick stats
+- Dimension-by-dimension assessment tables
+- Per-workload detail section
+- Critical issues and prioritized remediation
+- Data sources and reference links
+- **Save to:** `${TIMESTAMP}-${CLUSTER_SLUG}-assessment-report.md`
 
-2. **Structured Assessment Report** — see `references/assessment-output-template.md`
-   - Cluster summary
-   - Per-dimension assessment tables
-   - Critical issues
-   - Prioritized remediation
-   - **Save to:** `${TIMESTAMP}-${CLUSTER_SLUG}-assessment-report.md`
-
-3. **Detailed Markdown Report** — see `references/output-template.md`
-   - Full cluster overview
-   - Scorecard
-   - Dimension-by-dimension assessment tables
-   - Per-workload detail section
-   - Data sources and reference links
-   - **Save to:** `${TIMESTAMP}-${CLUSTER_SLUG}-detailed-report.md`
-
-If infrastructure layer results exist from Step 4, merge them into all three reports.
+If infrastructure layer results exist from Step 4, merge them into the report.
 
 After saving, print a brief summary to the terminal listing only:
-- The file paths of the three generated reports
+- The file path of the generated report
 - Overall compliance score
 - Number of PASS / FAIL / WARN findings
 
