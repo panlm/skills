@@ -317,18 +317,13 @@ disruption even without a dedicated FIS action).
 
 #### {Service Name} ({resource_identifier})
 
-**Timeline & Observations:**
-
 | Time (UTC) | Event | Observation |
 |---|---|---|
 | {HH:MM:SS} | {event} | {what was observed at this point} |
 | {HH:MM:SS} | {event} | {observed result / status change} |
 | ... | ... | ... |
-
-**Key Findings:**
-- {finding_1 — what happened and why}
-- {finding_2 — recovery behavior}
-- ...
+| -- | **Key Finding** | {finding — what happened and why} |
+| -- | **Key Finding** | {finding — recovery behavior} |
 
 (Repeat for each service)
 
