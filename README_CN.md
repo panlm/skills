@@ -32,7 +32,34 @@ npx skills add panlm/skills --list
 本仓库中的 Skills 可能依赖以下 MCP Server 和工具：
 
 - [**aws-knowledge-mcp-server**](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) — AWS 文档搜索与检索
+- [**context7**](https://context7.com/) — 库和框架文档查询，提供代码示例
 - **AWS CLI** — 用于可选的线上资源审计
+
+<details>
+<summary>OpenCode MCP 配置示例（<code>config.json</code>）</summary>
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "aws-knowledge-mcp-server": {
+      "type": "local",
+      "command": ["uvx", "fastmcp", "run", "https://knowledge-mcp.global.api.aws"],
+      "enabled": true
+    },
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true,
+      "headers": {
+        "CONTEXT7_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+```
+
+</details>
 
 ## 贡献指南
 

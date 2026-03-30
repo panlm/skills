@@ -32,7 +32,34 @@ npx skills add panlm/skills --list
 Skills in this repo may depend on the following MCP servers and tools:
 
 - [**aws-knowledge-mcp-server**](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) -- AWS documentation search and retrieval
+- [**context7**](https://context7.com/) -- Library and framework documentation lookup with code examples
 - **AWS CLI** -- for optional live resource auditing
+
+<details>
+<summary>OpenCode MCP configuration sample (<code>config.json</code>)</summary>
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "aws-knowledge-mcp-server": {
+      "type": "local",
+      "command": ["uvx", "fastmcp", "run", "https://knowledge-mcp.global.api.aws"],
+      "enabled": true
+    },
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true,
+      "headers": {
+        "CONTEXT7_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+```
+
+</details>
 
 ## Contributing
 
