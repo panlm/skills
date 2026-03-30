@@ -12,11 +12,17 @@ Preparing an AWS FIS experiment manually involves several error-prone, tedious s
 - **Multiple files must be generated and kept consistent** — experiment template JSON, IAM policy, CloudFormation template, CloudWatch alarms, dashboard, and expected-behavior documentation all reference the same resource ARNs and parameters.
 - **CloudFormation deployments frequently fail** — property validation errors, IAM propagation delays, and region-specific resource limitations require iterative debugging that is slow and frustrating to do manually.
 - **Scenario Library scenarios are complex** — composite scenarios (e.g., AZ Power Interruption) orchestrate multiple sub-actions with specific tag requirements and target types that are easy to misconfigure.
+- **Scenario Library templates cannot be generated via API** — unlike custom single FIS actions, the 4 Scenario Library scenarios have no CLI/API command to auto-generate their experiment templates. The JSON template must be extracted from AWS documentation.
 
 ## What This Skill Does
 
 1. **Identifies the scenario** — Determines whether the user wants a Scenario Library pre-built scenario (AZ Power Interruption, AZ Application Slowdown, etc.) or a custom single FIS action.
-2. **Discovers target resources** — Reads scenario documentation, queries the user's actual AWS resources, and collects target identifiers.
+2. **Reads Scenario Library documentation** — For Scenario Library scenarios, reads the AWS documentation page to extract the JSON experiment template (these cannot be generated via API). The documentation URLs are:
+   - [AZ Power Interruption](https://docs.aws.amazon.com/en_us/fis/latest/userguide/az-availability-scenario.html)
+   - [AZ Application Slowdown](https://docs.aws.amazon.com/en_us/fis/latest/userguide/az-application-slowdown-scenario.html)
+   - [Cross-AZ Traffic Slowdown](https://docs.aws.amazon.com/en_us/fis/latest/userguide/cross-az-traffic-slowdown-scenario.html)
+   - [Cross-Region Connectivity](https://docs.aws.amazon.com/en_us/fis/latest/userguide/cross-region-scenario.html)
+3. **Discovers target resources** — Queries the user's actual AWS resources and collects target identifiers.
 3. **Validates compatibility** — Inspects actual resources via AWS CLI (e.g., `describe-db-instances`, `describe-db-clusters`) and cross-checks against FIS action `resourceType` requirements before generating any files.
 4. **Determines monitoring configuration** — Identifies stop condition alarms and dashboard metrics based on affected services.
 5. **Generates configuration files** — Produces a self-contained directory with 7 files: experiment template, IAM policy, CFN template, alarms, dashboard, expected-behavior doc, and README.
@@ -101,7 +107,9 @@ After generating files, the skill immediately deploys the CloudFormation templat
 ```
 Step 1: Identify scenario + region
          ↓
-Step 2: Discover target resources (read docs + query user's AWS resources)
+Step 2: Discover target resources
+         ├── Scenario Library → MUST read AWS documentation first (JSON templates not available via API)
+         └── Custom FIS action → query via `aws fis get-action`
          ↓
 Step 3: Validate resource-action compatibility [CRITICAL GATE]
          ├── Compatible → proceed
@@ -132,17 +140,19 @@ Step 7: Save summary report to local file (YYYY-mm-dd-HH-MM-SS-{scenario}-prepar
 
 1. **Validate before generating.** Resource-action compatibility is checked before any files are produced. This avoids the common anti-pattern of generating a full configuration, deploying a stack, and only discovering the mismatch at experiment start.
 
-2. **Self-healing deployment loop.** CFN errors are analyzed and fixed automatically rather than reported to the user. The goal is a working, deployed experiment template — not just files that might work.
+2. **Scenario Library templates come from documentation.** The 4 Scenario Library scenarios (AZ Power Interruption, AZ Application Slowdown, Cross-AZ Traffic Slowdown, Cross-Region Connectivity) cannot be generated via FIS API. The skill reads the official AWS documentation pages to extract the JSON experiment template as the authoritative source for the correct multi-action template structure.
 
-3. **All-in-one CFN template.** The `cfn-template.yaml` contains IAM role, alarms, dashboard, and experiment template. A single `cloudformation deploy` produces everything needed.
+3. **Self-healing deployment loop.** CFN errors are analyzed and fixed automatically rather than reported to the user. The goal is a working, deployed experiment template — not just files that might work.
 
-4. **expected-behavior.md is a first-class output.** This document is what operators reference during the experiment. It includes a timeline, per-service expected behavior, key metrics, and a recovery verification checklist.
+4. **All-in-one CFN template.** The `cfn-template.yaml` contains IAM role, alarms, dashboard, and experiment template. A single `cloudformation deploy` produces everything needed.
 
-5. **Local files stay in sync.** After successful deployment, `experiment-template.json` and `README.md` are updated with real ARNs and stack outputs, so the directory is an accurate record of the deployed experiment.
+5. **expected-behavior.md is a first-class output.** This document is what operators reference during the experiment. It includes a timeline, per-service expected behavior, key metrics, and a recovery verification checklist.
 
-6. **Never starts the experiment.** This skill only prepares and deploys infrastructure. Starting the actual experiment is handled by [aws-fis-experiment-execute](../aws-fis-experiment-execute/) or manually by the user.
+6. **Local files stay in sync.** After successful deployment, `experiment-template.json` and `README.md` are updated with real ARNs and stack outputs, so the directory is an accurate record of the deployed experiment.
 
-7. **Report saved to file.** The preparation summary is written to a local markdown file with timestamp prefix, keeping the terminal output concise.
+7. **Never starts the experiment.** This skill only prepares and deploys infrastructure. Starting the actual experiment is handled by [aws-fis-experiment-execute](../aws-fis-experiment-execute/) or manually by the user.
+
+8. **Report saved to file.** The preparation summary is written to a local markdown file with timestamp prefix, keeping the terminal output concise.
 
 ## Directory Structure
 

@@ -12,11 +12,17 @@
 - **多个文件必须生成且保持一致** — 实验模板 JSON、IAM 策略、CloudFormation 模板、CloudWatch 告警、Dashboard 以及预期行为文档都引用相同的资源 ARN 和参数。
 - **CloudFormation 部署经常失败** — 属性校验错误、IAM 传播延迟、Region 资源限制等需要反复调试，手动处理非常耗时。
 - **Scenario Library 场景很复杂** — 复合场景（如 AZ 电力中断）编排多个 sub-action，有特定的标签要求和目标类型，容易配错。
+- **Scenario Library 模板无法通过 API 生成** — 与自定义单个 FIS Action 不同，4 个 Scenario Library 场景没有 CLI/API 命令来自动生成实验模板。JSON 模板必须从 AWS 文档中提取。
 
 ## 核心功能
 
 1. **识别场景** — 判断用户需要 Scenario Library 预定义场景（AZ 电力中断、AZ 应用慢速等）还是自定义单个 FIS Action。
-2. **发现目标资源** — 读取场景文档，查询用户实际的 AWS 资源，收集目标标识。
+2. **读取 Scenario Library 文档** — 对于 Scenario Library 场景，读取 AWS 文档页面以提取 JSON 实验模板（这些模板无法通过 API 生成）。文档 URL：
+   - [AZ 电力中断](https://docs.aws.amazon.com/en_us/fis/latest/userguide/az-availability-scenario.html)
+   - [AZ 应用慢速](https://docs.aws.amazon.com/en_us/fis/latest/userguide/az-application-slowdown-scenario.html)
+   - [跨 AZ 流量慢速](https://docs.aws.amazon.com/en_us/fis/latest/userguide/cross-az-traffic-slowdown-scenario.html)
+   - [跨 Region 连接](https://docs.aws.amazon.com/en_us/fis/latest/userguide/cross-region-scenario.html)
+3. **发现目标资源** — 查询用户实际的 AWS 资源，收集目标标识。
 3. **验证兼容性** — 通过 AWS CLI 检查实际资源（如 `describe-db-instances`、`describe-db-clusters`），与 FIS Action 的 `resourceType` 要求交叉校验，在生成任何文件之前完成。
 4. **确定监控配置** — 根据受影响的服务确定 Stop Condition 告警和 Dashboard 指标。
 5. **生成配置文件** — 生成包含 7 个文件的自包含目录：实验模板、IAM 策略、CFN 模板、告警、Dashboard、预期行为文档和 README。
@@ -101,7 +107,9 @@
 ```
 步骤 1: 识别场景 + Region
          ↓
-步骤 2: 发现目标资源（读取文档 + 查询用户的 AWS 资源）
+步骤 2: 发现目标资源
+         ├── Scenario Library → 必须先读取 AWS 文档（JSON 模板无法通过 API 获取）
+         └── 自定义 FIS Action → 通过 `aws fis get-action` 查询
          ↓
 步骤 3: 验证资源-Action 兼容性 [关键门控]
          ├── 兼容 → 继续
@@ -132,17 +140,19 @@
 
 1. **先验证再生成。** 在生成任何文件之前检查资源-Action 兼容性。避免常见的反模式：生成完整配置、部署 Stack，结果在实验启动时才发现不匹配。
 
-2. **自动修复部署循环。** CFN 错误自动分析并修复，而非报告给用户。目标是交付一个可用的、已部署的实验模板，不只是可能能用的文件。
+2. **Scenario Library 模板来自文档。** 4 个 Scenario Library 场景（AZ 电力中断、AZ 应用慢速、跨 AZ 流量慢速、跨 Region 连接）无法通过 FIS API 生成。Skill 读取 AWS 官方文档页面提取 JSON 实验模板，这是正确的多 Action 模板结构的唯一权威来源。
 
-3. **全包 CFN 模板。** `cfn-template.yaml` 包含 IAM 角色、告警、Dashboard 和实验模板。一次 `cloudformation deploy` 即可完成所有部署。
+3. **自动修复部署循环。** CFN 错误自动分析并修复，而非报告给用户。目标是交付一个可用的、已部署的实验模板，不只是可能能用的文件。
 
-4. **expected-behavior.md 是一等输出。** 这是运维人员在实验期间参考的文档，包含时间线、各服务预期行为、关键指标和恢复验证清单。
+4. **全包 CFN 模板。** `cfn-template.yaml` 包含 IAM 角色、告警、Dashboard 和实验模板。一次 `cloudformation deploy` 即可完成所有部署。
 
-5. **本地文件保持同步。** 部署成功后，`experiment-template.json` 和 `README.md` 会用真实 ARN 和 Stack 输出更新，使目录成为已部署实验的准确记录。
+5. **expected-behavior.md 是一等输出。** 这是运维人员在实验期间参考的文档，包含时间线、各服务预期行为、关键指标和恢复验证清单。
 
-6. **绝不启动实验。** 本 Skill 只准备和部署基础设施。启动实际实验由 [aws-fis-experiment-execute](../aws-fis-experiment-execute/) 或用户手动完成。
+6. **本地文件保持同步。** 部署成功后，`experiment-template.json` 和 `README.md` 会用真实 ARN 和 Stack 输出更新，使目录成为已部署实验的准确记录。
 
-7. **报告保存到文件。** 准备摘要写入带时间戳前缀的本地 Markdown 文件，终端输出保持简洁。
+7. **绝不启动实验。** 本 Skill 只准备和部署基础设施。启动实际实验由 [aws-fis-experiment-execute](../aws-fis-experiment-execute/) 或用户手动完成。
+
+8. **报告保存到文件。** 准备摘要写入带时间戳前缀的本地 Markdown 文件，终端输出保持简洁。
 
 ## 目录结构
 

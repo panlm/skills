@@ -76,15 +76,33 @@ Store as `TARGET_REGION`.
 
 #### For Scenario Library Scenarios
 
-Read the scenario documentation to understand required targets and tags.
-Use `aws___read_documentation` to fetch the scenario detail page:
+**CRITICAL: Scenario Library experiment templates CANNOT be generated via FIS API.**
+Unlike custom single FIS actions, the Scenario Library scenarios (AZ Power Interruption,
+AZ Application Slowdown, Cross-AZ Traffic Slowdown, Cross-Region Connectivity) do not
+have a CLI/API command to auto-generate their experiment templates. You **MUST** read the
+AWS documentation pages below first — each page contains the JSON template structure that
+you need to create the experiment template.
+
+**You MUST use `aws___read_documentation` to fetch the scenario detail page** and extract
+the JSON template from the documentation content. Do NOT attempt to construct these
+templates from memory or from `aws fis list-actions` alone — the documentation is the
+authoritative source for the correct template structure, action composition, target
+definitions, and parameter values.
 
 | Scenario | Documentation URL |
 |---|---|
-| AZ Power Interruption | `https://docs.aws.amazon.com/fis/latest/userguide/az-availability-scenario.html` |
-| AZ Application Slowdown | `https://docs.aws.amazon.com/fis/latest/userguide/az-application-slowdown-scenario.html` |
-| Cross-AZ Traffic Slowdown | `https://docs.aws.amazon.com/fis/latest/userguide/cross-az-traffic-slowdown-scenario.html` |
-| Cross-Region Connectivity | `https://docs.aws.amazon.com/fis/latest/userguide/cross-region-scenario.html` |
+| AZ Power Interruption | `https://docs.aws.amazon.com/en_us/fis/latest/userguide/az-availability-scenario.html` |
+| AZ Application Slowdown | `https://docs.aws.amazon.com/en_us/fis/latest/userguide/az-application-slowdown-scenario.html` |
+| Cross-AZ Traffic Slowdown | `https://docs.aws.amazon.com/en_us/fis/latest/userguide/cross-az-traffic-slowdown-scenario.html` |
+| Cross-Region Connectivity | `https://docs.aws.amazon.com/en_us/fis/latest/userguide/cross-region-scenario.html` |
+
+**Workflow for Scenario Library scenarios:**
+1. Call `aws___read_documentation` with the scenario URL above
+2. Extract the JSON experiment template from the documentation page
+3. Use that JSON as the base template, replacing placeholders with the user's actual
+   resource values (AZ, tags, ARNs, etc.)
+4. Cross-reference with `references/scenario-templates.md` for additional skeleton context
+5. Proceed to resource discovery and compatibility validation as normal
 
 From the documentation, extract:
 - **Required resource tags** (e.g., `AzImpairmentPower: StopInstances`)
@@ -457,6 +475,12 @@ After saving the file, print a brief summary to the terminal listing only:
 
 ## Important Guidelines
 
+- **Scenario Library templates require reading documentation first.** The 4 Scenario
+  Library scenarios (AZ Power Interruption, AZ Application Slowdown, Cross-AZ Traffic
+  Slowdown, Cross-Region Connectivity) cannot be generated via FIS API. You MUST call
+  `aws___read_documentation` on the scenario's documentation page to extract the JSON
+  template before generating any files. The documentation is the only authoritative
+  source for the correct multi-action template structure. See Step 2 for the URL table.
 - **Never start the FIS experiment in this skill.** This skill deploys the supporting
   infrastructure (IAM role, alarms, dashboard, experiment template) via CloudFormation,
   but does NOT start the actual fault injection experiment. Starting the experiment is
