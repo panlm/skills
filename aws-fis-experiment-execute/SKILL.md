@@ -322,8 +322,10 @@ disruption even without a dedicated FIS action).
 | {HH:MM:SS} | {event} | {what was observed at this point} |
 | {HH:MM:SS} | {event} | {observed result / status change} |
 | ... | ... | ... |
-| -- | **Key Finding** | {finding — what happened and why} |
-| -- | **Key Finding** | {finding — recovery behavior} |
+
+**Key Findings:**
+- {finding_1 — what happened and why}
+- {finding_2 — recovery behavior}
 
 (Repeat for each service)
 
