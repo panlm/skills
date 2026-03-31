@@ -180,7 +180,11 @@ Use consistent source tags throughout the checklist:
 | `AWS Blog` | AWS Database Blog or other official blog |
 | `Whitepaper` | AWS whitepaper |
 
-### Step 6: Generate Checklist Output
+### Step 6: Generate Output (Conditional)
+
+The output depends on whether the user provided live assessment info in Step 1:
+
+#### If NO live assessment info was provided → Generate Checklist Only
 
 Generate the checklist content using the exact format defined in `references/output-template.md`,
 then **write it to a local markdown file** using the Write tool.
@@ -191,7 +195,7 @@ then **write it to a local markdown file** using the Write tool.
 - Example: `2025-07-15-14-30-00-elasticache-redis-best-practice-checklist.md`
 - Save the file in the current working directory
 
-The output must include:
+The checklist output must include:
 1. Title with service name
 2. One table per category (5 tables)
 3. Source annotation legend
@@ -199,16 +203,24 @@ The output must include:
 
 After writing the file, inform the user of the file path.
 
-### Step 7: Offer Next Steps
+#### If live assessment info WAS provided → Skip Checklist, Proceed to Step 8
+
+Do NOT generate a separate checklist file. The assessment report (Step 8) will include the
+full checklist with assessment results in a single, comprehensive document. Generating both
+would be redundant.
+
+Proceed directly to Step 8.
+
+### Step 7: Offer Next Steps (Checklist-Only Path)
+
+**This step only applies if you generated a checklist in Step 6 (no live assessment).**
 
 After writing the checklist file, suggest:
 - "I can export this to a spreadsheet if you prefer."
-
-If the user **has already provided live assessment info** in Step 1, skip the suggestion and proceed
-directly to Step 8.
-
-If the user **has not provided live assessment info**, also suggest:
 - "If you provide AWS credentials and resource identifiers, I can assess a live resource against this checklist."
+
+**If the user provided live assessment info in Step 1, skip this step entirely** — you should
+already be proceeding to Step 8.
 
 ### Step 8: Live Resource Assessment (Optional)
 
@@ -261,8 +273,12 @@ For each item, record:
 
 #### 8.4 Generate Assessment Report
 
-Generate the assessment results using the format defined in `references/assessment-output-template.md`,
+Generate the assessment results using the format defined in `references/output-template.md`,
 then **write it to a local markdown file** using the Write tool.
+
+**This is the ONLY output file when a target resource is provided.** The assessment report is
+self-contained and includes all checklist information (Description, Source, Priority) alongside
+the assessment results. Do NOT generate a separate checklist file.
 
 **File naming**: `YYYY-mm-dd-HH-MM-SS-{RESOURCE_ID}-assessment-report.md`
 - Replace `YYYY-mm-dd-HH-MM-SS` with the current timestamp (e.g., `2025-07-15-14-30-00`)
@@ -272,10 +288,13 @@ then **write it to a local markdown file** using the Write tool.
 
 The report must include:
 1. **Resource Summary** — key properties of the assessed resource (engine, version, node type, topology, etc.)
-2. **Assessment Results by Category** — one table per category with Status + Finding columns
+2. **Assessment Results by Category** — one table per category with full checklist columns
+   (Check Item, Description, Source, Priority) PLUS assessment columns (Status, Finding)
 3. **Assessment Summary** — counts of PASS/FAIL/WARN/N/A per category
 4. **Critical Issues** — list of all FAIL items with Priority=High, with specific remediation guidance
 5. **Recommendations** — grouped by urgency (Immediate / Short-term / Medium-term)
+6. **Source Annotations** — legend for source abbreviations
+7. **Key Reference Links** — documentation pages used
 
 After writing the file, inform the user of the file path.
 

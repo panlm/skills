@@ -1,18 +1,22 @@
 # Output Template
 
-Use this exact structure when generating the best-practice checklist.
-Replace `{SERVICE}` with the actual AWS service name.
+This template covers **two output modes** depending on whether a live target resource is provided:
 
-**Output method**: Write the checklist content to a local markdown file using the Write tool.
+| Mode | When to Use | Output File |
+|------|-------------|-------------|
+| **Checklist Mode** | No target resource provided | `{SERVICE}-best-practice-checklist.md` |
+| **Assessment Mode** | Target resource provided | `{RESOURCE_ID}-assessment-report.md` |
+
+**Language**: All content must be in the same language as the user's conversation.
+
+---
+
+# Mode 1: Checklist Only (No Target Resource)
+
+Use this format when the user does NOT provide a live resource to assess.
+
 **File naming**: `YYYY-mm-dd-HH-MM-SS-{SERVICE}-best-practice-checklist.md`
-- `YYYY-mm-dd-HH-MM-SS` = current timestamp (e.g., `2025-07-15-14-30-00`)
 - `{SERVICE}` = lowercase, hyphen-separated service name (e.g., `elasticache-redis`, `amazon-eks`)
-- Save in the current working directory
-
-**Language**: All table headers, descriptions, and text must be in the same language as
-the user's conversation. The template below uses English as an example — translate
-all content (including category titles, column headers, and descriptions) if the
-conversation is in another language.
 
 ---
 
@@ -30,30 +34,111 @@ conversation is in another language.
 | # | Check Item | Description | Source | Priority |
 |---|------------|-------------|--------|----------|
 | DR-01-hi | **Item name** | What to check, specific thresholds, conditions | Source tag | High |
-| DR-02-md | ... | ... | ... | Medium |
 
 ### Category 3: Failover Planning
 
 | # | Check Item | Description | Source | Priority |
 |---|------------|-------------|--------|----------|
 | FP-01-hi | **Item name** | What to check, specific thresholds, conditions | Source tag | High |
-| FP-02-md | ... | ... | ... | Medium |
 
 ### Category 4: Security Configuration
 
 | # | Check Item | Description | Source | Priority |
 |---|------------|-------------|--------|----------|
 | SEC-01-hi | **Item name** | What to check, specific thresholds, conditions | Source tag | High |
-| SEC-02-md | ... | ... | ... | Medium |
 
 ### Category 5: Others
 
 | # | Check Item | Description | Source | Priority |
 |---|------------|-------------|--------|----------|
 | OT-01-md | **Item name** | What to check, specific thresholds, conditions | Source tag | Medium |
-| OT-02-lo | ... | ... | ... | Low |
+
+*(Include Source Annotations, Key Reference Links, and Scope Notice sections from the Common Sections below)*
 
 ---
+
+# Mode 2: Assessment Report (With Target Resource)
+
+Use this format when the user provides credentials, region, and resource identifiers.
+**This is the ONLY output** — do NOT also generate a separate checklist file.
+
+**File naming**: `YYYY-mm-dd-HH-MM-SS-{RESOURCE_ID}-assessment-report.md`
+- `{RESOURCE_ID}` = actual resource identifier, lowercase, hyphens for separators
+
+---
+
+## {SERVICE} Best Practice Assessment: `{RESOURCE_ID}` ({REGION})
+
+### Resource Summary
+
+| Property | Value |
+|----------|-------|
+| Resource ID | `{RESOURCE_ID}` |
+| Engine / Service | {ENGINE} {VERSION} |
+| Node Type / Instance Class | {NODE_TYPE} |
+| Topology | {TOPOLOGY_DESCRIPTION} |
+| Multi-AZ | {ENABLED/DISABLED} |
+| Auto Failover | {ENABLED/DISABLED} |
+| Encryption At Rest | {ENABLED/DISABLED} |
+| Encryption In Transit | {ENABLED/DISABLED} |
+| Authentication | {AUTH_METHOD or NONE} |
+
+Add service-specific properties as needed.
+
+---
+
+### Category N: {Category Name}
+
+| # | Check Item | Description | Source | Priority | Status | Finding |
+|---|------------|-------------|--------|----------|--------|---------|
+| XX-01-hi | **Item name** | What to check, thresholds | Source tag | High | 🟢 PASS | Actual value observed |
+| XX-02-md | **Item name** | What to check, conditions | Source tag | Medium | 🔴 FAIL | Value observed, issue |
+| XX-03-lo | **Item name** | What to check | Source tag | Low | 🟡 WARN | Cannot verify from API |
+| XX-04-md | **Item name** | What to check | Source tag | Medium | ⚪ N/A | Does not apply (reason) |
+
+Repeat for all 5 categories (High Availability, Disaster Recovery, Failover Planning,
+Security Configuration, Others).
+
+---
+
+### Assessment Summary
+
+| Category | Pass | Fail | Warn | N/A |
+|----------|------|------|------|-----|
+| HA Architecture | n | n | n | n |
+| Disaster Recovery | n | n | n | n |
+| Failover Planning | n | n | n | n |
+| Security Configuration | n | n | n | n |
+| Others | n | n | n | n |
+| **Total** | **n** | **n** | **n** | **n** |
+
+---
+
+### Critical Issues (Must Fix)
+
+List all FAIL items where Priority = High:
+
+1. **{CHECK_ID}: {Check Item Name}** — {Description of issue and observed value}.
+   **Remediation**: {Specific action, note if requires resource recreation}.
+
+---
+
+### Recommendations
+
+**Immediate** (can fix in-place, no downtime):
+- Item 1...
+
+**Short-term** (may require maintenance window or resource recreation):
+- Item 1...
+
+**Medium-term** (optimization, monitoring improvements):
+- Item 1...
+
+*(Include Source Annotations and Key Reference Links sections from the Common Sections below)*
+
+---
+
+# Common Sections (Include in Both Modes)
 
 ### Source Annotations
 
@@ -76,49 +161,49 @@ conversation is in another language.
 - [Link 2 title](URL)
 - ...
 
-List the 5-10 most important documentation pages used to compile this checklist.
+List the 5-10 most important documentation pages used.
 
----
+### Scope Notice (Container/Orchestration Platforms Only)
 
-### Scope Notice (Container / Orchestration Platforms Only)
+**Include only for EKS, ECS, Fargate, App Runner, Elastic Beanstalk — omit for other services.**
 
-**Include this section only when the target service is a container or orchestration platform
-(EKS, ECS, Fargate, App Runner, Elastic Beanstalk).** Omit this section for non-container
-services like RDS, ElastiCache, MSK, DynamoDB, etc.
-
-> **Scope**: This checklist covers **AWS infrastructure-level** best practices only — items
-> verifiable through AWS APIs (e.g., `aws eks`, `aws ecs`, `aws ec2`).
+> **Scope**: This checklist/assessment covers **AWS infrastructure-level** best practices only —
+> items verifiable through AWS APIs (`aws eks`, `aws ecs`, `aws ec2`).
 >
-> **Workload-level items not covered** (require `kubectl` / in-cluster access and application context):
-> - Pod Disruption Budgets (PDB) and replica counts per Deployment
+> **Workload-level items not covered** (require `kubectl` / in-cluster access):
+> - Pod Disruption Budgets (PDB) and replica counts
 > - Topology Spread Constraints and pod anti-affinity
 > - Liveness / readiness / startup probes
 > - Container resource requests and limits
-> - Pod security context (runAsNonRoot, capabilities, privilege escalation)
-> - Pod Security Admission (PSA) namespace labels
+> - Pod security context (runAsNonRoot, capabilities)
 > - Network Policies (Kubernetes resource level)
-> - Service Account token auto-mounting
-> - Pod graceful termination (terminationGracePeriodSeconds, preStop hooks)
-> - Application-level Velero backup schedules
-> - OPA Gatekeeper / Kyverno policies
-> - Service mesh mTLS configuration
+> - Pod graceful termination settings
 >
-> For a comprehensive workload-level assessment, use a dedicated **container workload assessment skill**
-> which can inspect Deployments, PDBs, and pod specifications with the appropriate cluster credentials.
+> For workload-level assessment, use a dedicated **container workload assessment skill**.
 
 ---
 
-## Formatting Rules
+# Formatting Rules
 
-1. **Check item names** should be bold and concise (e.g., "Enable Multi-AZ Auto Failover")
-2. **Descriptions** should include:
-   - What specifically to check
-   - Specific values/thresholds when available (e.g., ">= 2 replicas", ">= 25%")
-   - Conditions when the check applies (e.g., "only if cluster mode enabled")
-3. **Source tags** use the abbreviation table above. Multiple sources separated by " / "
-4. **Priority** assignment:
+## Check Items
+1. **Check item names** should be bold and concise
+2. **Descriptions** should include specific values/thresholds when available
+3. **Source tags** use abbreviations from the table above; multiple sources separated by " / "
+4. **Priority assignment**:
    - **High**: Data loss risk, no encryption, no authentication, no backup, no HA
    - **Medium**: Non-optimal configuration, missing DR, missing monitoring
    - **Low**: Performance optimization, cost tags, non-latest instance types
-5. Each category should have at minimum 3 items, typically 5-15 items
-6. Total checklist should have 30-50 items for a well-documented service
+5. Each category: minimum 3 items, typically 5-15 items
+6. Total checklist: 30-50 items for well-documented services
+
+## Assessment Status (Mode 2 Only)
+1. **Status badges**:
+   - `🟢 PASS` — meets recommendation
+   - `🔴 FAIL` — does not meet recommendation
+   - `🟡 WARN` — cannot fully verify or partially meets
+   - `⚪ N/A` — check does not apply
+2. **Findings**: Always include actual observed value
+   - Good: "`SnapshotRetentionLimit: 0` — automatic backups disabled"
+   - Bad: "Backups not configured"
+3. **Critical issues**: Only FAIL items with Priority=High
+4. **Recommendations**: Be specific about in-place fixes vs. resource recreation
