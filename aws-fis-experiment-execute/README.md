@@ -164,7 +164,7 @@ aws cloudformation delete-stack --stack-name "fis-{SCENARIO}-{TIMESTAMP}" --regi
 "Run the chaos experiment I just prepared"
 "启动 FIS 实验"
 "Deploy and run the experiment in the rds-failover directory"
-"运行混沌实验，目录在 ./rds-failover-2025-03-27/"
+"运行混沌实验，目录在 ./2025-03-27-rds-failover/"
 ```
 
 ## Key Design Decisions
