@@ -6,7 +6,7 @@ All placeholders use `{CURLY_BRACES}` notation.
 ## Directory Layout
 
 ```
-./{yyyy-mm-dd-HH-MM-SS}-{scenario-slug}/
+./{yyyy-mm-dd-HH-MM-SS}-{scenario-slug}-{target-slug}/
 ├── README.md
 ├── experiment-template.json
 ├── iam-policy.json
@@ -21,12 +21,18 @@ All placeholders use `{CURLY_BRACES}` notation.
 - Examples: `az-power-interruption`, `az-application-slowdown`, `rds-failover`,
   `ec2-cpu-stress`, `cross-az-traffic-slowdown`
 
+**Naming convention for target-slug:**
+- Primary target resource identifier (cluster name, instance ID, replication group ID, etc.)
+- Lowercase, hyphens only, truncated to max 40 characters
+- Examples: `my-aurora-cluster`, `prod-redis-rg`, `i-0abc123def`
+- For AZ-level scenarios with multiple targets, use the most representative resource
+
 ---
 
 ## README.md
 
 **Key placeholders to replace after CFN deployment:**
-- `{STACK_NAME}` — The actual deployed CloudFormation stack name (e.g., `fis-az-power-interruption-20260331-143022`)
+- `{STACK_NAME}` — The actual deployed CloudFormation stack name (e.g., `fis-az-power-interruption-my-cluster-a3x7k2`)
 - `{TEMPLATE_ID}` — The FIS experiment template ID from stack outputs
 - `{DASHBOARD_URL}` — The CloudWatch dashboard URL from stack outputs
 
@@ -69,10 +75,10 @@ output — users need the exact stack name for cleanup commands.
 
 ```bash
 # 1. Create IAM role
-aws iam create-role --role-name FISExperimentRole-{SCENARIO} \
+aws iam create-role --role-name FISRole-{SCENARIO}-{TARGET_SLUG} \
   --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"fis.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 
-aws iam put-role-policy --role-name FISExperimentRole-{SCENARIO} \
+aws iam put-role-policy --role-name FISRole-{SCENARIO}-{TARGET_SLUG} \
   --policy-name FISExperimentPolicy \
   --policy-document file://iam-policy.json
 
@@ -137,8 +143,8 @@ aws cloudformation wait stack-delete-complete --stack-name {STACK_NAME} --region
 ### CLI cleanup (if resources were created manually):
 ```bash
 aws fis delete-experiment-template --id {TEMPLATE_ID} --region {REGION}
-aws iam delete-role-policy --role-name FISExperimentRole-{SCENARIO} --policy-name FISExperimentPolicy
-aws iam delete-role --role-name FISExperimentRole-{SCENARIO}
+aws iam delete-role-policy --role-name FISRole-{SCENARIO}-{TARGET_SLUG} --policy-name FISExperimentPolicy
+aws iam delete-role --role-name FISRole-{SCENARIO}-{TARGET_SLUG}
 # Delete alarms...
 ```
 ```
@@ -218,12 +224,12 @@ A single CloudFormation template containing all resources:
 
 ```yaml
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'FIS Experiment: {Scenario Name} - {REGION}'
+Description: 'FIS Experiment: {Scenario Name} - {TARGET_RESOURCE_ID} - {REGION}'
 
 Parameters:
   ExperimentName:
     Type: String
-    Default: '{SCENARIO_NAME}'
+    Default: '{SCENARIO_NAME}-{TARGET_SLUG}'
   TargetAZ:
     Type: String
     Default: '{AZ_ID}'
@@ -234,7 +240,7 @@ Resources:
   FISExperimentRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'FISExperimentRole-${ExperimentName}'
+      RoleName: !Sub 'FISRole-${ExperimentName}'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:

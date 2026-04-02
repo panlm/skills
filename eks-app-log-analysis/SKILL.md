@@ -62,7 +62,7 @@ digraph log_analysis_flow {
 ### Step 1: Detect Mode and Load Context
 
 The user provides either:
-- **Directory path** (e.g., `./2026-03-31-14-30-22-az-power-interruption/`) → Real-time mode
+- **Directory path** (e.g., `./2026-03-31-14-30-22-az-power-interruption-my-cluster/`) → Real-time mode
 - **Report file path** (e.g., `./2026-03-31-...-experiment-results.md`) → Post-hoc mode
 
 #### Real-time Mode Detection
@@ -382,12 +382,12 @@ trap cleanup_log_collectors EXIT
 
 ```
 # Real-time monitoring (during experiment)
-"Analyze app logs for ./2026-03-31-14-30-22-az-power-interruption/"
+"Analyze app logs for ./2026-03-31-14-30-22-az-power-interruption-my-cluster/"
 "Monitor application behavior in the experiment directory"
 "实时监控应用日志"
 
 # Post-hoc analysis (after experiment)
-"Analyze app logs using ./2026-03-31-14-35-00-az-power-interruption-experiment-results.md"
+"Analyze app logs using ./2026-03-31-14-35-00-az-power-interruption-my-cluster-experiment-results.md"
 "分析实验报告中的应用表现"
 "Check what happened to applications during the experiment"
 ```

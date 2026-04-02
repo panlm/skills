@@ -282,8 +282,11 @@ Only include sections for services actually affected by the experiment.
 Create the output directory:
 ```bash
 SCENARIO_SLUG=$(echo "SCENARIO_NAME" | tr '[:upper:]' '[:lower:]' | tr ' :' '-' | tr -d ',')
+# TARGET_SLUG: primary target resource identifier, e.g., cluster name, instance ID, replication group ID
+# Truncate to keep directory name reasonable (max 40 chars for target slug)
+TARGET_SLUG=$(echo "TARGET_RESOURCE_ID" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-' | cut -c1-40)
 TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
-OUTPUT_DIR="./${TIMESTAMP}-${SCENARIO_SLUG}"
+OUTPUT_DIR="./${TIMESTAMP}-${SCENARIO_SLUG}-${TARGET_SLUG}"
 mkdir -p "${OUTPUT_DIR}/alarms"
 ```
 
@@ -331,11 +334,10 @@ consistency. Extract the timestamp from the output directory name rather than ge
 a new one.
 
 ```bash
-# Extract timestamp from OUTPUT_DIR (format: YYYY-MM-DD-HH-MM-SS-scenario-slug)
-# Convert to stack-name-friendly format (remove extra hyphens in date portion)
-DIR_TIMESTAMP=$(basename "${OUTPUT_DIR}" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}')
-STACK_TIMESTAMP=$(echo "${DIR_TIMESTAMP}" | sed 's/\([0-9]\{4\}\)-\([0-9]\{2\}\)-\([0-9]\{2\}\)-/\1\2\3-/')
-STACK_NAME="fis-${SCENARIO_SLUG}-${STACK_TIMESTAMP}"
+# Generate a short random suffix (6 chars) to keep the stack name unique but short
+# CFN stack name limit: 128 chars; keep it well under that
+RANDOM_SUFFIX=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c6)
+STACK_NAME="fis-${SCENARIO_SLUG}-${TARGET_SLUG}-${RANDOM_SUFFIX}"
 
 aws cloudformation deploy \
   --template-file "${OUTPUT_DIR}/cfn-template.yaml" \
@@ -346,8 +348,8 @@ aws cloudformation deploy \
 ```
 
 **Example mapping:**
-- Output directory: `2026-03-31-14-30-22-az-power-interruption`
-- Stack name: `fis-az-power-interruption-20260331-143022`
+- Output directory: `2026-03-31-14-30-22-az-power-interruption-my-cluster`
+- Stack name: `fis-az-power-interruption-my-cluster-a3x7k2`
 
 #### 6c. Self-Healing Iteration Loop
 
@@ -443,7 +445,7 @@ After the stack deploys successfully:
    alarm ARNs) so it stays in sync with what was actually deployed.
 
 3. **Update `README.md`** to include:
-   - The actual stack name (`${STACK_NAME}` — e.g., `fis-az-power-interruption-20260331-143022`)
+   - The actual stack name (`${STACK_NAME}` — e.g., `fis-az-power-interruption-my-cluster-a3x7k2`)
    - The experiment template ID from stack outputs
    - The CloudWatch dashboard URL from stack outputs
    - **Cleanup command with the EXACT stack name** — do NOT use placeholders like
