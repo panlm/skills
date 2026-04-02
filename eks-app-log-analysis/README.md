@@ -76,12 +76,12 @@ The generated report includes:
 
 ## Prerequisites
 
-| Dependency | Purpose | Notes |
-|------------|---------|-------|
-| kubectl | Log collection | Must have access to target EKS cluster |
-| AWS CLI | Query FIS experiment status | For real-time mode |
-| Experiment directory | Context source | From aws-fis-experiment-prepare |
-| Experiment report | Time range source | From aws-fis-experiment-execute |
+- **kubectl** — Log collection. Must have access to target EKS cluster.
+- **AWS CLI** — Query FIS experiment status (for real-time mode).
+- **Experiment directory** — Context source, from aws-fis-experiment-prepare.
+- **Experiment report** — Time range source, from aws-fis-experiment-execute.
+- (Optional) **CloudWatch Container Insights** — Enables richer pod/node-level metrics for correlation. See [Enabling Container Insights](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Container-Insights-setup-EKS-quickstart.html).
+- (Optional) **EKS Control Plane Logging** — Enables API server, audit, and scheduler logs for deeper analysis. See [Enabling Control Plane Logs](https://docs.aws.amazon.com/eks/latest/userguide/control-plane-logs.html).
 
 ## Output Files
 

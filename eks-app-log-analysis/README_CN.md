@@ -76,12 +76,12 @@
 
 ## 前置条件
 
-| 依赖 | 用途 | 说明 |
-|------|------|------|
-| kubectl | 日志收集 | 需要有目标 EKS 集群的访问权限 |
-| AWS CLI | 查询 FIS 实验状态 | 用于实时模式 |
-| 实验目录 | 上下文来源 | 来自 aws-fis-experiment-prepare |
-| 实验报告 | 时间范围来源 | 来自 aws-fis-experiment-execute |
+- **kubectl** — 日志收集。需要有目标 EKS 集群的访问权限。
+- **AWS CLI** — 查询 FIS 实验状态（用于实时模式）。
+- **实验目录** — 上下文来源，来自 aws-fis-experiment-prepare。
+- **实验报告** — 时间范围来源，来自 aws-fis-experiment-execute。
+- （可选）**CloudWatch Container Insights** — 启用后可提供更丰富的 Pod/Node 级别指标用于关联分析。参见 [启用 Container Insights](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Container-Insights-setup-EKS-quickstart.html)。
+- （可选）**EKS 控制平面日志** — 启用 API Server、Audit、Scheduler 等日志，用于更深入的分析。参见 [启用控制平面日志](https://docs.aws.amazon.com/eks/latest/userguide/control-plane-logs.html)。
 
 ## 输出文件
 
