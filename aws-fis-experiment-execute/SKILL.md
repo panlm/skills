@@ -102,59 +102,23 @@ user that the stack name is missing. The experiment cannot proceed without it.
 
 ### Step 3: Check CloudFormation Stack Status
 
-Using the stack name extracted from the README, verify the stack is deployed:
+Using the stack name and region extracted from the README, verify the stack is deployed.
+See `references/cli-commands.md` for CLI commands and stack status reference.
 
-```bash
-STACK_NAME="{EXTRACTED_STACK_NAME}"
-REGION="{EXTRACTED_REGION}"
+Only proceed if the stack is in a ready state (`CREATE_COMPLETE` or `UPDATE_COMPLETE`).
 
-aws cloudformation describe-stacks \
-  --stack-name "${STACK_NAME}" \
-  --region ${REGION} \
-  --query 'Stacks[0].{
-    StackName: StackName,
-    StackStatus: StackStatus,
-    CreationTime: CreationTime,
-    Outputs: Outputs
-  }'
-```
-
-**Check the `StackStatus` value:**
-
-| Status | Action |
-|---|---|
-| `CREATE_COMPLETE` | Stack is ready. Proceed to Step 4. |
-| `UPDATE_COMPLETE` | Stack is ready (was updated). Proceed to Step 4. |
-| `CREATE_IN_PROGRESS` | Stack is still deploying. Wait and re-check, or ask user to wait. |
-| `CREATE_FAILED` | Stack deployment failed. Show the failure reason and abort. |
-| `ROLLBACK_COMPLETE` | Stack creation failed and rolled back. Show reason and abort. |
-| `DELETE_COMPLETE` or not found | Stack does not exist. Inform user to deploy first. |
-| Any other status | Show the status and ask user how to proceed. |
-
-**If the stack is not in a ready state**, inform the user clearly:
-- Show the current stack status
-- Show the failure reason (if applicable)
+**If the stack is not ready**, inform the user clearly:
+- Show the current stack status and failure reason (if applicable)
 - Suggest running `aws-fis-experiment-prepare` to deploy the stack
 - Do NOT attempt to deploy the stack — this skill only checks and executes
 
 ### Step 4: Extract Experiment Template ID from Stack Outputs
 
-```bash
-TEMPLATE_ID=$(aws cloudformation describe-stacks \
-  --stack-name "${STACK_NAME}" \
-  --query 'Stacks[0].Outputs[?OutputKey==`ExperimentTemplateId`].OutputValue' \
-  --output text --region ${REGION})
+Extract `ExperimentTemplateId` from stack outputs. See `references/cli-commands.md` for CLI commands.
 
-echo "Experiment Template ID: ${TEMPLATE_ID}"
-```
+**If `ExperimentTemplateId` is not found**, list all outputs and ask the user which one contains the template ID. Common alternatives: `FISExperimentTemplateId`, `TemplateId`.
 
-**If `ExperimentTemplateId` is not found in stack outputs**, check:
-- List all outputs and display them to the user
-- Ask the user which output contains the template ID
-- Common alternative output keys: `FISExperimentTemplateId`, `TemplateId`
-
-Also extract any other useful outputs (e.g., dashboard URL, alarm ARNs) and
-display them to the user.
+Also extract dashboard URL and alarm ARNs if available.
 
 ### Step 5: Start Experiment (CRITICAL CONFIRMATION)
 
@@ -183,30 +147,12 @@ Type "Yes, start experiment" to proceed, or "No" to abort.
 
 **Only proceed if the user explicitly confirms.**
 
-```bash
-aws fis start-experiment \
-  --experiment-template-id "${TEMPLATE_ID}" \
-  --region ${REGION}
-```
-
 Save the returned `experiment.id`.
 
 ### Step 6: Monitor Experiment
 
-Poll the experiment status and display progress:
-
-```bash
-aws fis get-experiment \
-  --id "{EXPERIMENT_ID}" \
-  --region ${REGION} \
-  --query '{
-    State: experiment.state.status,
-    Reason: experiment.state.reason,
-    StartTime: experiment.startTime,
-    EndTime: experiment.endTime,
-    Actions: experiment.actions
-  }'
-```
+Poll the experiment status and display progress. See `references/cli-commands.md` for
+polling commands and experiment status reference.
 
 **Polling strategy:**
 - Poll every 30 seconds for the first 5 minutes
@@ -219,21 +165,10 @@ aws fis get-experiment \
   Query service-specific status (e.g., RDS instance status, ElastiCache replication
   group status, EKS node status) during monitoring to capture detailed observations.
 
-**Status values:**
-- `initiating` — Experiment is starting
-- `running` — Experiment is in progress
-- `completed` — Experiment finished successfully
-- `stopping` — Experiment is being stopped (by user or stop condition)
-- `stopped` — Experiment was stopped before completion
-- `failed` — Experiment failed
-
 **During monitoring, remind the user:**
 - Check the CloudWatch dashboard for real-time metrics
 - Read `expected-behavior.md` to compare actual vs expected behavior
-- The experiment can be stopped at any time:
-  ```bash
-  aws fis stop-experiment --id "{EXPERIMENT_ID}" --region ${REGION}
-  ```
+- The experiment can be stopped at any time (see `references/cli-commands.md` for stop command)
 
 ### Step 7: Save Results Report to Local File
 
@@ -347,25 +282,10 @@ After saving the file, print a brief summary to the terminal listing only:
 
 ## Cleanup Guide
 
-After the experiment, offer cleanup:
+After the experiment, offer cleanup. See `references/cli-commands.md` for cleanup commands.
 
-### CFN Cleanup (Recommended)
-```bash
-aws cloudformation delete-stack --stack-name "${STACK_NAME}" --region ${REGION}
-aws cloudformation wait stack-delete-complete --stack-name "${STACK_NAME}" --region ${REGION}
-```
-
-### Manual Resource Cleanup (if individual resources exist outside the stack)
-```bash
-# Delete experiment template
-aws fis delete-experiment-template --id "${TEMPLATE_ID}" --region ${REGION}
-
-# Delete CloudWatch alarms
-aws cloudwatch delete-alarms --alarm-names "FIS-StopCondition-{SCENARIO}-{SERVICE}" --region ${REGION}
-
-# Delete CloudWatch dashboard
-aws cloudwatch delete-dashboards --dashboard-names "FIS-{SCENARIO}" --region ${REGION}
-```
+- **CFN Cleanup (Recommended):** Delete the stack to remove all resources
+- **Manual Cleanup:** Delete individual resources if they exist outside the stack
 
 ## Error Handling
 
