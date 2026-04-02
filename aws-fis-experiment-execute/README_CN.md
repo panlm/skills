@@ -22,7 +22,7 @@
 4. **提取模板 ID** — 从 Stack 输出中获取。
 5. **强制安全确认** — 展示清晰的影响警告（受影响资源列表），要求用户明确确认后才启动。
 6. **启动实验** — 仅在用户明确确认后执行。
-7. **监控进度** — 每 30-60 秒轮询实验状态，记录每次状态变更和各服务事件的时间戳，提醒用户查看 Dashboard 和预期行为文档。
+7. **监控进度** — 每 30-60 秒轮询实验状态，记录每次状态变更和各服务事件的时间戳，提醒用户查看 Dashboard。
 8. **保存结果报告** — 将实验结果写入本地 Markdown 文件（`YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md`），采用**按服务拆分的影响分析**结构，每个服务有独立的时间线、观察结果和关键发现 — 读者无需在章节间来回跳转即可看到每个服务的完整分析。终端仅打印简要摘要。
 
 **注意：** 本 Skill **不会**部署基础设施。它仅验证 Stack 已部署，然后执行实验。
@@ -49,7 +49,7 @@
          ├── 前 5 分钟每 30 秒轮询，之后每 60 秒
          ├── 每次轮询后显示当前状态
          ├── 记录每次状态变更和 Action 转换的时间戳
-         └── 提醒用户：查看 Dashboard，阅读 expected-behavior.md
+         └── 提醒用户：查看 Dashboard
          ↓
 步骤 7: 保存结果报告到本地文件 (YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md)
 ```
@@ -101,7 +101,7 @@ YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md
 - 开始时间、结束时间、实际时长（所有时间戳使用 ISO 8601 格式带时区）
 - 各 Action 结果表（含 Action ID、状态和持续时间）
 - Stop Condition 告警状态表
-- **各服务影响分析** — 针对 `expected-behavior.md` 中的每个服务，生成独立子章节，包含：
+- **各服务影响分析** — 针对每个受影响的服务，生成独立子章节，包含：
   - **关键时间线** — 仅列出与该服务相关的事件（时间戳使用 UTC 时间格式），方便直接对照 CloudWatch Dashboard 指标，无需离开当前章节
   - **观察结果** — 实验期间和实验后的观察行为
   - **关键发现** — 发生了什么、为什么、恢复行为如何
@@ -121,7 +121,6 @@ YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md
 | `iam-policy.json` | 是 | FIS 角色 IAM 权限 |
 | `cfn-template.yaml` | 是 | CloudFormation 模板（参考） |
 | `README.md` | 是 | 实验概览，含 CFN Stack 名称 |
-| `expected-behavior.md` | 是 | 运行时行为参考 |
 | `alarms/stop-condition-alarms.json` | 可选 | CloudWatch 告警定义 |
 | `alarms/dashboard.json` | 可选 | CloudWatch Dashboard |
 
@@ -218,7 +217,7 @@ aws cloudwatch delete-dashboards --dashboard-names "FIS-{SCENARIO}" --region {RE
 
 3. **明确确认不可妥协。** FIS 实验产生真实影响。Skill 绝不自动启动 — 始终展示具体资源细节的警告，要求用户输入确认。
 
-4. **持续监控加提醒。** 实验期间，Skill 轮询状态并提醒用户查看 CloudWatch Dashboard 和 expected-behavior.md。故障注入期间不应仅依赖终端输出。
+4. **持续监控加提醒。** 实验期间，Skill 轮询状态并提醒用户查看 CloudWatch Dashboard。故障注入期间不应仅依赖终端输出。
 
 5. **结果保存到文件。** 实验结果报告写入带时间戳的本地 Markdown 文件，终端输出保持简洁，同时保留完整记录。
 

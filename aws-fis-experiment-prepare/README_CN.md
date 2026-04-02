@@ -25,7 +25,7 @@
 3. **发现目标资源** — 查询用户实际的 AWS 资源，收集目标标识。
 3. **验证兼容性** — 通过 AWS CLI 检查实际资源（如 `describe-db-instances`、`describe-db-clusters`），与 FIS Action 的 `resourceType` 要求交叉校验，在生成任何文件之前完成。
 4. **确定监控配置** — 默认使用 `source: "none"`（不绑定 Stop Condition 告警）。仅在用户明确提供告警时才创建 CloudWatch Alarm。生成包含各服务可用性、性能和错误/延迟指标的综合 CloudWatch Dashboard。
-5. **生成配置文件** — 生成包含 7 个文件的自包含目录：实验模板、IAM 策略、CFN 模板、告警、Dashboard、预期行为文档和 README。
+5. **生成配置文件** — 生成包含 6 个文件的自包含目录：实验模板、IAM 策略、CFN 模板、告警、Dashboard 和 README。
 6. **自动修复部署** — 部署 CFN 模板，若部署失败则自动分析错误、修复模板、删除失败 Stack、重试（最多 5 次）。
 7. **保存摘要报告** — 将准备结果写入本地 Markdown 文件（`YYYY-mm-dd-HH-MM-SS-{scenario}-prepare-summary.md`），终端仅打印简要摘要。
 
@@ -59,7 +59,6 @@
 ├── experiment-template.json           # FIS 实验模板（CLI 创建用）
 ├── iam-policy.json                    # 最小权限 IAM 策略
 ├── cfn-template.yaml                  # 全包 CloudFormation 模板
-├── expected-behavior.md               # 实验期间的预期行为
 └── alarms/
     ├── stop-condition-alarms.json     # CloudWatch 告警定义
     └── dashboard.json                 # CloudWatch Dashboard 定义
@@ -117,7 +116,7 @@
          ↓
 步骤 4: 确定监控配置（Stop Condition + Dashboard 指标）
          ↓
-步骤 5: 在输出目录中生成 7 个配置文件
+步骤 5: 在输出目录中生成 6 个配置文件
          ↓
 步骤 6: 部署 CFN 模板并自动修复（最多 5 次重试）
          ├── 成功 → 用真实 ARN 更新本地文件
@@ -146,13 +145,11 @@
 
 4. **全包 CFN 模板。** `cfn-template.yaml` 包含 IAM 角色、告警、Dashboard 和实验模板。一次 `cloudformation deploy` 即可完成所有部署。
 
-5. **expected-behavior.md 是一等输出。** 这是运维人员在实验期间参考的文档，包含时间线、各服务预期行为、关键指标和恢复验证清单。
+5. **本地文件保持同步。** 部署成功后，`experiment-template.json` 和 `README.md` 会用真实 ARN 和 Stack 输出更新，使目录成为已部署实验的准确记录。
 
-6. **本地文件保持同步。** 部署成功后，`experiment-template.json` 和 `README.md` 会用真实 ARN 和 Stack 输出更新，使目录成为已部署实验的准确记录。
+6. **绝不启动实验。** 本 Skill 只准备和部署基础设施。启动实际实验由 [aws-fis-experiment-execute](../aws-fis-experiment-execute/) 或用户手动完成。
 
-7. **绝不启动实验。** 本 Skill 只准备和部署基础设施。启动实际实验由 [aws-fis-experiment-execute](../aws-fis-experiment-execute/) 或用户手动完成。
-
-8. **报告保存到文件。** 准备摘要写入带时间戳前缀的本地 Markdown 文件，终端输出保持简洁。
+7. **报告保存到文件。** 准备摘要写入带时间戳前缀的本地 Markdown 文件，终端输出保持简洁。
 
 ## 目录结构
 
@@ -162,7 +159,7 @@ aws-fis-experiment-prepare/
 ├── README.md                             # 英文版 PRD / 用户文档
 ├── README_CN.md                          # 本文件（中文版）
 └── references/
-    ├── output-structure.md               # 7 个输出文件的格式规范
+    ├── output-structure.md               # 6 个输出文件的格式规范
     └── scenario-templates.md             # FIS Scenario Library JSON 模板示例
 ```
 

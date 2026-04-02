@@ -11,10 +11,9 @@ All placeholders use `{CURLY_BRACES}` notation.
 ├── experiment-template.json
 ├── iam-policy.json
 ├── cfn-template.yaml
-├── alarms/
-│   ├── stop-condition-alarms.json
-│   └── dashboard.json
-└── expected-behavior.md
+└── alarms/
+    ├── stop-condition-alarms.json
+    └── dashboard.json
 ```
 
 **Naming convention for scenario-slug:**
@@ -63,7 +62,6 @@ output — users need the exact stack name for cleanup commands.
 | `cfn-template.yaml` | CloudFormation template (all-in-one) |
 | `alarms/stop-condition-alarms.json` | CloudWatch alarm definitions |
 | `alarms/dashboard.json` | CloudWatch dashboard definition |
-| `expected-behavior.md` | What to expect during the experiment |
 
 ## How to Execute
 
@@ -124,7 +122,6 @@ aws fis start-experiment \
 
 - **CloudWatch Dashboard:** Deploy `alarms/dashboard.json` or view metrics in the console
 - **Experiment Status:** `aws fis get-experiment --id {EXPERIMENT_ID} --region {REGION}`
-- **Expected Behavior:** See `expected-behavior.md`
 
 ## Cleanup
 
@@ -589,64 +586,3 @@ Only include sections for services actually affected by the experiment.
 - Remove widget sections for services not involved in the experiment
 - Add application-specific custom metrics if the user provides them
 - Adjust `y` coordinates when removing service sections to keep layout compact
-
----
-
-## expected-behavior.md
-
-```markdown
-# Expected Behavior: {Scenario Name}
-
-## Experiment Timeline
-
-| Time | Phase | Expected Events |
-|---|---|---|
-| T+0 | Experiment Start | FIS begins executing actions |
-| T+0~2min | Network Disruption | Subnet connectivity blocked (if applicable) |
-| T+0~5min | Resource Impact | {EC2 stops / RDS failover / etc.} |
-| T+5min | Recovery Actions | {ARC zonal shift / DNS update / etc.} |
-| T+30min | Interruption End | FIS stops fault injection |
-| T+30~60min | Recovery Phase | {Instances restart / replication resumes / etc.} |
-| T+60min | Experiment Complete | All resources should be back to normal |
-
-## Per-Service Expected Behavior
-
-### {Service 1} (e.g., EC2)
-
-**During interruption:**
-- {what should happen}
-- Metrics to watch: `{MetricName}` in `{Namespace}`
-- Expected metric behavior: {description}
-
-**During recovery:**
-- {what should happen}
-- Recovery time expectation: {duration}
-
-### {Service 2} (e.g., RDS)
-
-**During interruption:**
-- {what should happen}
-
-**During recovery:**
-- {what should happen}
-
-## Key Metrics to Monitor
-
-| Metric | Namespace | Normal Value | During Experiment | Alert If |
-|---|---|---|---|---|
-| {metric} | {namespace} | {normal} | {expected during fault} | {when to worry} |
-
-## Recovery Verification Checklist
-
-After the experiment completes, verify:
-- [ ] {Service 1}: {check description}
-- [ ] {Service 2}: {check description}
-- [ ] Application: {health check URL/command}
-- [ ] No lingering alarms in CloudWatch
-
-## Troubleshooting
-
-### {Scenario}: {unexpected behavior}
-**Possible cause:** {explanation}
-**Resolution:** {steps}
-```

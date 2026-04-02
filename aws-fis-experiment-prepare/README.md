@@ -9,7 +9,7 @@ An agent skill that generates all configuration files needed to run an AWS FIS (
 Preparing an AWS FIS experiment manually involves several error-prone, tedious steps:
 
 - **Resource-action compatibility is non-obvious** — e.g., `aws:rds:failover-db-cluster` requires an Aurora cluster (`aws:rds:cluster`), not a standalone RDS instance. Mismatches are only discovered at experiment start time, wasting all prior setup effort.
-- **Multiple files must be generated and kept consistent** — experiment template JSON, IAM policy, CloudFormation template, CloudWatch alarms, dashboard, and expected-behavior documentation all reference the same resource ARNs and parameters.
+- **Multiple files must be generated and kept consistent** — experiment template JSON, IAM policy, CloudFormation template, CloudWatch alarms, and dashboard all reference the same resource ARNs and parameters.
 - **CloudFormation deployments frequently fail** — property validation errors, IAM propagation delays, and region-specific resource limitations require iterative debugging that is slow and frustrating to do manually.
 - **Scenario Library scenarios are complex** — composite scenarios (e.g., AZ Power Interruption) orchestrate multiple sub-actions with specific tag requirements and target types that are easy to misconfigure.
 - **Scenario Library templates cannot be generated via API** — unlike custom single FIS actions, the 4 Scenario Library scenarios have no CLI/API command to auto-generate their experiment templates. The JSON template must be extracted from AWS documentation.
@@ -25,7 +25,7 @@ Preparing an AWS FIS experiment manually involves several error-prone, tedious s
 3. **Discovers target resources** — Queries the user's actual AWS resources and collects target identifiers.
 3. **Validates compatibility** — Inspects actual resources via AWS CLI (e.g., `describe-db-instances`, `describe-db-clusters`) and cross-checks against FIS action `resourceType` requirements before generating any files.
 4. **Determines monitoring configuration** — Defaults to `source: "none"` (no stop condition alarm). Only creates CloudWatch alarms if the user explicitly provides one. Generates a comprehensive CloudWatch dashboard with per-service availability, performance, and error/latency metrics.
-5. **Generates configuration files** — Produces a self-contained directory with 7 files: experiment template, IAM policy, CFN template, alarms, dashboard, expected-behavior doc, and README.
+5. **Generates configuration files** — Produces a self-contained directory with 6 files: experiment template, IAM policy, CFN template, alarms, dashboard, and README.
 6. **Deploys with self-healing** — Deploys the CFN template, and if deployment fails, automatically analyzes errors, fixes the template, deletes the failed stack, and retries (up to 5 times).
 7. **Saves summary report** — Writes preparation results to a local markdown file (`YYYY-mm-dd-HH-MM-SS-{scenario}-prepare-summary.md`) and prints a brief summary to the terminal.
 
@@ -59,7 +59,6 @@ Any valid FIS action ID, e.g.:
 ├── experiment-template.json           # FIS experiment template for CLI creation
 ├── iam-policy.json                    # Least-privilege IAM permissions
 ├── cfn-template.yaml                  # All-in-one CloudFormation template
-├── expected-behavior.md               # What to expect during the experiment
 └── alarms/
     ├── stop-condition-alarms.json     # CloudWatch alarm definitions
     └── dashboard.json                 # CloudWatch dashboard body
@@ -117,7 +116,7 @@ Step 3: Validate resource-action compatibility [CRITICAL GATE]
          ↓
 Step 4: Determine monitoring config (stop conditions + dashboard metrics)
          ↓
-Step 5: Generate 7 configuration files in output directory
+Step 5: Generate 6 configuration files in output directory
          ↓
 Step 6: Deploy CFN template with self-healing loop (up to 5 retries)
          ├── On success → update local files with real ARNs
@@ -146,13 +145,11 @@ Step 7: Save summary report to local file (YYYY-mm-dd-HH-MM-SS-{scenario}-prepar
 
 4. **All-in-one CFN template.** The `cfn-template.yaml` contains IAM role, alarms, dashboard, and experiment template. A single `cloudformation deploy` produces everything needed.
 
-5. **expected-behavior.md is a first-class output.** This document is what operators reference during the experiment. It includes a timeline, per-service expected behavior, key metrics, and a recovery verification checklist.
+5. **Local files stay in sync.** After successful deployment, `experiment-template.json` and `README.md` are updated with real ARNs and stack outputs, so the directory is an accurate record of the deployed experiment.
 
-6. **Local files stay in sync.** After successful deployment, `experiment-template.json` and `README.md` are updated with real ARNs and stack outputs, so the directory is an accurate record of the deployed experiment.
+6. **Never starts the experiment.** This skill only prepares and deploys infrastructure. Starting the actual experiment is handled by [aws-fis-experiment-execute](../aws-fis-experiment-execute/) or manually by the user.
 
-7. **Never starts the experiment.** This skill only prepares and deploys infrastructure. Starting the actual experiment is handled by [aws-fis-experiment-execute](../aws-fis-experiment-execute/) or manually by the user.
-
-8. **Report saved to file.** The preparation summary is written to a local markdown file with timestamp prefix, keeping the terminal output concise.
+7. **Report saved to file.** The preparation summary is written to a local markdown file with timestamp prefix, keeping the terminal output concise.
 
 ## Directory Structure
 
@@ -162,7 +159,7 @@ aws-fis-experiment-prepare/
 ├── README.md                             # This file (English)
 ├── README_CN.md                          # Chinese version
 └── references/
-    ├── output-structure.md               # File format specifications for all 7 output files
+    ├── output-structure.md               # File format specifications for all 6 output files
     └── scenario-templates.md             # FIS Scenario Library JSON template examples
 ```
 

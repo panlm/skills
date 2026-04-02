@@ -22,7 +22,7 @@ Running an AWS FIS experiment after preparation still involves manual verificati
 4. **Extracts template ID** from stack outputs.
 5. **Enforces safety** — presents a clear impact warning with affected resources, requires explicit user confirmation before starting.
 6. **Starts the experiment** only after explicit user confirmation.
-7. **Monitors progress** — polls experiment status every 30-60 seconds, records timestamps for each status change and per-service events, reminds user to check the dashboard and expected-behavior doc.
+7. **Monitors progress** — polls experiment status every 30-60 seconds, records timestamps for each status change and per-service events, reminds user to check the dashboard.
 8. **Saves results report** — writes the experiment results to a local markdown file (`YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md`) with **per-service impact analysis** where each service has its own timeline, observations, and key findings — so readers can see the full picture for each service without jumping between sections. Prints a brief summary to the terminal.
 
 **Note:** This skill does **NOT** deploy infrastructure. It only verifies that the stack is already deployed and proceeds with experiment execution.
@@ -49,7 +49,7 @@ Step 6: Monitor experiment
          ├── Poll status every 30s (first 5 min) then 60s
          ├── Show current status after each poll
          ├── Record timestamps for each status change and action transition
-         └── Remind user: check dashboard, read expected-behavior.md
+         └── Remind user: check dashboard
          ↓
 Step 7: Save results report to local file (YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md)
 ```
@@ -102,7 +102,7 @@ The report includes:
 - Start time, end time, actual duration (all timestamps in ISO 8601 with timezone)
 - Per-action results table (with action ID, status, and duration per action)
 - Stop condition alarm status table
-- **Per-service impact analysis** — for each service in `expected-behavior.md`, a dedicated sub-section containing:
+- **Per-service impact analysis** — for each affected service, a dedicated sub-section containing:
   - **Key timeline** — only the events relevant to that specific service (timestamps in UTC time-only format), so readers can correlate with CloudWatch Dashboard metrics without leaving the section
   - **Observations** — observed behavior during and after the experiment
   - **Key findings** — what happened, why, and recovery behavior
@@ -122,7 +122,6 @@ The experiment directory must contain:
 | `iam-policy.json` | Yes | IAM permissions for FIS role |
 | `cfn-template.yaml` | Yes | CloudFormation template (reference) |
 | `README.md` | Yes | Experiment overview with CFN stack name |
-| `expected-behavior.md` | Yes | Runtime behavior reference |
 | `alarms/stop-condition-alarms.json` | Optional | CloudWatch alarm definitions |
 | `alarms/dashboard.json` | Optional | CloudWatch dashboard |
 
@@ -219,7 +218,7 @@ aws cloudwatch delete-dashboards --dashboard-names "FIS-{SCENARIO}" --region {RE
 
 3. **Explicit confirmation is non-negotiable.** FIS experiments cause real impact. The skill never auto-starts — it always presents a warning with specific resource details and requires the user to type confirmation.
 
-4. **Continuous monitoring with reminders.** During the experiment, the skill polls status and reminds the user to check the CloudWatch dashboard and expected-behavior.md. Operators should not rely solely on terminal output during fault injection.
+4. **Continuous monitoring with reminders.** During the experiment, the skill polls status and reminds the user to check the CloudWatch dashboard. Operators should not rely solely on terminal output during fault injection.
 
 5. **Results saved to file.** The experiment results report is written to a timestamped local markdown file, keeping terminal output concise while preserving a full record.
 

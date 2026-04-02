@@ -75,7 +75,6 @@ ls "${EXPERIMENT_DIR}/experiment-template.json"
 ls "${EXPERIMENT_DIR}/iam-policy.json"
 ls "${EXPERIMENT_DIR}/cfn-template.yaml"
 ls "${EXPERIMENT_DIR}/README.md"
-ls "${EXPERIMENT_DIR}/expected-behavior.md"
 
 # Optional files
 ls "${EXPERIMENT_DIR}/alarms/stop-condition-alarms.json" 2>/dev/null
@@ -160,14 +159,13 @@ polling commands and experiment status reference.
 - Show current status after each poll
 - **Record timestamps** for each status change and action state transition — these
   feed into the per-service timeline in the final report
-- **Track per-service events**: For each service in `expected-behavior.md`, note when
+- **Track per-service events**: For each service affected by the experiment, note when
   it was impacted (action started), when it recovered, and any intermediate states.
   Query service-specific status (e.g., RDS instance status, ElastiCache replication
   group status, EKS node status) during monitoring to capture detailed observations.
 
 **During monitoring, remind the user:**
 - Check the CloudWatch dashboard for real-time metrics
-- Read `expected-behavior.md` to compare actual vs expected behavior
 - The experiment can be stopped at any time (see `references/cli-commands.md` for stop command)
 
 ### Step 7: Save Results Report to Local File
@@ -192,8 +190,8 @@ into each service's impact analysis section — do NOT create a separate standal
 timeline section. This allows readers to see the full picture (timeline + impact +
 findings) for each service without jumping between sections.
 
-**Per-service analysis:** Read `expected-behavior.md` from the experiment directory to
-identify all services under test. For each service, create a sub-section under
+**Per-service analysis:** Identify all services affected by the experiment from the
+README's "Affected Resources" table. For each service, create a sub-section under
 "Per-Service Impact Analysis" that includes: (1) the timeline events relevant to that
 service, (2) observed behavior from monitoring, (3) key findings. Also check for
 indirectly affected services (e.g., MSK affected by network disruption) and include
@@ -226,7 +224,7 @@ The results report file must include:
 
 ### Per-Service Impact Analysis
 
-For EACH service listed in expected-behavior.md, create a sub-section below.
+For EACH service listed in the README's "Affected Resources" table, create a sub-section below.
 Also include indirectly affected services (e.g., services impacted by network
 disruption even without a dedicated FIS action).
 

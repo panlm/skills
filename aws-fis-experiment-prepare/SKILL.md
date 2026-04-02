@@ -9,7 +9,7 @@ description: >
   (AZ Power Interruption, AZ Application Slowdown, etc.) and custom single FIS actions
   (aws:rds:failover-db-cluster, aws:ec2:stop-instances, etc.). Generates all files
   needed to run the experiment: JSON template, IAM policy, CloudFormation template,
-  CloudWatch alarms, dashboard, and expected-behavior documentation. After generating
+  CloudWatch alarms, and dashboard. After generating
   files, automatically deploys the CFN template with self-healing iteration — if
   deployment fails, analyzes the error, fixes the template, deletes the failed stack,
   and retries until the deployment succeeds (up to 5 retries).
@@ -20,13 +20,13 @@ description: >
 Generate all configuration files needed to run an AWS FIS experiment, then **deploy
 via CloudFormation with self-healing iteration** until the stack succeeds. Outputs a
 self-contained directory with experiment template, IAM policy, CloudFormation template,
-monitoring config, and expected-behavior documentation — plus a deployed, validated
+monitoring config — plus a deployed, validated
 CFN stack ready for experiment execution.
 
 ## Output Language Rule
 
 Detect the language of the user's conversation and use the **same language** for all
-output files (README.md, expected-behavior.md, comments in JSON/YAML).
+output files (README.md, comments in JSON/YAML).
 - Chinese input -> Chinese output
 - English input -> English output
 - Mixed -> follow the dominant language
@@ -292,8 +292,7 @@ Generate files following the templates in `references/output-structure.md`:
    - CloudWatch Alarm — **only if user provided a stop condition**
 4. **alarms/stop-condition-alarms.json** — Standalone alarm definitions (**only if user provided a stop condition**; otherwise skip)
 5. **alarms/dashboard.json** — CloudWatch dashboard body
-6. **expected-behavior.md** — Detailed expected behavior documentation
-7. **README.md** — Experiment overview and execution instructions
+6. **README.md** — Experiment overview and execution instructions
 
 See `references/output-structure.md` for exact file formats.
 See `references/scenario-templates.md` for Scenario Library JSON templates.
@@ -482,7 +481,6 @@ The summary report file must include:
 | CFN Template | `{OUTPUT_DIR}/cfn-template.yaml` | CloudFormation deployment |
 | Stop Condition Alarms | `{OUTPUT_DIR}/alarms/stop-condition-alarms.json` | CloudWatch alarms |
 | Dashboard | `{OUTPUT_DIR}/alarms/dashboard.json` | CloudWatch dashboard |
-| Expected Behavior | `{OUTPUT_DIR}/expected-behavior.md` | Runtime reference |
 | README | `{OUTPUT_DIR}/README.md` | Experiment overview |
 
 ## CFN Deployment Status
@@ -544,8 +542,6 @@ After saving the file, print a brief summary to the terminal listing only:
   actions in the experiment, not broad FIS permissions.
 - **CFN template must be self-contained.** A user should be able to deploy the CFN
   template and get a working experiment without any other steps.
-- **expected-behavior.md is critical.** This is what the user reads during the
-  experiment to know if things are working as expected. Be thorough and specific.
 - **Sequential MCP calls.** All `aws___read_documentation` and
   `aws___search_documentation` calls must be sequential, never parallel.
   Retry up to 10 times on rate limit errors.
