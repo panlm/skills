@@ -19,18 +19,17 @@ monitor its progress, and generate a results report. Reads configuration from
 a prepared experiment directory whose CloudFormation stack has already been
 deployed.
 
+**CLI Reference:** See `references/cli-commands.md` for all AWS CLI commands.
+
 ## Output Language Rule
 
 Detect the language of the user's conversation and use the **same language** for all output.
-- Chinese input -> Chinese output
-- English input -> English output
 
 ## Prerequisites
 
-Required tools:
-- **AWS CLI** — `aws fis`, `aws cloudwatch`, `aws cloudformation`
+- **AWS CLI** with permissions for `fis`, `cloudwatch`, `cloudformation`
 - A prepared experiment directory (from aws-fis-experiment-prepare skill)
-- The CloudFormation stack for this experiment **must already be deployed**
+- The CloudFormation stack **must already be deployed**
 
 ## Workflow
 
@@ -50,8 +49,8 @@ digraph execute_flow {
     "Load experiment directory" -> "Validate files";
     "Validate files" -> "Read README for stack name";
     "Read README for stack name" -> "Check CFN stack status";
-    "Check CFN stack status" -> "Extract template ID from outputs" [label="CREATE_COMPLETE"];
-    "Check CFN stack status" -> "Generate results report" [label="Not deployed / failed, abort"];
+    "Check CFN stack status" -> "Extract template ID from outputs" [label="Ready"];
+    "Check CFN stack status" -> "Generate results report" [label="Not ready, abort"];
     "Extract template ID from outputs" -> "User confirms experiment start";
     "User confirms experiment start" -> "Start experiment" [label="Yes, I confirm"];
     "User confirms experiment start" -> "Generate results report" [label="No, abort"];
@@ -64,317 +63,93 @@ digraph execute_flow {
 
 ### Step 1: Load and Validate Experiment Directory
 
-The user provides the path to the experiment directory. Verify it contains the
-required files:
-
-```bash
-EXPERIMENT_DIR="{USER_PROVIDED_PATH}"
-
-# Required files
-ls "${EXPERIMENT_DIR}/experiment-template.json"
-ls "${EXPERIMENT_DIR}/iam-policy.json"
-ls "${EXPERIMENT_DIR}/cfn-template.yaml"
-ls "${EXPERIMENT_DIR}/README.md"
-ls "${EXPERIMENT_DIR}/expected-behavior.md"
-
-# Optional files
-ls "${EXPERIMENT_DIR}/alarms/stop-condition-alarms.json" 2>/dev/null
-ls "${EXPERIMENT_DIR}/alarms/dashboard.json" 2>/dev/null
-```
+Verify the experiment directory contains required files:
+- `experiment-template.json`, `iam-policy.json`, `cfn-template.yaml`
+- `README.md`, `expected-behavior.md`
+- Optional: `alarms/stop-condition-alarms.json`, `alarms/dashboard.json`
 
 ### Step 2: Read README and Extract Stack Information
 
-Read `README.md` from the experiment directory to extract:
+Read `README.md` to extract:
+1. **CFN Stack Name** — from `**CFN Stack:** {STACK_NAME}` line
+2. **Scenario name** — from H1 heading
+3. **Region, AZ, Duration** — from header metadata
+4. **Affected resources** — from the resources table
 
-1. **CFN Stack Name** — look for the line `**CFN Stack:** {STACK_NAME}` in the
-   README header block (near the top, after the H1 heading). This is the stack
-   name assigned by `aws-fis-experiment-prepare` during deployment.
-2. **Scenario name** — from the H1 heading (e.g., `# FIS Experiment: AZ Power Interruption`)
-3. **Target region** — from `**Region:** {REGION}`
-4. **Target AZ** — from `**Target AZ:** {AZ_ID}` (if applicable)
-5. **Estimated duration** — from `**Estimated Duration:** {DURATION}`
-6. **Affected resources** — from the "Affected Resources" table
-
-Present a summary to the user with all extracted information.
-
-**If the CFN Stack Name cannot be found in the README**, stop and inform the
-user that the stack name is missing. The experiment cannot proceed without it.
+**If stack name is missing**, stop and inform the user.
 
 ### Step 3: Check CloudFormation Stack Status
 
-Using the stack name extracted from the README, verify the stack is deployed:
+Verify the stack exists and is in a ready state (`CREATE_COMPLETE` or `UPDATE_COMPLETE`).
+See `references/cli-commands.md` for stack status commands and status reference.
 
-```bash
-STACK_NAME="{EXTRACTED_STACK_NAME}"
-REGION="{EXTRACTED_REGION}"
+**If not ready:** Show current status and reason, suggest running `aws-fis-experiment-prepare`.
+Do NOT deploy — this skill only verifies and executes.
 
-aws cloudformation describe-stacks \
-  --stack-name "${STACK_NAME}" \
-  --region ${REGION} \
-  --query 'Stacks[0].{
-    StackName: StackName,
-    StackStatus: StackStatus,
-    CreationTime: CreationTime,
-    Outputs: Outputs
-  }'
-```
+### Step 4: Extract Experiment Template ID
 
-**Check the `StackStatus` value:**
-
-| Status | Action |
-|---|---|
-| `CREATE_COMPLETE` | Stack is ready. Proceed to Step 4. |
-| `UPDATE_COMPLETE` | Stack is ready (was updated). Proceed to Step 4. |
-| `CREATE_IN_PROGRESS` | Stack is still deploying. Wait and re-check, or ask user to wait. |
-| `CREATE_FAILED` | Stack deployment failed. Show the failure reason and abort. |
-| `ROLLBACK_COMPLETE` | Stack creation failed and rolled back. Show reason and abort. |
-| `DELETE_COMPLETE` or not found | Stack does not exist. Inform user to deploy first. |
-| Any other status | Show the status and ask user how to proceed. |
-
-**If the stack is not in a ready state**, inform the user clearly:
-- Show the current stack status
-- Show the failure reason (if applicable)
-- Suggest running `aws-fis-experiment-prepare` to deploy the stack
-- Do NOT attempt to deploy the stack — this skill only checks and executes
-
-### Step 4: Extract Experiment Template ID from Stack Outputs
-
-```bash
-TEMPLATE_ID=$(aws cloudformation describe-stacks \
-  --stack-name "${STACK_NAME}" \
-  --query 'Stacks[0].Outputs[?OutputKey==`ExperimentTemplateId`].OutputValue' \
-  --output text --region ${REGION})
-
-echo "Experiment Template ID: ${TEMPLATE_ID}"
-```
-
-**If `ExperimentTemplateId` is not found in stack outputs**, check:
-- List all outputs and display them to the user
-- Ask the user which output contains the template ID
-- Common alternative output keys: `FISExperimentTemplateId`, `TemplateId`
-
-Also extract any other useful outputs (e.g., dashboard URL, alarm ARNs) and
-display them to the user.
+Get `ExperimentTemplateId` from stack outputs. Also extract dashboard URL if available.
 
 ### Step 5: Start Experiment (CRITICAL CONFIRMATION)
 
-**This is the most dangerous step. The experiment WILL affect real resources.**
+**This step affects real resources.** Present a clear warning showing:
+- Scenario, Region, AZ, Duration, Stack name, Template ID
+- Resources that WILL be affected
+- Stop conditions
 
-Before starting, present a clear warning:
-
-```
-WARNING: Starting this FIS experiment will cause REAL impact:
-
-Scenario:    {SCENARIO_NAME}
-Region:      {REGION}
-Target AZ:   {AZ_ID}
-Duration:    {DURATION}
-Stack:       {STACK_NAME} (verified: CREATE_COMPLETE)
-Template ID: {TEMPLATE_ID}
-
-Resources that WILL be affected:
-  - {list each affected resource type and count from README}
-
-Stop Conditions:
-  - {list each alarm that will stop the experiment}
-
-Type "Yes, start experiment" to proceed, or "No" to abort.
-```
-
-**Only proceed if the user explicitly confirms.**
-
-```bash
-aws fis start-experiment \
-  --experiment-template-id "${TEMPLATE_ID}" \
-  --region ${REGION}
-```
-
-Save the returned `experiment.id`.
+Require explicit confirmation: `"Yes, start experiment"` or `"No"`.
 
 ### Step 6: Monitor Experiment
 
-Poll the experiment status and display progress:
-
-```bash
-aws fis get-experiment \
-  --id "{EXPERIMENT_ID}" \
-  --region ${REGION} \
-  --query '{
-    State: experiment.state.status,
-    Reason: experiment.state.reason,
-    StartTime: experiment.startTime,
-    EndTime: experiment.endTime,
-    Actions: experiment.actions
-  }'
-```
+Poll experiment status. See `references/cli-commands.md` for polling commands.
 
 **Polling strategy:**
-- Poll every 30 seconds for the first 5 minutes
-- Poll every 60 seconds after that
-- Show current status after each poll
-- **Record timestamps** for each status change and action state transition — these
-  feed into the per-service timeline in the final report
-- **Track per-service events**: For each service in `expected-behavior.md`, note when
-  it was impacted (action started), when it recovered, and any intermediate states.
-  Query service-specific status (e.g., RDS instance status, ElastiCache replication
-  group status, EKS node status) during monitoring to capture detailed observations.
+- Every 30s for first 5 minutes, then every 60s
+- Record timestamps for status changes and action transitions
+- Track per-service events for the results report
 
-**Status values:**
-- `initiating` — Experiment is starting
-- `running` — Experiment is in progress
-- `completed` — Experiment finished successfully
-- `stopping` — Experiment is being stopped (by user or stop condition)
-- `stopped` — Experiment was stopped before completion
-- `failed` — Experiment failed
+**Remind user to:**
+- Check CloudWatch dashboard
+- Read `expected-behavior.md`
+- Stop command available if needed
 
-**During monitoring, remind the user:**
-- Check the CloudWatch dashboard for real-time metrics
-- Read `expected-behavior.md` to compare actual vs expected behavior
-- The experiment can be stopped at any time:
-  ```bash
-  aws fis stop-experiment --id "{EXPERIMENT_ID}" --region ${REGION}
-  ```
+### Step 7: Save Results Report
 
-### Step 7: Save Results Report to Local File
+Write results to `${TIMESTAMP}-${SCENARIO_SLUG}-experiment-results.md` in the experiment directory.
 
-After the experiment completes (any terminal state), generate a results report and
-**write it directly to a local markdown file** instead of outputting the full content
-to the terminal. Use the following file naming convention:
-
-```bash
-TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
-SCENARIO_SLUG=$(echo "{SCENARIO_NAME}" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-')
-# File name: ${TIMESTAMP}-${SCENARIO_SLUG}-experiment-results.md
-# Save the file in the experiment directory (${EXPERIMENT_DIR})
-```
-
-**Timeline emphasis:** Timestamps in the report header (Start Time, End Time) use full
-ISO 8601 with timezone (e.g., `2025-03-30T14:05:32+08:00`). However, in timeline tables
-and action results, use **time-only format in UTC** (e.g., `05:05:32`) — the report date
-is already in the header, so repeating the date on every row adds clutter. Mark the
-column header as "Time (UTC)" so the timezone is clear. No milliseconds anywhere. Timeline events are embedded directly
-into each service's impact analysis section — do NOT create a separate standalone
-timeline section. This allows readers to see the full picture (timeline + impact +
-findings) for each service without jumping between sections.
-
-**Per-service analysis:** Read `expected-behavior.md` from the experiment directory to
-identify all services under test. For each service, create a sub-section under
-"Per-Service Impact Analysis" that includes: (1) the timeline events relevant to that
-service, (2) observed behavior from monitoring, (3) key findings. Also check for
-indirectly affected services (e.g., MSK affected by network disruption) and include
-them.
-
-The results report file must include:
-
-```markdown
-## FIS Experiment Results
-
-**Experiment ID:** {EXPERIMENT_ID}
-**Template ID:**   {TEMPLATE_ID}
-**Stack:**         {STACK_NAME}
-**Status:**        {FINAL_STATUS}
-**Start Time:**    {START_TIME}
-**End Time:**      {END_TIME}
-**Duration:**      {ACTUAL_DURATION}
-
-### Action Results
-
-| Action | Action ID | Status | Start (UTC) | End (UTC) | Duration |
-|---|---|---|---|---|---|
-| {action_name} | {action_id} | {status} | {HH:MM:SS} | {HH:MM:SS} | {duration} |
-
-### Stop Condition Alarms
-
-| Alarm | Final Status |
-|---|---|
-| {alarm_name} | {OK/ALARM} |
-
-### Per-Service Impact Analysis
-
-For EACH service listed in expected-behavior.md, create a sub-section below.
-Also include indirectly affected services (e.g., services impacted by network
-disruption even without a dedicated FIS action).
-
-#### {Service Name} ({resource_identifier})
-
-| Time (UTC) | Event | Observation |
-|---|---|---|
-| {HH:MM:SS} | {event} | {what was observed at this point} |
-| {HH:MM:SS} | {event} | {observed result / status change} |
-| ... | ... | ... |
-
-**Key Findings:**
-- {finding_1 — what happened and why}
-- {finding_2 — recovery behavior}
-
-(Repeat for each service)
-
-### Recovery Status Summary
-
-| Resource | Recovery Status | Notes |
-|---|---|---|
-| {service} | {Recovered / Partially Recovered / Recovering} | {details} |
-
-### Issues Requiring Attention
-
-#### 1. {Issue title}
-- **Problem:** {description}
-- **Recommendation:** {action to take, with CLI command if applicable}
-
-### Cleanup
-
-{cleanup instructions with CLI commands — reference the stack name for CFN cleanup}
-```
-
-After saving the file, print a brief summary to the terminal listing only:
-- The file path of the saved results report
-- Experiment ID and final status
-- Start time, end time, and duration (all timestamps in ISO 8601 with timezone)
-- Per-action status (one line each)
-- Per-service recovery status (one line each)
-- Issues requiring attention (if any)
+**Report structure:**
+- Experiment metadata (ID, template, stack, status, times)
+- Action results table
+- Stop condition alarm status
+- **Per-service impact analysis** — for each service: timeline, observations, key findings
+- Recovery status summary
+- Issues requiring attention
 - Cleanup instructions
+
+**Terminal output:** Brief summary only (file path, status, per-service recovery, issues).
 
 ## Safety Rules
 
-1. **Never auto-start experiments.** Always require explicit user confirmation.
-2. **Show every CLI command** before executing it.
-3. **Display impact warning** before experiment start with specific resource list.
-4. **Provide abort instructions** at every step.
-5. **Never delete resources** without user confirmation.
-6. **Never deploy infrastructure.** This skill only checks existing deployments.
-7. **Recommend dry-run first** — suggest the user review all files before starting.
+1. **Never auto-start** — require explicit user confirmation
+2. **Show every CLI command** before executing
+3. **Display impact warning** with resource list before start
+4. **Provide abort instructions** at every step
+5. **Never delete resources** without confirmation
+6. **Never deploy infrastructure** — only verify existing deployments
 
 ## Cleanup Guide
 
-After the experiment, offer cleanup:
-
-### CFN Cleanup (Recommended)
-```bash
-aws cloudformation delete-stack --stack-name "${STACK_NAME}" --region ${REGION}
-aws cloudformation wait stack-delete-complete --stack-name "${STACK_NAME}" --region ${REGION}
-```
-
-### Manual Resource Cleanup (if individual resources exist outside the stack)
-```bash
-# Delete experiment template
-aws fis delete-experiment-template --id "${TEMPLATE_ID}" --region ${REGION}
-
-# Delete CloudWatch alarms
-aws cloudwatch delete-alarms --alarm-names "FIS-StopCondition-{SCENARIO}-{SERVICE}" --region ${REGION}
-
-# Delete CloudWatch dashboard
-aws cloudwatch delete-dashboards --dashboard-names "FIS-{SCENARIO}" --region ${REGION}
-```
+After the experiment, offer cleanup. See `references/cli-commands.md` for cleanup commands.
+- **Recommended:** Delete the CFN stack (removes all resources)
+- **Manual:** Delete individual resources if needed
 
 ## Error Handling
 
-| Error | Cause | Resolution |
-|---|---|---|
-| Stack name not found in README | README missing `**CFN Stack:**` field | Check if the experiment was prepared with a recent version of aws-fis-experiment-prepare |
-| Stack not found (`ValidationError`) | Stack does not exist or was deleted | Deploy the stack first using aws-fis-experiment-prepare |
-| Stack in `CREATE_FAILED` / `ROLLBACK_COMPLETE` | Stack deployment failed | Check stack events for failure reason, fix and redeploy |
-| `ExperimentTemplateId` not in outputs | Stack template missing output | Check cfn-template.yaml for the output definition |
-| `AccessDeniedException` | Insufficient permissions | Check IAM permissions for FIS, CloudWatch, CloudFormation |
-| `ResourceNotFoundException` on targets | Tagged resources not found | Verify resource tags match experiment template |
-| Experiment stuck in `initiating` | IAM role propagation delay | Wait 30 seconds and check again |
+| Error | Resolution |
+|---|---|
+| Stack name not in README | Check if prepared with recent aws-fis-experiment-prepare |
+| Stack not found | Deploy first using aws-fis-experiment-prepare |
+| Stack failed | Check stack events, fix and redeploy |
+| Template ID not in outputs | Check cfn-template.yaml output definition |
+| `AccessDeniedException` | Check IAM permissions |
+| Experiment stuck in `initiating` | Wait 30 seconds (IAM propagation delay) |
