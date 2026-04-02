@@ -73,6 +73,60 @@ npx skills add panlm/skills --list
 
 </details>
 
+## 最小权限建议
+
+在运行 FIS 实验和 EKS 相关 Skills 之前，建议按最小权限原则配置以下权限。
+
+### 1. 启用 EKS API 认证模式
+
+FIS Pod 故障注入 Action（如 `aws:eks:pod-delete`、`aws:eks:pod-network-latency`）要求 EKS 集群支持 API 认证。将认证模式设置为 `API_AND_CONFIG_MAP`，同时兼容 `aws-auth` ConfigMap 和 EKS Access Entry：
+
+```bash
+aws eks update-cluster-config \
+  --name <cluster-name> \
+  --access-config authenticationMode=API_AND_CONFIG_MAP
+```
+
+> **为什么选两者兼容？** `API_AND_CONFIG_MAP` 保持与已有 `aws-auth` ConfigMap 映射的向后兼容，同时启用 FIS 和 CloudFormation（`AWS::EKS::AccessEntry`）所需的新版 Access Entry API。
+
+### 2. 授予 EC2 实例角色访问 EKS 的权限
+
+如果从 EC2 实例（如 Cloud9、堡垒机）运行这些 Skills，实例的 IAM 角色需要 EKS 集群的访问权限。为 EC2 角色创建 EKS Access Entry：
+
+```bash
+aws eks create-access-entry \
+  --cluster-name <cluster-name> \
+  --principal-arn arn:aws:iam::<account-id>:role/<ec2-role-name> \
+  --type STANDARD
+
+aws eks associate-access-policy \
+  --cluster-name <cluster-name> \
+  --principal-arn arn:aws:iam::<account-id>:role/<ec2-role-name> \
+  --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy \
+  --access-scope type=cluster
+```
+
+> 请根据实际需要调整访问策略和范围。此处使用 `AmazonEKSClusterAdminPolicy` + cluster 范围仅为演示 — 生产环境建议使用更严格的策略（如 `AmazonEKSEditPolicy` 并限定到特定命名空间）。
+
+### 3. 创建 CloudFormation 服务角色
+
+FIS 准备 Skill 通过 CloudFormation 部署 Stack，其中包含 IAM 角色、CloudWatch 资源和 FIS 实验模板。建议创建专用的 CloudFormation 服务角色，而不是使用自身的宽泛权限。
+
+参见配置指南：https://panlm.github.io/others/cfn-service-role-for-fis-experiment-setup-guide/
+
+部署 Stack 时传入 `--role-arn`：
+
+```bash
+aws cloudformation deploy \
+  --template-file cfn-template.yaml \
+  --stack-name <stack-name> \
+  --role-arn arn:aws:iam::<account-id>:role/CloudFormationFISServiceRole \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region <region>
+```
+
+> **好处：** 调用者只需 `cloudformation:*` 和 `iam:PassRole` 权限，所有资源创建都委托给服务角色，缩小影响范围。
+
 ## 贡献指南
 
 添加新 Skill，请在 `skills/` 下创建目录并包含 `SKILL.md` 文件：
