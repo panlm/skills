@@ -141,14 +141,15 @@ SERVICE_APP_MAP:
 
 ### Step 4: Log Collection
 
+> **Important:** 生成 shell 命令时，**必须用多行脚本**，**禁止用 `&&` 把所有命令串成一行**。
+> 单行 `&&` 链接会导致变量（如 `LOG_DIR`）在后台进程 `&` 后丢失，路径变成 `/.pids`。
+
 #### Real-time Mode: Background Collection
 
 For each application, start a background `kubectl logs -f` process:
 
 ```bash
-# Create output directory structure with timestamp for multiple runs
-LOG_TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
-LOG_DIR="${EXPERIMENT_DIR}/${LOG_TIMESTAMP}-app-logs"
+export LOG_DIR="${EXPERIMENT_DIR}/$(date +%Y-%m-%d-%H-%M-%S)-app-logs"
 mkdir -p "${LOG_DIR}/rds-cluster-xxx"
 mkdir -p "${LOG_DIR}/elasticache-redis-xxx"
 
@@ -161,8 +162,6 @@ for app in ${APPS[@]}; do
     kubectl logs -f deployment/${DEPLOYMENT} -n ${NAMESPACE} \
         --timestamps --all-containers=true \
         >> "${SERVICE_DIR}/${DEPLOYMENT}.log" 2>&1 &
-
-    # Store PID for cleanup
     echo $! >> "${LOG_DIR}/.pids"
 done
 ```
@@ -170,7 +169,8 @@ done
 #### Post-hoc Mode: Batch Fetch
 
 ```bash
-# Fetch logs for the experiment time window
+export LOG_DIR="${EXPERIMENT_DIR}/$(date +%Y-%m-%d-%H-%M-%S)-app-logs"
+
 kubectl logs deployment/${DEPLOYMENT} -n ${NAMESPACE} \
     --timestamps --all-containers=true \
     --since-time="${START_TIME}" \
@@ -347,6 +347,7 @@ trap cleanup_log_collectors EXIT
 
 | Error | Cause | Resolution |
 |-------|-------|------------|
+| `/.pids: Permission denied` | `LOG_DIR` variable empty due to `&&` chain — path resolves to `/.pids` | Use `export LOG_DIR=...` with multi-line script, NOT `&&` chains. See Step 4 notes. |
 | `kubectl: command not found` | kubectl not installed | Install kubectl and configure kubeconfig |
 | `error: You must be logged in` | kubeconfig not configured | Run `aws eks update-kubeconfig --name {cluster}` |
 | `No resources found` | Deployment/pod doesn't exist | Verify deployment name and namespace |
