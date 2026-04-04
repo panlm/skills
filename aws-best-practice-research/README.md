@@ -20,6 +20,7 @@ When configuring AWS services for production, engineers need to verify their set
 |-----------|-------------|-------|
 | [aws-knowledge-mcp-server](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) | Checklist compilation (Steps 1-7) | Provides `aws___search_documentation`, `aws___read_documentation`, `aws___recommend` tools |
 | AWS CLI (`aws`) | Live assessment only (Step 8) | Must be configured with read access to the target service |
+| jq | Live assessment only (Step 8) | For parsing JSON output from AWS CLI commands |
 | AWS credentials + region + resource ID | Live assessment only (Step 8) | Can be provided via env vars, profile, or credential file |
 
 ## Workflow Overview

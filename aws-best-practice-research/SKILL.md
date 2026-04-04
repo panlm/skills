@@ -24,8 +24,9 @@ This skill requires the **[aws knowledge mcp server](https://github.com/awslabs/
 - `aws___read_documentation` — read full documentation pages
 - `aws___recommend` — get related documentation recommendations
 
-For the optional live assessment (Step 8), the **AWS CLI** (`aws`) must be available and
-configured with credentials that have read access to the target service.
+For the optional live assessment (Step 8):
+- **AWS CLI** (`aws`) — must be configured with credentials that have read access to the target service
+- **jq** — for parsing JSON output from AWS CLI commands
 
 ## Workflow
 
