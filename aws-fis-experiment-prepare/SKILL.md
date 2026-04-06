@@ -109,11 +109,18 @@ definitions, and parameter values.
 3. Use that JSON as the base template, replacing placeholders with the user's actual
    resource values (AZ, ARNs, etc.)
 
-**IMPORTANT: Use `resourceArns` instead of `resourceTags` for all non-pod targets.**
-Although the AWS documentation examples use `resourceTags`, this skill MUST convert
-targets to `resourceArns` (specifying exact resource ARNs). This is more precise,
-avoids requiring the user to pre-tag resources, and eliminates tag-matching errors.
-The only exception is EKS pod actions, which use Kubernetes namespace + pod labels.
+**IMPORTANT: Prefer `resourceArns` over `resourceTags` for target identification.**
+Use `resourceArns` (exact resource ARNs) whenever the resource type supports it — this
+is more precise and avoids requiring pre-tagged resources. However, some FIS resource
+types do NOT support `resourceArns` and require `resourceTags` instead.
+
+**Known resource types that do NOT support `resourceArns`:**
+- `aws:elasticache:replicationgroup`
+- `aws:ec2:autoscaling-group`
+
+For these types, use `resourceTags` to identify targets. For all other non-pod resource
+types (EC2 instances, RDS clusters, subnets, IAM roles, etc.), use `resourceArns`.
+EKS pod actions use Kubernetes namespace + pod labels (no `resourceArns` or `resourceTags`).
 4. Cross-reference with `references/scenario-templates.md` for additional skeleton context
 5. Proceed to resource discovery and compatibility validation as normal
 
@@ -627,11 +634,10 @@ After saving the file, print a brief summary to the terminal listing only:
   `aws fis get-action` to confirm actions exist in the target region before
   generating templates.
 - **Don't fabricate action IDs.** If an action doesn't exist, say so clearly.
-- **Use `resourceArns` for all non-pod targets.** Always specify exact resource ARNs
-  in the experiment template targets instead of `resourceTags`. This avoids requiring
-  users to pre-tag resources and eliminates tag-matching errors. Resolve user-provided
-  identifiers (instance IDs, cluster names, etc.) to full ARNs via AWS CLI. The only
-  exception is EKS pod actions, which use Kubernetes namespace + pod labels.
+- **Prefer `resourceArns` over `resourceTags` for targets.** Use exact resource ARNs
+  when the resource type supports it. Some types (e.g., `aws:elasticache:replicationgroup`,
+  `aws:ec2:autoscaling-group`) do NOT support `resourceArns` — use `resourceTags` for
+  those. EKS pod actions use Kubernetes namespace + pod labels.
 - **IAM policy must be least-privilege.** Only include permissions for the specific
   actions in the experiment, not broad FIS permissions.
 - **CFN template must be self-contained.** A user should be able to deploy the CFN

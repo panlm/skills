@@ -65,7 +65,9 @@ to simulate a complete AZ power failure.
         },
         "asg-target": {
             "resourceType": "aws:ec2:autoscaling-group",
-            "resourceArns": ["{ASG_ARN}"],
+            "resourceTags": {
+                "{TAG_KEY}": "{ASG_TAG_VALUE}"
+            },
             "selectionMode": "ALL"
         },
         "subnet-target": {
@@ -80,7 +82,9 @@ to simulate a complete AZ power failure.
         },
         "elasticache-target": {
             "resourceType": "aws:elasticache:replicationgroup",
-            "resourceArns": ["{ELASTICACHE_REPLICATION_GROUP_ARN}"],
+            "resourceTags": {
+                "{TAG_KEY}": "{ELASTICACHE_TAG_VALUE}"
+            },
             "selectionMode": "ALL"
         }
     },
