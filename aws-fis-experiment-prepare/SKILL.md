@@ -121,6 +121,13 @@ types do NOT support `resourceArns` and require `resourceTags` instead.
 For these types, use `resourceTags` to identify targets. For all other non-pod resource
 types (EC2 instances, RDS clusters, subnets, IAM roles, etc.), use `resourceArns`.
 EKS pod actions use Kubernetes namespace + pod labels (no `resourceArns` or `resourceTags`).
+
+**`resourceArns` and `filters` are mutually exclusive.** When using `resourceArns`,
+do NOT add `filters` (e.g., AZ filter) to the same target — FIS will reject it with
+`"You cannot specify both resource ARNs and filters"`. If you need AZ-scoped targeting,
+either:
+- Use `resourceArns` with only the specific ARNs in the target AZ (preferred), or
+- Use `resourceTags` + `filters` together (fallback)
 4. Cross-reference with `references/scenario-templates.md` for additional skeleton context
 5. Proceed to resource discovery and compatibility validation as normal
 
@@ -708,6 +715,9 @@ After saving the file, print a brief summary to the terminal listing only:
   when the resource type supports it. Some types (e.g., `aws:elasticache:replicationgroup`,
   `aws:ec2:autoscaling-group`) do NOT support `resourceArns` — use `resourceTags` for
   those. EKS pod actions use Kubernetes namespace + pod labels.
+- **Never combine `resourceArns` with `filters`.** FIS rejects targets that specify
+  both. When using `resourceArns`, select only the specific ARNs you need (e.g., only
+  subnets in the target AZ). Use `filters` only with `resourceTags`.
 - **IAM policy must be least-privilege.** Only include permissions for the specific
   actions in the experiment, not broad FIS permissions.
 - **CFN template must be self-contained.** A user should be able to deploy the CFN
