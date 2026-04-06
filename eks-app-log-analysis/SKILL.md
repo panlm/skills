@@ -65,262 +65,103 @@ The user provides either:
 - **Directory path** (e.g., `./2026-03-31-14-30-22-az-power-interruption-my-cluster/`) → Real-time mode
 - **Report file path** (e.g., `./2026-03-31-...-experiment-results.md`) → Post-hoc mode
 
-#### Real-time Mode Detection
+**Real-time mode:** The directory contains a `README.md` from the prepare skill.
+Extract the experiment template ID and region from it.
 
-```bash
-# Check if input is a directory with README.md
-if [ -d "${INPUT_PATH}" ] && [ -f "${INPUT_PATH}/README.md" ]; then
-    MODE="realtime"
-    # Extract template ID from README
-    TEMPLATE_ID=$(grep -oP 'experiment-template-id["\s:]+\K[A-Za-z0-9-]+' "${INPUT_PATH}/README.md" || \
-                  grep -oP 'ExperimentTemplateId["\s:]+\K[A-Za-z0-9-]+' "${INPUT_PATH}/README.md")
-    REGION=$(grep -oP 'Region:["\s]+\K[a-z0-9-]+' "${INPUT_PATH}/README.md")
-fi
-```
-
-#### Post-hoc Mode Detection
-
-```bash
-# Check if input is an experiment results file
-if [ -f "${INPUT_PATH}" ] && grep -q "FIS Experiment Results" "${INPUT_PATH}"; then
-    MODE="posthoc"
-    # Extract time range from report
-    START_TIME=$(grep -oP 'Start Time:["\s]+\K[0-9T:+-]+' "${INPUT_PATH}")
-    END_TIME=$(grep -oP 'End Time:["\s]+\K[0-9T:+-]+' "${INPUT_PATH}")
-    EXPERIMENT_ID=$(grep -oP 'Experiment ID:["\s]+\K[A-Za-z0-9-]+' "${INPUT_PATH}")
-fi
-```
+**Post-hoc mode:** The file is an experiment results report (contains "FIS Experiment
+Results"). Extract experiment ID, start time, end time, and region from it.
 
 ### Step 2: Read Service List
 
-Extract affected services from `expected-behavior.md` (real-time) or the experiment report (post-hoc).
+Extract affected AWS services from:
+- `expected-behavior.md` in the experiment directory (real-time mode), or
+- the experiment results report (post-hoc mode)
 
-```bash
-# From expected-behavior.md - look for "### {Service Name}" sections
-grep -oP '### \K[A-Za-z0-9 ]+(?= \()' "${EXPERIMENT_DIR}/expected-behavior.md"
-
-# From experiment report - look for "#### {Service Name}" in Per-Service Impact Analysis
-grep -oP '#### \K[A-Za-z0-9 ]+(?= \()' "${REPORT_PATH}"
-```
-
-Present the service list to user:
-
-```
-Detected affected services from the experiment:
-1. RDS (cluster-xxx)
-2. ElastiCache (redis-xxx)
-3. EC2 (instances in ap-northeast-1a)
-
-For each service, please provide the EKS applications that depend on it.
-```
+Look for service name headings (e.g., "### RDS (cluster-xxx)") to build the list.
+Present the detected service list to the user.
 
 ### Step 3: Collect Application Dependencies
 
 #### 3a. Auto-Discover Potential Dependencies
 
-Before asking the user, attempt to automatically discover EKS applications that
-may depend on each affected AWS service. For each service, scan the cluster for
-clues:
+For each affected AWS service, automatically discover EKS applications that may
+depend on it:
 
-```bash
-# For RDS/Aurora: search for endpoint hostname in pod env vars and ConfigMaps
-RDS_ENDPOINT=$(aws rds describe-db-clusters --db-cluster-identifier {CLUSTER_ID} \
-  --query 'DBClusters[0].Endpoint' --output text --region ${TARGET_REGION})
-
-# Search all pods for env vars containing the RDS endpoint
-kubectl get pods --all-namespaces -o json | \
-  jq -r --arg ep "${RDS_ENDPOINT}" \
-  '.items[] | select(.spec.containers[].env[]?.value // "" | contains($ep)) |
-   "\(.metadata.namespace)/\(.metadata.ownerReferences[0].name // .metadata.name)"' | sort -u
-
-# Search ConfigMaps for the endpoint
-kubectl get configmaps --all-namespaces -o json | \
-  jq -r --arg ep "${RDS_ENDPOINT}" \
-  '.items[] | select(.data // {} | to_entries[] | .value | contains($ep)) |
-   "\(.metadata.namespace)/\(.metadata.name)"' | sort -u
-```
-
-```bash
-# For ElastiCache: search for primary endpoint
-REDIS_ENDPOINT=$(aws elasticache describe-replication-groups \
-  --replication-group-id {RG_ID} \
-  --query 'ReplicationGroups[0].NodeGroups[0].PrimaryEndpoint.Address' \
-  --output text --region ${TARGET_REGION})
-
-# Same pattern: search pods and ConfigMaps for the endpoint
-```
-
-For other service types, adapt the endpoint discovery accordingly (e.g., EC2
-private IP/DNS, NLB/ALB DNS name).
-
-**Present discovered candidates to the user:**
-
-```
-Based on cluster scanning, I found the following apps that may depend on
-RDS (cluster-xxx):
-  - production/api-server (env var DB_HOST matches RDS endpoint)
-  - default/app-backend (ConfigMap db-config references RDS endpoint)
-
-For ElastiCache (redis-xxx):
-  - default/cache-layer (env var REDIS_URL matches ElastiCache endpoint)
-```
+1. Get the service's endpoint (e.g., RDS cluster endpoint, ElastiCache primary
+   endpoint, EC2 private IP/DNS) via AWS CLI
+2. Search all pod environment variables across namespaces for references to that
+   endpoint
+3. Search ConfigMaps across namespaces for references to that endpoint
+4. Present discovered `namespace/deployment` candidates to the user, noting where
+   the match was found (env var name, ConfigMap name)
 
 #### 3b. User Confirmation and Manual Supplement
 
 Ask the user to confirm the auto-discovered dependencies and add any that were
-missed:
-
-```
-Are these correct? Please also add any applications I may have missed.
-Format: namespace/deployment or namespace/pod-label-selector
-
->
-```
-
-Store the mapping:
-```
-SERVICE_APP_MAP:
-  rds-cluster-xxx:
-    - namespace: default
-      deployment: app-backend
-    - namespace: production
-      deployment: api-server
-  elasticache-redis-xxx:
-    - namespace: default
-      deployment: cache-layer
-```
+missed. Store the final mapping as `SERVICE_APP_MAP` (service → list of
+namespace/deployment pairs).
 
 ### Step 4: Log Collection
 
-> **Important:** 生成 shell 命令时，**必须用多行脚本**，**禁止用 `&&` 把所有命令串成一行**。
-> 单行 `&&` 链接会导致变量（如 `LOG_DIR`）在后台进程 `&` 后丢失，路径变成 `/.pids`。
+> **Shell scripting rule:** Use multi-line scripts. Do NOT chain commands with `&&`
+> on a single line — variables get lost after background `&` processes.
+
+All logs should be saved to a temp directory: `/tmp/{timestamp}-fis-app-logs/`,
+organized by service name subdirectories.
 
 #### Real-time Mode: Background Collection
 
-For each application, use `--selector` to collect logs from all matching pods.
-This is more robust than `deployment/xxx` because it captures logs from all pods
-with the matching labels, including pods recreated during the experiment.
+For each application in `SERVICE_APP_MAP`, start a background `kubectl logs -f` process:
 
-First, resolve the deployment's label selector:
-
-```bash
-# Save logs to a temp directory (not the experiment dir or current dir)
-export LOG_DIR="/tmp/$(date +%Y-%m-%d-%H-%M-%S)-fis-app-logs"
-mkdir -p "${LOG_DIR}/rds-cluster-xxx"
-mkdir -p "${LOG_DIR}/elasticache-redis-xxx"
-
-# Start background log collection for each app
-for app in ${APPS[@]}; do
-    NAMESPACE=$(echo $app | cut -d'/' -f1)
-    DEPLOYMENT=$(echo $app | cut -d'/' -f2)
-    SERVICE_DIR="${LOG_DIR}/${SERVICE_NAME}"
-
-    # Resolve the deployment's pod selector labels
-    SELECTOR=$(kubectl get deployment "${DEPLOYMENT}" -n "${NAMESPACE}" \
-      -o jsonpath='{.spec.selector.matchLabels}' | \
-      jq -r 'to_entries | map("\(.key)=\(.value)") | join(",")')
-
-    kubectl logs -f --selector="${SELECTOR}" -n ${NAMESPACE} \
-        --timestamps --all-containers=true --prefix=true --max-log-requests=20 \
-        >> "${SERVICE_DIR}/${DEPLOYMENT}.log" 2>&1 &
-    echo $! >> "${LOG_DIR}/.pids"
-done
-```
-
-> **Why `--selector` over `deployment/xxx`:**
-> - `deployment/xxx` only streams logs from pods that exist at invocation time;
->   if pods restart during a fault injection, the stream dies silently.
-> - `--selector` matches all current pods with those labels.
-> - `--prefix=true` prepends the pod name to each line, making it easy to
->   distinguish which pod emitted each log entry.
-> - `--max-log-requests=20` raises the default concurrent log stream limit
->   (default 5) to handle deployments with more replicas.
+1. Resolve the deployment's pod label selector from `.spec.selector.matchLabels`
+2. Use `kubectl logs -f --selector={labels}` (NOT `deployment/xxx`) — this captures
+   logs from all matching pods, including those recreated during the experiment
+3. Add `--timestamps --all-containers=true --prefix=true --max-log-requests=20`
+4. Append output to `{LOG_DIR}/{service-name}/{deployment}.log`
+5. Record each background PID to `{LOG_DIR}/.pids` for cleanup
 
 #### Post-hoc Mode: Batch Fetch
 
-```bash
-# Save logs to a temp directory (not the experiment dir or current dir)
-export LOG_DIR="/tmp/$(date +%Y-%m-%d-%H-%M-%S)-fis-app-logs"
+In post-hoc mode, pods may have been terminated during the experiment. First detect
+whether Container Insights is available, then choose the log source accordingly.
 
-# Resolve selector same as above
-SELECTOR=$(kubectl get deployment "${DEPLOYMENT}" -n "${NAMESPACE}" \
-  -o jsonpath='{.spec.selector.matchLabels}' | \
-  jq -r 'to_entries | map("\(.key)=\(.value)") | join(",")')
+**Step 4a: Detect Container Insights**
 
-kubectl logs --selector="${SELECTOR}" -n ${NAMESPACE} \
-    --timestamps --all-containers=true --prefix=true --max-log-requests=20 \
-    --since-time="${START_TIME}" \
-    > "${SERVICE_DIR}/${DEPLOYMENT}.log" 2>&1
-```
+Check whether the EKS cluster has Container Insights enabled:
+- Look for `amazon-cloudwatch-observability` EKS addon (via `aws eks describe-addon`)
+- Or check for CloudWatch agent / Fluent Bit daemonset in `amazon-cloudwatch` namespace
+
+**Step 4b: CloudWatch Logs (preferred, if Container Insights is enabled)**
+
+Query CloudWatch Logs Insights against the log group
+`/aws/containerinsights/{CLUSTER_NAME}/application` for the experiment time window
+(`START_TIME` to `END_TIME`). Filter by `kubernetes.namespace_name` and
+`kubernetes.labels.app` (or pod name pattern) for each deployment. This captures
+complete logs including from pods that no longer exist.
+
+**Step 4c: kubectl logs (fallback, no Container Insights)**
+
+Use `kubectl logs --selector={labels} --since-time={START_TIME}` with the same
+flags as real-time mode (without `-f`). Note: this only retrieves logs from
+currently running pods — logs from pods terminated during the experiment are lost.
 
 ### Step 5: Real-time Monitoring Display
 
-Poll every 30 seconds and display insights per service group:
+Poll every 30 seconds while the experiment is running. For each service group and
+each application:
 
-```bash
-while experiment_is_running; do
-    clear_screen_section
-
-    for SERVICE in ${SERVICES[@]}; do
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "[$(date +%H:%M:%S)] ${SERVICE} Impact Analysis"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-        for APP in ${SERVICE_APPS[$SERVICE]}; do
-            LOG_FILE="${LOG_DIR}/${SERVICE}/${APP}.log"
-
-            # Get last 30 seconds of logs
-            RECENT_LOGS=$(tail -1000 "$LOG_FILE" | awk -v cutoff="$(date -d '30 seconds ago' +%Y-%m-%dT%H:%M:%S)" '$1 >= cutoff')
-
-            # Count errors
-            ERROR_COUNT=$(echo "$RECENT_LOGS" | grep -ciE 'error|exception|fail|refused|timeout')
-            WARN_COUNT=$(echo "$RECENT_LOGS" | grep -ciE 'warn|retry')
-
-            echo ""
-            echo "▶ ${APP} (last 30s: ${ERROR_COUNT} errors, ${WARN_COUNT} warnings)"
-            echo "┌─────────────────────────────────────────────────────────────┐"
-
-            # Show 5 most relevant log lines (errors first)
-            echo "$RECENT_LOGS" | grep -iE 'error|exception|fail|refused|timeout' | tail -5
-
-            echo "└─────────────────────────────────────────────────────────────┘"
-
-            # Generate insight
-            if [ $ERROR_COUNT -gt 0 ]; then
-                FIRST_ERROR=$(echo "$RECENT_LOGS" | grep -iE 'error|exception' | head -1 | cut -d' ' -f1)
-                LAST_ERROR=$(echo "$RECENT_LOGS" | grep -iE 'error|exception' | tail -1 | cut -d' ' -f1)
-                echo "💡 Insight: ${ERROR_COUNT} errors between ${FIRST_ERROR} - ${LAST_ERROR}"
-
-                # Detect recovery
-                if echo "$RECENT_LOGS" | tail -5 | grep -qiE 'connected|restored|success|recovered'; then
-                    echo "✅ Recovery signal detected in recent logs"
-                fi
-            else
-                echo "✅ No errors detected"
-            fi
-        done
-    done
-
-    sleep 30
-done
-```
+1. Read the last 30 seconds of collected logs from the log file
+2. Count error-level entries (match: `error`, `exception`, `fail`, `refused`, `timeout`)
+   and warning-level entries (match: `warn`, `retry`)
+3. Display a per-app summary: error count, warning count, last 5 error lines
+4. Detect recovery signals (`connected`, `restored`, `success`, `recovered`) in
+   recent lines and report if found
 
 ### Step 6: Check Experiment Status (Real-time Mode)
 
-```bash
-check_experiment_status() {
-    # Query running experiments for this template
-    RUNNING=$(aws fis list-experiments \
-        --query "experiments[?experimentTemplateId=='${TEMPLATE_ID}' && state.status=='running']" \
-        --region ${REGION} --output json)
-
-    if [ "$(echo $RUNNING | jq length)" -gt 0 ]; then
-        return 0  # Still running
-    else
-        return 1  # Completed or not started
-    fi
-}
-```
+Use `aws fis list-experiments` to check if the experiment with the matching
+template ID is still in `running` state. When the experiment completes (or is not
+found), proceed to report generation.
 
 ### Step 7: Generate Analysis Report
 
@@ -410,21 +251,8 @@ These files will persist until the system clears `/tmp`.
 
 ### Step 8: Cleanup (Real-time Mode)
 
-Stop all background log collection processes:
-
-```bash
-cleanup_log_collectors() {
-    if [ -f "${LOG_DIR}/.pids" ]; then
-        while read pid; do
-            kill $pid 2>/dev/null
-        done < "${LOG_DIR}/.pids"
-        rm "${LOG_DIR}/.pids"
-    fi
-}
-
-# Register cleanup on exit
-trap cleanup_log_collectors EXIT
-```
+Kill all background `kubectl logs` processes recorded in `{LOG_DIR}/.pids`.
+Remove the PID file after cleanup.
 
 ## Error Handling
 
