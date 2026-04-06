@@ -111,7 +111,8 @@ aws cloudformation deploy \
   --template-file cfn-template.yaml \
   --stack-name {STACK_NAME} \
   --capabilities CAPABILITY_NAMED_IAM \
-  --region {REGION}
+  --region {REGION} \
+  ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
 
 # After stack creation, start the experiment:
 TEMPLATE_ID=$(aws cloudformation describe-stacks \
@@ -134,7 +135,7 @@ aws fis start-experiment \
 ### CFN cleanup (recommended):
 ```bash
 # Delete the entire stack (removes all resources including IAM role, alarms, dashboard):
-aws cloudformation delete-stack --stack-name {STACK_NAME} --region {REGION}
+aws cloudformation delete-stack --stack-name {STACK_NAME} --region {REGION} ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
 
 # Wait for deletion to complete:
 aws cloudformation wait stack-delete-complete --stack-name {STACK_NAME} --region {REGION}

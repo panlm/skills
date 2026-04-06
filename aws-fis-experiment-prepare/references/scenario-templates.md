@@ -38,14 +38,8 @@ to simulate a complete AZ power failure.
     "targets": {
         "instances-target": {
             "resourceType": "aws:ec2:instance",
-            "resourceTags": {
-                "{TAG_KEY}": "{TAG_VALUE}"
-            },
+            "resourceArns": ["{EC2_INSTANCE_ARN_1}", "{EC2_INSTANCE_ARN_2}"],
             "filters": [
-                {
-                    "path": "Placement.AvailabilityZone",
-                    "values": ["{AZ_ID}"]
-                },
                 {
                     "path": "State.Name",
                     "values": ["running"]
@@ -55,14 +49,8 @@ to simulate a complete AZ power failure.
         },
         "asg-instances-target": {
             "resourceType": "aws:ec2:instance",
-            "resourceTags": {
-                "{TAG_KEY}": "{ASG_TAG_VALUE}"
-            },
+            "resourceArns": ["{ASG_INSTANCE_ARN_1}", "{ASG_INSTANCE_ARN_2}"],
             "filters": [
-                {
-                    "path": "Placement.AvailabilityZone",
-                    "values": ["{AZ_ID}"]
-                },
                 {
                     "path": "State.Name",
                     "values": ["running"]
@@ -77,36 +65,22 @@ to simulate a complete AZ power failure.
         },
         "asg-target": {
             "resourceType": "aws:ec2:autoscaling-group",
-            "resourceTags": {
-                "{TAG_KEY}": "{ASG_TAG_VALUE}"
-            },
+            "resourceArns": ["{ASG_ARN}"],
             "selectionMode": "ALL"
         },
         "subnet-target": {
             "resourceType": "aws:ec2:subnet",
-            "resourceTags": {
-                "{TAG_KEY}": "{SUBNET_TAG_VALUE}"
-            },
-            "filters": [
-                {
-                    "path": "AvailabilityZone",
-                    "values": ["{AZ_ID}"]
-                }
-            ],
+            "resourceArns": ["{SUBNET_ARN_1}", "{SUBNET_ARN_2}"],
             "selectionMode": "ALL"
         },
         "rds-cluster-target": {
             "resourceType": "aws:rds:cluster",
-            "resourceTags": {
-                "{TAG_KEY}": "{RDS_TAG_VALUE}"
-            },
+            "resourceArns": ["{RDS_CLUSTER_ARN}"],
             "selectionMode": "ALL"
         },
         "elasticache-target": {
             "resourceType": "aws:elasticache:replicationgroup",
-            "resourceTags": {
-                "{TAG_KEY}": "{ELASTICACHE_TAG_VALUE}"
-            },
+            "resourceArns": ["{ELASTICACHE_REPLICATION_GROUP_ARN}"],
             "selectionMode": "ALL"
         }
     },
@@ -227,15 +201,7 @@ Adds latency between resources within a single AZ.
     "targets": {
         "ec2-instances": {
             "resourceType": "aws:ec2:instance",
-            "resourceTags": {
-                "{TAG_KEY}": "{TAG_VALUE}"
-            },
-            "filters": [
-                {
-                    "path": "Placement.AvailabilityZone",
-                    "values": ["{AZ_ID}"]
-                }
-            ],
+            "resourceArns": ["{EC2_INSTANCE_ARN_1}", "{EC2_INSTANCE_ARN_2}"],
             "selectionMode": "ALL"
         }
     },
@@ -292,9 +258,7 @@ For custom FIS actions, use this generic template:
     "targets": {
         "{TARGET_NAME}": {
             "resourceType": "{RESOURCE_TYPE}",
-            "resourceTags": {
-                "{TAG_KEY}": "{TAG_VALUE}"
-            },
+            "resourceArns": ["{RESOURCE_ARN}"],
             "selectionMode": "{SELECTION_MODE}"
         }
     },
@@ -340,7 +304,7 @@ Simple single-action scenarios using SSM documents.
     "targets": {
         "instances": {
             "resourceType": "aws:ec2:instance",
-            "resourceTags": {"{TAG_KEY}": "{TAG_VALUE}"},
+            "resourceArns": ["{EC2_INSTANCE_ARN}"],
             "selectionMode": "ALL"
         }
     },

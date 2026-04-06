@@ -107,25 +107,30 @@ definitions, and parameter values.
 1. Call `aws___read_documentation` with the scenario URL above
 2. Extract the JSON experiment template from the documentation page
 3. Use that JSON as the base template, replacing placeholders with the user's actual
-   resource values (AZ, tags, ARNs, etc.)
+   resource values (AZ, ARNs, etc.)
+
+**IMPORTANT: Use `resourceArns` instead of `resourceTags` for all non-pod targets.**
+Although the AWS documentation examples use `resourceTags`, this skill MUST convert
+targets to `resourceArns` (specifying exact resource ARNs). This is more precise,
+avoids requiring the user to pre-tag resources, and eliminates tag-matching errors.
+The only exception is EKS pod actions, which use Kubernetes namespace + pod labels.
 4. Cross-reference with `references/scenario-templates.md` for additional skeleton context
 5. Proceed to resource discovery and compatibility validation as normal
 
 From the documentation, extract:
-- **Required resource tags** (e.g., `AzImpairmentPower: StopInstances`)
 - **Target resource types** (EC2 instances, RDS clusters, subnets, etc.)
 - **Required parameters** (AZ, duration, etc.)
 - **Sub-actions** and their individual targets
 
 **Ask the user:**
 1. Which AZ to target (for AZ-level scenarios)
-2. Resource identification method:
-   - Tags already applied? Which tag key/value?
-   - Use default scenario tags? (user must tag resources first)
-   - Specific resource ARNs?
-3. For RDS/ElastiCache: cluster identifiers
-4. For EC2: instance IDs or ASG names
-5. For EKS: cluster name, namespace, pod labels
+2. Target resource identifiers:
+   - For RDS/Aurora: cluster identifiers or instance identifiers
+   - For EC2: instance IDs or ASG names
+   - For ElastiCache: replication group IDs
+   - For EKS: cluster name, namespace, pod labels
+3. Use the identifiers to discover the actual resource ARNs via AWS CLI, then populate
+   `resourceArns` in the experiment template targets
 
 #### For Custom FIS Actions
 
@@ -137,7 +142,7 @@ aws fis get-action --id "ACTION_ID" --region TARGET_REGION
 Extract from the action:
 - Required `targets` (resource types, e.g., `aws:rds:cluster`, `aws:ec2:instance`)
 - Required `parameters` (duration, percentage, etc.)
-- Ask the user for target resource details
+- Ask the user for target resource identifiers, then resolve to ARNs via AWS CLI
 
 ### Step 2.5: EKS Pod Action Prerequisites (Mandatory Gate)
 
@@ -338,6 +343,50 @@ Generate files following the templates in `references/output-structure.md`:
 See `references/output-structure.md` for exact file formats.
 See `references/scenario-templates.md` for Scenario Library JSON templates.
 
+### Step 5.5: CloudFormation Permission Pre-Check
+
+**Before deploying, check whether the current IAM identity requires a CFN Service Role.**
+
+```bash
+# 1. Get current role name
+CALLER_ARN=$(aws sts get-caller-identity --query 'Arn' --output text)
+ROLE_NAME=$(echo "${CALLER_ARN}" | grep -oP '(?<=role/)([^/]+)')
+
+# 2. List inline policies on the role
+aws iam list-role-policies --role-name "${ROLE_NAME}" --output text
+
+# 3. For each policy, get the full policy document
+aws iam get-role-policy --role-name "${ROLE_NAME}" --policy-name "<POLICY_NAME>" \
+  --query 'PolicyDocument'
+```
+
+In the policy JSON, find Statement(s) whose `Action` covers
+`cloudformation:CreateStack`, `cloudformation:UpdateStack`, or
+`cloudformation:DeleteStack`, and check whether those statements have a `Condition`
+like:
+
+```json
+"Condition": {
+  "StringEquals": {
+    "cloudformation:RoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/<CFN-ServiceRole>"
+  }
+}
+```
+
+Also check attached managed policies via `list-attached-role-policies` +
+`get-policy-version` if inline policies have no CloudFormation statements.
+
+**If `cloudformation:RoleArn` condition is found:**
+
+1. Extract the role ARN from the condition value
+2. Store it: `CFN_ROLE_ARN="<extracted-arn>"`
+3. All subsequent CFN `deploy` / `delete-stack` commands MUST append:
+   ```bash
+   ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
+   ```
+
+**If no condition is found:** leave `CFN_ROLE_ARN` unset, proceed without `--role-arn`.
+
 ### Step 6: Deploy CFN Template (Self-Healing Loop)
 
 After generating all files, **immediately attempt to deploy the CFN template** to
@@ -376,7 +425,8 @@ aws cloudformation deploy \
   --stack-name "${STACK_NAME}" \
   --capabilities CAPABILITY_NAMED_IAM \
   --region ${TARGET_REGION} \
-  --no-fail-on-empty-changeset
+  --no-fail-on-empty-changeset \
+  ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
 ```
 
 **Example mapping:**
@@ -444,8 +494,9 @@ digraph cfn_loop {
 4. **Delete the failed stack** before retrying:
    ```bash
    aws cloudformation delete-stack \
-     --stack-name "${STACK_NAME}" \
-     --region ${TARGET_REGION}
+      --stack-name "${STACK_NAME}" \
+      --region ${TARGET_REGION} \
+      ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
 
    aws cloudformation wait stack-delete-complete \
      --stack-name "${STACK_NAME}" \
@@ -537,7 +588,7 @@ To start the experiment:
 ## Cleanup
 To delete all resources after the experiment:
 ```bash
-aws cloudformation delete-stack --stack-name {STACK_NAME} --region {TARGET_REGION}
+aws cloudformation delete-stack --stack-name {STACK_NAME} --region {TARGET_REGION} ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
 aws cloudformation wait stack-delete-complete --stack-name {STACK_NAME} --region {TARGET_REGION}
 ```
 ```
@@ -576,8 +627,11 @@ After saving the file, print a brief summary to the terminal listing only:
   `aws fis get-action` to confirm actions exist in the target region before
   generating templates.
 - **Don't fabricate action IDs.** If an action doesn't exist, say so clearly.
-- **Resource tags must match.** The experiment template's target tags must match
-  what's actually on the user's resources. Confirm with the user.
+- **Use `resourceArns` for all non-pod targets.** Always specify exact resource ARNs
+  in the experiment template targets instead of `resourceTags`. This avoids requiring
+  users to pre-tag resources and eliminates tag-matching errors. Resolve user-provided
+  identifiers (instance IDs, cluster names, etc.) to full ARNs via AWS CLI. The only
+  exception is EKS pod actions, which use Kubernetes namespace + pod labels.
 - **IAM policy must be least-privilege.** Only include permissions for the specific
   actions in the experiment, not broad FIS permissions.
 - **CFN template must be self-contained.** A user should be able to deploy the CFN

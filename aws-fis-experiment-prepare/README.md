@@ -87,11 +87,12 @@ When incompatible, the skill explains the mismatch and suggests alternatives.
 
 After generating files, the skill immediately deploys the CloudFormation template:
 
-1. **Validate** — `aws cloudformation validate-template`
-2. **Deploy** — `aws cloudformation deploy --capabilities CAPABILITY_NAMED_IAM`
-3. **On failure** — Extract error from stack events, analyze root cause, fix template, delete failed stack, retry
-4. **Max 5 retries** — Reports failure with all attempted fixes if still failing
-5. **On success** — Updates local files with real ARNs from stack outputs
+1. **Permission pre-check** — Inspects the caller's IAM policy for a `cloudformation:RoleArn` condition on CreateStack/UpdateStack/DeleteStack. If found, extracts the required CFN Service Role ARN and adds `--role-arn` to all subsequent CFN commands.
+2. **Validate** — `aws cloudformation validate-template`
+3. **Deploy** — `aws cloudformation deploy --capabilities CAPABILITY_NAMED_IAM` (with `--role-arn` if required)
+4. **On failure** — Extract error from stack events, analyze root cause, fix template, delete failed stack, retry
+5. **Max 5 retries** — Reports failure with all attempted fixes if still failing
+6. **On success** — Updates local files with real ARNs from stack outputs
 
 ## Prerequisites
 
@@ -134,6 +135,8 @@ Step 3: Validate resource-action compatibility [CRITICAL GATE]
 Step 4: Determine monitoring config (stop conditions + dashboard metrics)
          ↓
 Step 5: Generate 6 configuration files in output directory
+         ↓
+Step 5.5: CFN permission pre-check (detect cloudformation:RoleArn condition)
          ↓
 Step 6: Deploy CFN template with self-healing loop (up to 5 retries)
          ├── On success → update local files with real ARNs

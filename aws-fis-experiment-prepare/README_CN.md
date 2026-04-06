@@ -87,11 +87,12 @@
 
 生成文件后，Skill 立即部署 CloudFormation 模板：
 
-1. **验证** — `aws cloudformation validate-template`
-2. **部署** — `aws cloudformation deploy --capabilities CAPABILITY_NAMED_IAM`
-3. **失败时** — 从 Stack 事件提取错误、分析根因、修复模板、删除失败 Stack、重试
-4. **最多 5 次重试** — 仍然失败则报告所有尝试过的修复
-5. **成功后** — 用 Stack 输出中的真实 ARN 更新本地文件
+1. **权限预检** — 检查调用者 IAM 策略中 CreateStack/UpdateStack/DeleteStack 是否有 `cloudformation:RoleArn` 条件。如有，提取 CFN 服务角色 ARN 并在后续所有 CFN 命令中自动添加 `--role-arn`。
+2. **验证** — `aws cloudformation validate-template`
+3. **部署** — `aws cloudformation deploy --capabilities CAPABILITY_NAMED_IAM`（如需要则带 `--role-arn`）
+4. **失败时** — 从 Stack 事件提取错误、分析根因、修复模板、删除失败 Stack、重试
+5. **最多 5 次重试** — 仍然失败则报告所有尝试过的修复
+6. **成功后** — 用 Stack 输出中的真实 ARN 更新本地文件
 
 ## 前置条件
 
@@ -134,6 +135,8 @@ aws cloudformation deploy \
 步骤 4: 确定监控配置（Stop Condition + Dashboard 指标）
          ↓
 步骤 5: 在输出目录中生成 6 个配置文件
+         ↓
+步骤 5.5: CFN 权限预检（检测 cloudformation:RoleArn 条件）
          ↓
 步骤 6: 部署 CFN 模板并自动修复（最多 5 次重试）
          ├── 成功 → 用真实 ARN 更新本地文件
