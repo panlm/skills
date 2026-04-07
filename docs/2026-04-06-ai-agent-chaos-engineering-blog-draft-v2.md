@@ -1,4 +1,4 @@
-# 当 AI Agent 遇见混沌工程：专业能力的普惠化实践
+# 简化故障注入，读懂应用影响：用 AI Agent 做混沌工程
 
 ## 一、专业能力的门槛问题
 
@@ -144,35 +144,46 @@ Agent 会：
 
 这是一次同时测试 ElastiCache Redis AZ 电源中断和 RDS MySQL failover 的实验。以下是 `aws-fis-experiment-execute` 自动生成报告的核心内容：
 
-https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/1-redis-mysql-failover/2026-04-02-02-45-00-redis-mysql-failover-experiment-results.md
+![](redis-timeline.png)
 
-以下是 `eks-app-log-analysis` 自动生成的应用日志分析报告核心内容：
+![](rds-timeline.png)
 
-https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/1-redis-mysql-failover/2026-04-02-02-45-00-app-log-analysis.md
+- [详细报告内容](https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/1-redis-mysql-failover/2026-04-02-02-45-00-redis-mysql-failover-experiment-results.md)
+- [应用日志分析报告内容](https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/1-redis-mysql-failover/2026-04-02-02-45-00-app-log-analysis.md)
 
 ### 示例 2：Pod 到数据库的网络延迟注入
 
-在实际场景中，托管数据库可能包含多个 database 供不同应用使用，直接重启数据库影响范围太大。更精准的做法是：**对特定应用的 Pod 注入网络延迟**，模拟该应用到数据库的网络故障，而不影响其他应用。
+在实际场景中，托管数据库可能包含多个 database 供不同应用使用，直接重启数据库影响范围太大。更精准的做法是：**对特定应用的 Pod 注入网络延迟**，模拟该应用到数据库的网络故障，而不影响其他应用。以下是 `eks-app-log-analysis` 自动生成应用日志分析报告的核心内容：
 
-以下是 `aws-fis-experiment-execute` 自动生成报告的核心内容：
+![](catalog-log.png)
 
-https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/2-pod-to-db-network-latency/2026-04-02-04-55-30-eks-pod-network-latency-experiment-results.md
-
-以下是 `eks-app-log-analysis` 自动生成的应用日志分析报告核心内容：
-
-https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/2-pod-to-db-network-latency/2026-04-02-04-55-30-app-log-analysis.md
+- [详细报告内容](https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/2-pod-to-db-network-latency/2026-04-02-04-55-30-eks-pod-network-latency-experiment-results.md)
+- [应用日志分析报告内容](https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/2-pod-to-db-network-latency/2026-04-02-04-55-30-app-log-analysis.md)
 
 ### 示例 3：AZ 电源中断场景
 
 这是最全面的混沌实验场景：模拟整个可用区 (us-west-2a) 的电源中断，同时影响 EC2 节点、ElastiCache、RDS 故障转移、网络连接和 ASG 扩容。这个场景包含 6 个并行 action，可以验证系统在真实 AZ 故障时的恢复能力。
 
-以下是 `aws-fis-experiment-execute` 自动生成报告的核心内容：
+**关键发现：AZ 网络黑洞 vs 单独数据库重启的行为差异**
 
-https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/3-az-power-interruption-experiment/2026-04-06-12-27-41-az-power-interruption-experiment-results.md
+| | 单独 RDS 重启（之前的实验） | AZ 电力中断（本次实验） |
+|--|---------------------------|----------------------|
+| 网络状态 | 正常 | us-west-2a 全部流量被黑洞 |
+| TCP 连接断开方式 | RDS 主动发送 RST/FIN → 快速断开 | 数据包被静默丢弃 → TCP 重传超时 |
+| 应用感知 | 立即收到 connection reset → 报错并重连 | 无任何回复 → 无限阻塞等待 |
+| 应用日志表现 | `connection refused` / `broken pipe` 错误 | **零日志** — 请求卡住不返回 |
+| 恢复时间 | 几秒（DNS 切换后自动重连） | ~14 分钟（等待 TCP 超时） |
 
-以下是 `eks-app-log-analysis` 自动生成的应用日志分析报告核心内容：
+在之前的数据库高可用切换实验中，应用日志总能捕获到 `connection refused` 或 `broken pipe` 等错误。但在 AZ 电力中断场景下，我们发现了一个**单独做数据库切换实验无法暴露的问题**：应用日志竟然显示"零错误"，但服务实际上已经完全不可用。
 
-https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/3-az-power-interruption-experiment/2026-04-06-12-43-47-app-log-analysis.md
+原因在于：当 FIS 的 `disrupt-connectivity` action 将整个 AZ 的网络流量黑洞化后，TCP 数据包被静默丢弃（没有 RST/FIN 回复）。Go MySQL driver 的读写操作无限阻塞在 `db.Query()` 上，HTTP 请求无法完成，GIN 框架也就没有任何日志输出。这种"静默挂起"比明确的错误更难发现——监控系统看到的是"没有日志"而非"错误日志"。
+
+最终，应用需要等待 Linux 内核的 `tcp_retries2` 超时（约 13-15 分钟）才能恢复，远超 RDS 故障转移本身的 2-3 分钟。根因是应用的 MySQL DSN 缺少 `readTimeout`/`writeTimeout` 配置——这在单服务故障时不是问题（因为有 RST 信号快速断开），但在网络黑洞场景下会导致灾难性的长时间不可用。
+
+> **这正是 AZ 级别混沌实验的核心价值：暴露那些单组件故障演练无法发现的系统性问题。**
+
+- [详细报告内容](https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/3-az-power-interruption-experiment/2026-04-06-12-27-41-az-power-interruption-experiment-results.md)
+- [应用日志分析报告内容](https://github.com/aws-samples/sample-fis-skills/blob/main/docs/sample-reports/3-az-power-interruption-experiment/2026-04-06-12-43-47-app-log-analysis.md)
 
 
 ## 六、更大的图景：专业能力的普惠化
