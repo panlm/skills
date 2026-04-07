@@ -53,10 +53,7 @@ FIS 的实验报告只提供基础设施视角：RDS failover 耗时 30 秒，El
 
 我们开发了三个 Claude Code Agent Skill，形成一个端到端的混沌工程流水线：
 
-```
-aws-fis-experiment-prepare → aws-fis-experiment-execute → eks-app-log-analysis
-         准备                        执行                      分析
-```
+![三个 Agent Skill 端到端混沌工程流水线](3-skills.png)
 
 这三个 Skill 的设计理念是：**把 FIS 专业知识封装到 Agent 中，用户只需用自然语言描述意图**。
 
