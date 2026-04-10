@@ -105,8 +105,9 @@ After generating files, the skill immediately deploys the CloudFormation templat
   - Check with: `aws eks describe-cluster --name {CLUSTER} --query 'cluster.accessConfig.authenticationMode'`
   - If mode is `CONFIG_MAP` only, the user must update the cluster to `API_AND_CONFIG_MAP` first
 - K8s RBAC resources (ServiceAccount, Role, RoleBinding) are **automatically managed** via a Lambda-backed CFN Custom Resource — no manual `kubectl apply` is required
-- The CFN template includes a Lambda function that creates/deletes K8s RBAC resources as part of the stack lifecycle
-- RBAC resource names include `${AWS::StackName}` to ensure uniqueness when multiple experiments target the same cluster
+- The CFN template includes a Lambda function that performs idempotent creation of K8s RBAC resources (checks if they exist before creating)
+- RBAC resources use **fixed standardized names** (`fis-sa`, `fis-experiment-role`, `fis-experiment-role-binding`) shared across all FIS experiments in the same namespace
+- RBAC resources are **not deleted** when a stack is removed — they are shared and may be used by other experiments
 - **MANDATORY:** When using any `aws:eks:pod-*` action, you MUST follow `references/eks-pod-action-prerequisites.md`
 
 ### Create a CloudFormation Service Role
@@ -183,7 +184,7 @@ Step 7: Save summary report to local file (YYYY-mm-dd-HH-MM-SS-{scenario}-prepar
 
 7. **Report saved to file.** The preparation summary is written to a local markdown file with timestamp prefix, keeping the terminal output concise.
 
-8. **EKS RBAC via CFN Custom Resource.** K8s RBAC resources (ServiceAccount, Role, RoleBinding) for EKS Pod actions are managed automatically by a Lambda-backed CFN Custom Resource. This eliminates the need for manual `kubectl apply`, avoids RBAC name conflicts when multiple experiments target the same cluster, and binds the RBAC lifecycle to the CFN Stack (auto-cleanup on stack delete).
+8. **EKS RBAC via CFN Custom Resource.** K8s RBAC resources (ServiceAccount, Role, RoleBinding) for EKS Pod actions are managed automatically by a Lambda-backed CFN Custom Resource. Uses fixed standardized names (`fis-sa`, `fis-experiment-role`, `fis-experiment-role-binding`) shared across all experiments in the same namespace. Lambda performs idempotent creation (skip if exists) and does NOT delete RBAC on stack removal, since other experiments may still depend on them.
 
 ## Directory Structure
 

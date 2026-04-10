@@ -105,8 +105,9 @@
   - 检查：`aws eks describe-cluster --name {CLUSTER} --query 'cluster.accessConfig.authenticationMode'`
   - 如果模式为 `CONFIG_MAP`，用户需先更新集群到 `API_AND_CONFIG_MAP`
 - K8s RBAC 资源（ServiceAccount、Role、RoleBinding）通过 Lambda-backed CFN Custom Resource **自动管理** — 无需手动 `kubectl apply`
-- CFN 模板包含一个 Lambda 函数，在 Stack 生命周期中自动创建/删除 K8s RBAC 资源
-- RBAC 资源名称包含 `${AWS::StackName}` 以确保多实验场景下互不冲突
+- CFN 模板包含一个 Lambda 函数，幂等创建 K8s RBAC 资源（先检查是否已存在，存在则跳过）
+- RBAC 资源使用**固定标准化名称**（`fis-sa`、`fis-experiment-role`、`fis-experiment-role-binding`），同一 namespace 下所有 FIS 实验共享
+- 删除 Stack 时**不会删除** RBAC 资源 — 它们是共享的，可能被其他实验使用
 - **强制要求：** 使用任何 `aws:eks:pod-*` Action 时，必须遵循 `references/eks-pod-action-prerequisites.md`
 
 ### 创建 CloudFormation 服务角色
@@ -183,7 +184,7 @@ aws cloudformation deploy \
 
 7. **报告保存到文件。** 准备摘要写入带时间戳前缀的本地 Markdown 文件，终端输出保持简洁。
 
-8. **EKS RBAC 通过 CFN Custom Resource 管理。** EKS Pod Action 所需的 K8s RBAC 资源（ServiceAccount、Role、RoleBinding）由 Lambda-backed CFN Custom Resource 自动管理。无需手动 `kubectl apply`，避免多实验场景下 RBAC 名称冲突，且 RBAC 生命周期与 CFN Stack 绑定（删除 Stack 时自动清理）。
+8. **EKS RBAC 通过 CFN Custom Resource 管理。** EKS Pod Action 所需的 K8s RBAC 资源（ServiceAccount、Role、RoleBinding）由 Lambda-backed CFN Custom Resource 自动管理。使用固定标准化名称（`fis-sa`、`fis-experiment-role`、`fis-experiment-role-binding`），同一 namespace 下所有实验共享。Lambda 执行幂等创建（已存在则跳过），删除 Stack 时不会删除 RBAC 资源，因为其他实验可能仍在使用。
 
 ## 目录结构
 
