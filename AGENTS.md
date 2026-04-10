@@ -12,3 +12,7 @@
 - 以及其他类似的系统级 skill 安装目录
 
 修改完成后，由用户自行决定是否将改动同步到系统目录。
+
+## README 同步规则
+
+**更新完 SKILL.md 或 references/ 下的文件后，必须同步更新对应的 README.md 和 README_CN.md。** 不要遗漏。
