@@ -100,6 +100,15 @@ After generating files, the skill immediately deploys the CloudFormation templat
 - [**aws-knowledge-mcp-server**](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) — Scenario Library documentation research (`aws___search_documentation`, `aws___read_documentation`)
 - **jq** — JSON processing (optional but recommended)
 
+**EKS Pod fault injection prerequisites:**
+- EKS cluster authentication mode must be **`API_AND_CONFIG_MAP`** or **`API`**
+  - Check with: `aws eks describe-cluster --name {CLUSTER} --query 'cluster.accessConfig.authenticationMode'`
+  - If mode is `CONFIG_MAP` only, the user must update the cluster to `API_AND_CONFIG_MAP` first
+- K8s RBAC resources (ServiceAccount, Role, RoleBinding) are **automatically managed** via a Lambda-backed CFN Custom Resource — no manual `kubectl apply` is required
+- The CFN template includes a Lambda function that creates/deletes K8s RBAC resources as part of the stack lifecycle
+- RBAC resource names include `${AWS::StackName}` to ensure uniqueness when multiple experiments target the same cluster
+- **MANDATORY:** When using any `aws:eks:pod-*` action, you MUST follow `references/eks-pod-action-prerequisites.md`
+
 ### Create a CloudFormation Service Role
 
 This skill deploys CloudFormation stacks that create IAM roles, CloudWatch resources, and FIS experiment templates. Instead of using your own broad permissions, create a dedicated CloudFormation service role to limit the blast radius.
@@ -127,6 +136,9 @@ Step 1: Identify scenario + region
 Step 2: Discover target resources
          ├── Scenario Library → MUST read AWS documentation first (JSON templates not available via API)
          └── Custom FIS action → query via `aws fis get-action`
+         ↓
+Step 2.5: EKS Pod prerequisites (if applicable)
+         └── CFN template auto-includes Lambda + Custom Resource for K8s RBAC management
          ↓
 Step 3: Validate resource-action compatibility [CRITICAL GATE]
          ├── Compatible → proceed
@@ -171,6 +183,8 @@ Step 7: Save summary report to local file (YYYY-mm-dd-HH-MM-SS-{scenario}-prepar
 
 7. **Report saved to file.** The preparation summary is written to a local markdown file with timestamp prefix, keeping the terminal output concise.
 
+8. **EKS RBAC via CFN Custom Resource.** K8s RBAC resources (ServiceAccount, Role, RoleBinding) for EKS Pod actions are managed automatically by a Lambda-backed CFN Custom Resource. This eliminates the need for manual `kubectl apply`, avoids RBAC name conflicts when multiple experiments target the same cluster, and binds the RBAC lifecycle to the CFN Stack (auto-cleanup on stack delete).
+
 ## Directory Structure
 
 ```
@@ -180,7 +194,8 @@ aws-fis-experiment-prepare/
 ├── README_CN.md                          # Chinese version
 └── references/
     ├── output-structure.md               # File format specifications for all 6 output files
-    └── scenario-templates.md             # FIS Scenario Library JSON template examples
+    ├── scenario-templates.md             # FIS Scenario Library JSON template examples
+    └── eks-pod-action-prerequisites.md   # EKS Pod action prerequisites (Lambda + Custom Resource for K8s RBAC)
 ```
 
 ## Limitations

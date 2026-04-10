@@ -176,18 +176,68 @@ BEFORE proceeding to Step 3.**
 1. Read the official documentation: call `aws___read_documentation` with
    `https://docs.aws.amazon.com/fis/latest/userguide/eks-pod-actions.html`
 2. Follow ALL prerequisites in `references/eks-pod-action-prerequisites.md`:
-   - Verify/create Kubernetes ServiceAccount + RBAC (Role, RoleBinding)
-   - Configure EKS Access Entry with `Username: fis-experiment`
+   - Include Lambda Function, Lambda Execution Role, Lambda EKS Access Entry,
+     and Custom Resource in the `cfn-template.yaml` for automatic K8s RBAC management
+   - Configure EKS Access Entry for FIS Experiment Role with `Username: fis-experiment`
    - Verify cluster authentication mode is `API_AND_CONFIG_MAP` or `API`
    - Check target Pod's `readOnlyRootFilesystem` is `false`
    - For network actions: verify NOT using Fargate or bridge network mode
 
-**Output:** Provide the user with the K8S RBAC YAML manifest to apply before running
-the experiment. Include this in the generated README.md.
+**Output:** K8S RBAC resources are managed automatically via CFN Custom Resource
+(Lambda). No manual `kubectl apply` is required. The `cfn-template.yaml` must include
+the Lambda function, Lambda Execution Role, EKS Access Entry for Lambda, and Custom
+Resource as described in `references/eks-pod-action-prerequisites.md`. RBAC resource
+names MUST use `!Sub '...-${AWS::StackName}'` format — do NOT use fixed names.
 
 **Do NOT skip this step.** EKS pod actions have complex prerequisites that differ
 significantly from other FIS actions. Proceeding without these prerequisites will
 cause the experiment to fail at runtime.
+
+#### Pod Memory Stress: Threshold Calculation
+
+**When the action is `aws:eks:pod-memory-stress`, you MUST explain to the user and
+calculate the correct `percent` parameter value.**
+
+The `percent` parameter in `aws:eks:pod-memory-stress` represents **additional memory
+to consume on top of existing usage**, NOT the total memory utilization target. However,
+users typically think in terms of "I want the pod's total memory to reach X%".
+
+**Workflow:**
+
+1. **Ask the user** for their desired total memory utilization target (e.g., "80%").
+   Inform the user: "The percentage you specify is the **total Pod memory threshold**
+   you want to reach, not the additional memory to inject."
+
+2. **Query current memory usage** of the target pod(s):
+   ```bash
+   kubectl top pods -n {NAMESPACE} -l {POD_LABEL_SELECTOR}
+   ```
+   Compare with the pod's memory limit (from `kubectl get pod -o jsonpath` or
+   `kubectl describe pod`) to calculate current utilization percentage.
+
+3. **Calculate the injection value:**
+   ```
+   injection_percent = target_percent - current_usage_percent
+   ```
+   Example: User wants 80% total, current usage is 30% → injection value = 50%
+
+4. **Validate:**
+   - If `injection_percent <= 0`, warn the user: current usage already meets or
+     exceeds the target — no injection needed.
+   - If `injection_percent > 100`, this is invalid — ask the user to verify the target.
+
+5. **Set the parameter** in the experiment template:
+   ```json
+   "parameters": {
+     "duration": "PT5M",
+     "percent": "{injection_percent}"
+   }
+   ```
+
+6. **Include in README.md** the calculation details so the user understands:
+   - Target total memory: X%
+   - Current pod memory usage: Y%
+   - Injected memory stress: X% - Y% = Z%
 
 ### Step 3: Validate Resource-Action Compatibility
 
@@ -728,3 +778,7 @@ After saving the file, print a brief summary to the terminal listing only:
 - **Keep local files in sync.** After successful deployment, update local files
   (experiment-template.json, README.md) with real ARNs and stack outputs so the
   directory is a complete, accurate record of the deployed experiment.
+- **Pod memory stress requires threshold calculation.** For `aws:eks:pod-memory-stress`,
+  the user's percentage is the **total Pod memory target**, not the injection value.
+  You MUST query current pod memory usage and subtract it from the target to get the
+  correct `percent` parameter. See Step 2.5 "Pod Memory Stress: Threshold Calculation".
