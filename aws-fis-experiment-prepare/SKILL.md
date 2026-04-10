@@ -42,6 +42,9 @@ Required tools:
 - EKS cluster authentication mode must be **`API_AND_CONFIG_MAP`** or **`API`**
   - Check with: `aws eks describe-cluster --name {CLUSTER} --query 'cluster.accessConfig.authenticationMode'`
   - If mode is `CONFIG_MAP` only, the user must update the cluster to `API_AND_CONFIG_MAP` first
+- K8s RBAC resources (`fis-sa`, `fis-experiment-role`, `fis-experiment-role-binding`) are automatically
+  managed via Lambda-backed CFN Custom Resource — idempotent creation, shared across experiments, not
+  deleted on stack removal
 - The CFN template will use `AWS::EKS::AccessEntry` to grant FIS the required Kubernetes RBAC permissions
 - **MANDATORY:** When using any `aws:eks:pod-*` action, you MUST follow `references/eks-pod-action-prerequisites.md`
 
@@ -186,8 +189,13 @@ BEFORE proceeding to Step 3.**
 **Output:** K8S RBAC resources are managed automatically via CFN Custom Resource
 (Lambda). No manual `kubectl apply` is required. The `cfn-template.yaml` must include
 the Lambda function, Lambda Execution Role, EKS Access Entry for Lambda, and Custom
-Resource as described in `references/eks-pod-action-prerequisites.md`. RBAC resource
-names MUST use `!Sub '...-${AWS::StackName}'` format — do NOT use fixed names.
+Resource as described in `references/eks-pod-action-prerequisites.md`.
+
+RBAC resources use **fixed standardized names** (`fis-sa`, `fis-experiment-role`,
+`fis-experiment-role-binding`) shared across all FIS experiments in the same namespace.
+The Lambda performs idempotent creation (checks if resources exist before creating)
+and does NOT delete RBAC resources on stack deletion. The FIS experiment template
+uses the fixed ServiceAccount name `fis-sa`.
 
 **Do NOT skip this step.** EKS pod actions have complex prerequisites that differ
 significantly from other FIS actions. Proceeding without these prerequisites will

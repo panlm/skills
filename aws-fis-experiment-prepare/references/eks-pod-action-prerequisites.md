@@ -25,6 +25,21 @@ https://docs.aws.amazon.com/fis/latest/userguide/eks-pod-actions.html
 K8s RBAC resources (ServiceAccount, Role, RoleBinding) are **automatically managed**
 by a Lambda-backed CFN Custom Resource. **No manual `kubectl apply` is required.**
 
+**Key design: unified, shared RBAC resources.**
+All `aws:eks:pod-*` actions require the same K8s RBAC permissions. Therefore, RBAC
+resources use **fixed, standardized names** per namespace — shared across all FIS
+experiments targeting the same cluster/namespace:
+
+| Resource | Fixed Name |
+|---|---|
+| ServiceAccount | `fis-sa` |
+| Role | `fis-experiment-role` |
+| RoleBinding | `fis-experiment-role-binding` |
+
+The Lambda performs **idempotent create** (check-before-create) on stack creation,
+and **skips deletion** of RBAC resources on stack delete (since other experiments
+may still be using them).
+
 The CFN template **MUST** include the following resources (in dependency order):
 
 #### 1a. Lambda Execution Role
@@ -58,7 +73,7 @@ FISRBACLambdaRole:
 
 Lambda Role must be registered in EKS to operate K8s resources. Use
 `AmazonEKSClusterAdminPolicy` to grant the Lambda full K8s admin permissions
-(needed to create/delete ServiceAccount, Role, RoleBinding):
+(needed to create ServiceAccount, Role, RoleBinding):
 
 ```yaml
 LambdaEKSAccessEntry:
@@ -77,7 +92,11 @@ LambdaEKSAccessEntry:
 
 #### 1c. Lambda Function (Inline Code)
 
-Uses `ZipFile` inline Python code — no S3 deployment package needed:
+Uses `ZipFile` inline Python code — no S3 deployment package needed.
+
+**Idempotent behavior:**
+- **Create/Update:** GET each resource first; only POST if it does not exist (409/AlreadyExists is also treated as success)
+- **Delete:** Do nothing — RBAC resources are shared and must NOT be deleted when a single experiment stack is removed
 
 ```yaml
 FISRBACLambdaFunction:
@@ -135,26 +154,36 @@ FISRBACLambdaFunction:
             finally:
                 os.unlink(ca_file)
 
+        def ensure_resource(get_path, post_path, body, endpoint, token, ca_data):
+            """Idempotent create: GET first, POST only if 404"""
+            status, _ = k8s_request('GET', get_path, endpoint, token, ca_data)
+            if status == 200:
+                return  # already exists, skip
+            k8s_request('POST', post_path, endpoint, token, ca_data, body)
+
         def handler(event, context):
             props = event['ResourceProperties']
             cluster = props['ClusterName']
             namespace = props['Namespace']
-            sa_name = props['ServiceAccountName']
-            role_name = props['RoleName']
-            binding_name = props['RoleBindingName']
             region = props['Region']
+            # Fixed, standardized names — shared across all FIS experiments
+            sa_name = 'fis-sa'
+            role_name = 'fis-experiment-role'
+            binding_name = 'fis-experiment-role-binding'
 
             try:
                 endpoint, ca_data, token = get_eks_token(cluster, region)
 
                 if event['RequestType'] in ('Create', 'Update'):
-                    # 1. ServiceAccount
+                    # 1. ServiceAccount (idempotent)
                     sa = {'apiVersion':'v1','kind':'ServiceAccount',
                           'metadata':{'name':sa_name,'namespace':namespace}}
-                    k8s_request('POST', f'/api/v1/namespaces/{namespace}/serviceaccounts',
-                                endpoint, token, ca_data, sa)
+                    ensure_resource(
+                        f'/api/v1/namespaces/{namespace}/serviceaccounts/{sa_name}',
+                        f'/api/v1/namespaces/{namespace}/serviceaccounts',
+                        sa, endpoint, token, ca_data)
 
-                    # 2. Role
+                    # 2. Role (idempotent)
                     role = {
                         'apiVersion':'rbac.authorization.k8s.io/v1','kind':'Role',
                         'metadata':{'name':role_name,'namespace':namespace},
@@ -171,11 +200,12 @@ FISRBACLambdaFunction:
                              'verbs':['get']}
                         ]
                     }
-                    k8s_request('POST',
-                                f'/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/roles',
-                                endpoint, token, ca_data, role)
+                    ensure_resource(
+                        f'/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/roles/{role_name}',
+                        f'/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/roles',
+                        role, endpoint, token, ca_data)
 
-                    # 3. RoleBinding
+                    # 3. RoleBinding (idempotent)
                     binding = {
                         'apiVersion':'rbac.authorization.k8s.io/v1','kind':'RoleBinding',
                         'metadata':{'name':binding_name,'namespace':namespace},
@@ -187,20 +217,15 @@ FISRBACLambdaFunction:
                         'roleRef':{'kind':'Role','name':role_name,
                                    'apiGroup':'rbac.authorization.k8s.io'}
                     }
-                    k8s_request('POST',
-                                f'/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/rolebindings',
-                                endpoint, token, ca_data, binding)
+                    ensure_resource(
+                        f'/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/rolebindings/{binding_name}',
+                        f'/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/rolebindings',
+                        binding, endpoint, token, ca_data)
 
                 elif event['RequestType'] == 'Delete':
-                    k8s_request('DELETE',
-                                f'/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/rolebindings/{binding_name}',
-                                endpoint, token, ca_data)
-                    k8s_request('DELETE',
-                                f'/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/roles/{role_name}',
-                                endpoint, token, ca_data)
-                    k8s_request('DELETE',
-                                f'/api/v1/namespaces/{namespace}/serviceaccounts/{sa_name}',
-                                endpoint, token, ca_data)
+                    # Do NOT delete RBAC resources — they are shared across experiments.
+                    # Other experiment stacks in the same namespace may still need them.
+                    pass
 
                 cfnresponse.send(event, context, cfnresponse.SUCCESS,
                                  {'ServiceAccountName': sa_name})
@@ -210,9 +235,10 @@ FISRBACLambdaFunction:
 
 #### 1d. Custom Resource (Triggers Lambda)
 
-RBAC resource names include `${AWS::StackName}` to ensure uniqueness per experiment.
-**Do NOT use fixed names** like `fis-sa`, `fis-experiment-role` — this prevents conflicts
-when multiple FIS experiments target the same cluster.
+RBAC resources use **fixed standardized names** — the same `fis-sa`,
+`fis-experiment-role`, `fis-experiment-role-binding` are shared by all FIS
+experiments in the same namespace. The Lambda checks if they already exist before
+creating, so multiple stacks targeting the same cluster/namespace are safe.
 
 ```yaml
 FISKubernetesRBAC:
@@ -225,25 +251,21 @@ FISKubernetesRBAC:
     ClusterName: !Ref EKSClusterName
     Namespace: !Ref TargetNamespace
     Region: !Ref AWS::Region
-    ServiceAccountName: !Sub 'fis-sa-${AWS::StackName}'
-    RoleName: !Sub 'fis-role-${AWS::StackName}'
-    RoleBindingName: !Sub 'fis-binding-${AWS::StackName}'
 ```
 
-#### 1e. FIS Experiment Template References Dynamic ServiceAccount
+#### 1e. FIS Experiment Template References Fixed ServiceAccount
 
-The FIS experiment template **MUST** reference the ServiceAccount name from the
-Custom Resource output, not a hardcoded value:
+The FIS experiment template uses the fixed ServiceAccount name `fis-sa`:
 
 ```yaml
 FISExperimentTemplate:
   DependsOn:
-    - FISKubernetesRBAC   # Must wait for RBAC creation
+    - FISKubernetesRBAC   # Must wait for RBAC to be ensured
   Properties:
     Actions:
       InjectFault:
         Parameters:
-          kubernetesServiceAccount: !GetAtt FISKubernetesRBAC.ServiceAccountName
+          kubernetesServiceAccount: fis-sa
 ```
 
 ### 2. EKS Access Entry (for FIS Experiment Role)
@@ -292,15 +314,13 @@ runs as non-root, you must set securityContext individually for containers in th
 
 K8s resource name rules: max 253 characters, lowercase letters, numbers, and `-` only.
 
-CFN Stack Name format: `fis-{scenario-slug}-{target-slug}-{6-char-random-suffix}`
+K8s RBAC resources use **fixed names** per namespace (not per stack):
+- ServiceAccount: `fis-sa`
+- Role: `fis-experiment-role`
+- RoleBinding: `fis-experiment-role-binding`
 
-`!Sub 'fis-sa-${AWS::StackName}'` total length = 7 + Stack Name length.
-
-**Stack Name must be kept under 60 characters** to leave room for the prefix:
-- `scenario-slug`: max 25 characters
-- `target-slug`: max 20 characters
-- Random suffix: 6 characters
-- Separators: 3 `-` characters
+These are shared across all FIS experiments in the same namespace — no stack-name
+suffix needed.
 
 ## CFN Service Role Permissions
 
@@ -374,18 +394,28 @@ must include `--role-arn`.
 
 ## Cleanup
 
-Deleting the CFN Stack automatically handles all cleanup:
-1. Lambda is invoked with `RequestType: Delete` -> deletes K8s RoleBinding, Role, ServiceAccount
+Deleting the CFN Stack handles cleanup of stack-owned resources:
+1. Lambda is invoked with `RequestType: Delete` -> **does nothing** (RBAC resources are shared, not deleted)
 2. Lambda Function is deleted
 3. Lambda Execution Role is deleted
 4. Lambda EKS Access Entry is deleted
 5. FIS Experiment Template, FIS IAM Role, FIS EKS Access Entry are deleted (existing logic)
 
-User only needs:
+**K8s RBAC resources (`fis-sa`, `fis-experiment-role`, `fis-experiment-role-binding`)
+are intentionally NOT deleted** — they are shared across all FIS experiments in the
+namespace. If you want to manually clean them up after removing ALL experiments:
+
+```bash
+kubectl delete rolebinding fis-experiment-role-binding -n {NAMESPACE}
+kubectl delete role fis-experiment-role -n {NAMESPACE}
+kubectl delete serviceaccount fis-sa -n {NAMESPACE}
+```
+
+User only needs for stack cleanup:
 ```bash
 aws cloudformation delete-stack --stack-name {STACK_NAME} --region {REGION} \
   ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
 aws cloudformation wait stack-delete-complete --stack-name {STACK_NAME} --region {REGION}
 ```
 
-No manual `kubectl delete` is required.
+No manual `kubectl delete` is required for normal operations.
