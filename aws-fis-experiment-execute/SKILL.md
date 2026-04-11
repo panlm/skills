@@ -42,8 +42,7 @@ digraph execute_flow {
     "Read README for stack name" [shape=box];
     "Check CFN stack status" [shape=diamond];
     "Extract template ID from outputs" [shape=box];
-    "Discover EKS apps + confirm" [shape=box];
-    "Start log collection" [shape=box];
+    "Discover apps + start logs\n(eks-app-log-analysis)" [shape=box];
     "Baseline logs? (user opt-in)" [shape=diamond];
     "Wait 2 min baseline" [shape=box];
     "User confirms experiment start" [shape=diamond, style=bold, color=red];
@@ -52,7 +51,7 @@ digraph execute_flow {
     "Experiment complete?" [shape=diamond];
     "Post-baseline? (user opt-in)" [shape=diamond];
     "Wait 2 min post-baseline" [shape=box];
-    "Stop log collection + analyze" [shape=box];
+    "Stop logs + analyze\n(eks-app-log-analysis)" [shape=box];
     "Generate results report" [shape=box];
 
     "Load experiment directory" -> "Validate files";
@@ -60,22 +59,21 @@ digraph execute_flow {
     "Read README for stack name" -> "Check CFN stack status";
     "Check CFN stack status" -> "Extract template ID from outputs" [label="CREATE_COMPLETE"];
     "Check CFN stack status" -> "Generate results report" [label="Not deployed / failed, abort"];
-    "Extract template ID from outputs" -> "Discover EKS apps + confirm";
-    "Discover EKS apps + confirm" -> "Start log collection";
-    "Start log collection" -> "Baseline logs? (user opt-in)";
+    "Extract template ID from outputs" -> "Discover apps + start logs\n(eks-app-log-analysis)";
+    "Discover apps + start logs\n(eks-app-log-analysis)" -> "Baseline logs? (user opt-in)";
     "Baseline logs? (user opt-in)" -> "Wait 2 min baseline" [label="Yes"];
     "Baseline logs? (user opt-in)" -> "User confirms experiment start" [label="No (default)"];
     "Wait 2 min baseline" -> "User confirms experiment start";
     "User confirms experiment start" -> "Start experiment" [label="Yes, I confirm"];
-    "User confirms experiment start" -> "Stop log collection + analyze" [label="No, abort"];
+    "User confirms experiment start" -> "Stop logs + analyze\n(eks-app-log-analysis)" [label="No, abort"];
     "Start experiment" -> "Monitor experiment + log insights";
     "Monitor experiment + log insights" -> "Experiment complete?";
     "Experiment complete?" -> "Monitor experiment + log insights" [label="No, poll again"];
     "Experiment complete?" -> "Post-baseline? (user opt-in)" [label="Yes"];
     "Post-baseline? (user opt-in)" -> "Wait 2 min post-baseline" [label="Yes"];
-    "Post-baseline? (user opt-in)" -> "Stop log collection + analyze" [label="No (default)"];
-    "Wait 2 min post-baseline" -> "Stop log collection + analyze";
-    "Stop log collection + analyze" -> "Generate results report";
+    "Post-baseline? (user opt-in)" -> "Stop logs + analyze\n(eks-app-log-analysis)" [label="No (default)"];
+    "Wait 2 min post-baseline" -> "Stop logs + analyze\n(eks-app-log-analysis)";
+    "Stop logs + analyze\n(eks-app-log-analysis)" -> "Generate results report";
 }
 ```
 
@@ -136,70 +134,28 @@ Extract `ExperimentTemplateId` from stack outputs. See `references/cli-commands.
 
 Also extract dashboard URL and alarm ARNs if available.
 
-### Step 5: Discover EKS Application Dependencies
+### Step 5: Discover EKS Applications and Start Log Collection
 
-**This step runs BEFORE the experiment starts** — discovering applications after the
+**REQUIRED:** Follow the `eks-app-log-analysis` skill (real-time mode) for Steps 5-6.
+
+This step runs **BEFORE** the experiment starts — discovering applications after the
 experiment begins risks missing early log entries that get rotated or overwritten.
 
-#### 5a. Identify Affected AWS Services
-
-Extract the list of affected services from the README's "Affected Resources" table.
-For each service, get its endpoint/identifier via AWS CLI (e.g., RDS cluster endpoint,
-ElastiCache primary endpoint, EC2 private IP/DNS).
-
-#### 5b. Auto-Discover EKS Applications
-
-For each affected service endpoint, search for EKS applications that depend on it:
-
-1. Search all pod environment variables across namespaces for references to the endpoint
-2. Search ConfigMaps across namespaces for references to the endpoint
-3. Also search for well-known port patterns (e.g., 6379 for Redis, 3306 for MySQL,
-   5432 for PostgreSQL, 9092 for Kafka/MSK)
-
-Present discovered `namespace/deployment` candidates to the user, noting where the
-match was found (env var name, ConfigMap name, port).
-
-#### 5c. User Confirmation
-
-Ask the user to confirm the auto-discovered dependencies and add any that were missed.
-Store the final mapping as `SERVICE_APP_MAP` (service → list of namespace/deployment pairs).
-
-> **Shell scripting rule:** Use multi-line scripts. Do NOT chain commands with `&&`
-> on a single line — variables get lost after background `&` processes.
-
-### Step 6: Start Log Collection
-
-Start background `kubectl logs -f` for all confirmed applications BEFORE the experiment.
-
-```bash
-LOG_DIR="/tmp/$(date +%Y%m%d-%H%M%S)-fis-app-logs"
-mkdir -p "${LOG_DIR}"
-```
-
-For each application in `SERVICE_APP_MAP`:
-
-1. Resolve the deployment's pod label selector from `.spec.selector.matchLabels`
-2. Use `kubectl logs -f --selector={labels}` (NOT `deployment/xxx`) — this captures
-   logs from all matching pods, including those recreated during the experiment
-3. Add `--timestamps --all-containers=true --prefix=true --max-log-requests=20`
-4. Organize by service: `${LOG_DIR}/{service-name}/{deployment}.log`
-5. Record each background PID to `${LOG_DIR}/.pids` for cleanup
+Execute the following from `eks-app-log-analysis`:
+1. **Step 3 (Collect Application Dependencies)** — auto-discover EKS apps depending on
+   affected AWS services (from README's "Affected Resources" table), then confirm with user
+2. **Step 4 (Log Collection — Real-time Mode)** — start background `kubectl logs -f`
+   for all confirmed applications
 
 #### Optional: Baseline Log Collection (User Opt-In)
 
 **Default: skip baseline.** Only collect baseline logs if the user explicitly requests
 "collect baseline logs" or "capture pre/post experiment logs" or similar.
 
-If opted in:
-1. Start log collection (as above)
-2. Wait 2 minutes to collect normal-state logs as baseline
-3. Then proceed to experiment confirmation
+If opted in: wait 2 minutes after starting log collection to capture normal-state logs
+as baseline, then proceed to experiment confirmation.
 
-If not opted in:
-1. Start log collection immediately
-2. Proceed directly to experiment confirmation
-
-### Step 7: Start Experiment (CRITICAL CONFIRMATION)
+### Step 6: Start Experiment (CRITICAL CONFIRMATION)
 
 **This is the most dangerous step. The experiment WILL affect real resources.**
 
@@ -230,11 +186,11 @@ Type "Yes, start experiment" to proceed, or "No" to abort.
 ```
 
 **Only proceed if the user explicitly confirms.** If user aborts, still proceed to
-Step 9 to stop log collection and generate whatever report is possible.
+Step 8 to stop log collection and generate whatever report is possible.
 
 Save the returned `experiment.id`.
 
-### Step 8: Monitor Experiment + Log Insights
+### Step 7: Monitor Experiment + Log Insights
 
 Poll the experiment status and display progress. See `references/cli-commands.md` for
 polling commands and experiment status reference.
@@ -250,44 +206,37 @@ polling commands and experiment status reference.
   Query service-specific status (e.g., RDS instance status, ElastiCache replication
   group status, EKS node status) during monitoring to capture detailed observations.
 
-**Log insights during each poll cycle:**
-- Read the last 30 seconds of collected logs from each application's log file
-- Count error-level entries (match: `error`, `exception`, `fail`, `refused`, `timeout`)
-  and warning-level entries (match: `warn`, `retry`)
-- Display a per-app summary: error count, warning count, last 3 error lines
-- Detect recovery signals (`connected`, `restored`, `success`, `recovered`) and report
+**Log insights during each poll cycle:** Follow `eks-app-log-analysis` Step 5
+(Real-time Monitoring Display) — read recent logs, count errors/warnings, display
+per-app summary, detect recovery signals.
 
 **During monitoring, remind the user:**
 - Check the CloudWatch dashboard for real-time metrics
 - The experiment can be stopped at any time (see `references/cli-commands.md` for stop command)
 
-### Step 9: Stop Log Collection and Analyze
+### Step 8: Stop Log Collection and Analyze
 
 After the experiment completes (any terminal state):
 
 #### Optional: Post-Experiment Baseline (User Opt-In)
 
 **Default: stop immediately.** Only continue collecting post-experiment logs if the
-user opted in to baseline collection in Step 6.
+user opted in to baseline collection in Step 5.
 
 If opted in: wait 2 minutes after experiment ends to capture recovery behavior logs,
 then stop collection.
 
-#### Stop All Background Processes
+#### Generate Application Log Analysis
 
-Kill all background `kubectl logs` processes recorded in `${LOG_DIR}/.pids`.
+Follow `eks-app-log-analysis` Steps 7-8:
+- **Step 7 (Generate Analysis Report)** — analyze error patterns, peak rates, recovery
+  times, and generate the "Application Log Analysis" section of the report
+- **Step 8 (Cleanup)** — kill background `kubectl logs` processes
 
-#### Analyze Collected Logs
+The application log analysis output is embedded into the experiment results report
+(see Step 9 below), NOT saved as a separate file.
 
-For each application, analyze the collected logs:
-
-1. **Error timeline** — extract error/exception lines with timestamps
-2. **Key error patterns** — group by pattern, count occurrences, find first/last occurrence
-3. **Recovery signals** — identify when normal operation resumed
-4. **Peak error rate** — calculate the highest error rate (per minute) during the experiment
-5. **Recovery time** — time from experiment end to last error (or first recovery signal)
-
-### Step 10: Save Results Report to Local File
+### Step 9: Save Results Report to Local File
 
 After the experiment completes (any terminal state), generate a results report and
 **write it directly to a local markdown file** instead of outputting the full content
@@ -364,38 +313,10 @@ disruption even without a dedicated FIS action).
 
 ### Application Log Analysis
 
-#### Summary
-
-| Service | Application | Total Errors | Peak Error Rate | Recovery Time |
-|---|---|---|---|---|
-| {service} | {namespace/deployment} | {count} | {rate}/min | {time} |
-
-#### {Application Name} ({namespace/deployment})
-
-**Error Timeline:**
-
-| Time (UTC) | Level | Message |
-|---|---|---|
-| {HH:MM:SS} | ERROR | {truncated message} |
-
-**Key Error Patterns:**
-
-| Pattern | Count | First Seen | Last Seen |
-|---|---|---|---|
-| Connection refused | {n} | {time} | {time} |
-| Timeout | {n} | {time} | {time} |
-
-**Log Sample (Critical Errors):**
-
-```
-{5-10 lines of actual error logs}
-```
-
-**Insights:**
-- {insight_1}: Error spike at {time}, correlates with {service} failover
-- {insight_2}: Recovery detected at {time}, {duration} after fault injection ended
-
-(Repeat for each application)
+Embed the analysis output from eks-app-log-analysis Step 7 here.
+Follow the report structure defined in eks-app-log-analysis SKILL.md:
+Summary table, per-application error timeline, key error patterns,
+log samples, insights, cross-service correlation, and recommendations.
 
 ### Recovery Status Summary
 
