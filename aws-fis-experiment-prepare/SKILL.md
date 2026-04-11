@@ -390,14 +390,76 @@ Only include sections for services actually affected by the experiment.
 
 Create the output directory:
 ```bash
-SCENARIO_SLUG=$(echo "SCENARIO_NAME" | tr '[:upper:]' '[:lower:]' | tr ' :' '-' | tr -d ',')
-# TARGET_SLUG: primary target resource identifier, e.g., cluster name, instance ID, replication group ID
-# Truncate to keep directory name reasonable (max 40 chars for target slug)
-TARGET_SLUG=$(echo "TARGET_RESOURCE_ID" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-' | cut -c1-40)
+# SCENARIO_SLUG: use the abbreviation table below (max 18 chars)
+SCENARIO_SLUG="<abbreviated-scenario-name>"
+# TARGET_SLUG: primary target resource identifier, e.g., cluster name, instance ID
+# Truncate to keep names within IAM 64-char limit (max 20 chars for target slug)
+TARGET_SLUG=$(echo "TARGET_RESOURCE_ID" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-' | cut -c1-20)
+# CONTEXT_SLUG (optional, max 10 chars): downstream service or purpose that distinguishes
+# experiments with the same scenario + target. Derive from user description or action params:
+#   - Network actions (latency/packet-loss/blackhole-port): target downstream service
+#     e.g., "redis", "msk", "dynamo", "rds" (inferred from port, endpoint, or user description)
+#   - Other actions: omit unless user specifies a distinguishing purpose
+CONTEXT_SLUG=$(echo "CONTEXT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-' | cut -c1-10)
 TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
-OUTPUT_DIR="./${TIMESTAMP}-${SCENARIO_SLUG}-${TARGET_SLUG}"
+# Include CONTEXT_SLUG only when it is set (non-empty)
+if [ -n "${CONTEXT_SLUG}" ]; then
+  OUTPUT_DIR="./${TIMESTAMP}-${SCENARIO_SLUG}-${TARGET_SLUG}-${CONTEXT_SLUG}"
+else
+  OUTPUT_DIR="./${TIMESTAMP}-${SCENARIO_SLUG}-${TARGET_SLUG}"
+fi
 mkdir -p "${OUTPUT_DIR}/alarms"
 ```
+
+#### Scenario Slug Abbreviation Table
+
+**Use these standard abbreviations for SCENARIO_SLUG.** Keeps resource names short
+while remaining readable. Max 18 characters.
+
+| Scenario / Action | SCENARIO_SLUG | Len |
+|---|---|---|
+| AZ Power Interruption | `az-power-int` | 13 |
+| AZ Application Slowdown | `az-app-slow` | 11 |
+| Cross-AZ Traffic Slowdown | `xaz-traffic-slow` | 17 |
+| Cross-Region Connectivity | `xregion-conn` | 12 |
+| `aws:eks:pod-network-latency` | `pod-net-latency` | 15 |
+| `aws:eks:pod-network-packet-loss` | `pod-net-pktloss` | 15 |
+| `aws:eks:pod-network-blackhole-port` | `pod-net-blackhole` | 17 |
+| `aws:eks:pod-delete` | `pod-delete` | 10 |
+| `aws:eks:pod-cpu-stress` | `pod-cpu-stress` | 14 |
+| `aws:eks:pod-memory-stress` | `pod-mem-stress` | 14 |
+| `aws:eks:pod-io-stress` | `pod-io-stress` | 13 |
+| `aws:ec2:stop-instances` | `ec2-stop` | 8 |
+| EC2 CPU stress | `ec2-cpu-stress` | 14 |
+| `aws:rds:failover-db-cluster` | `rds-failover` | 12 |
+| `aws:rds:reboot-db-instances` | `rds-reboot` | 10 |
+| `aws:elasticache:replicationgroup-interrupt-az-power` | `ec-rg-az-power` | 14 |
+| `aws:ebs:pause-io` | `ebs-pause-io` | 12 |
+| `aws:ssm:send-command` | `ssm-cmd` | 7 |
+
+**Abbreviation rules for unlisted actions:**
+- `network` → `net`, `packet-loss` → `pktloss`, `memory` → `mem`
+- `cross-az` → `xaz`, `cross-region` → `xregion`
+- `interruption` → `int`, `slowdown` → `slow`, `connectivity` → `conn`
+- `application` → `app`, `replicationgroup` → `rg`, `elasticache` → `ec`
+- EKS pod actions: keep `pod-` prefix, drop `eks-` (e.g., `pod-net-pktloss` not `eks-net-pktloss`)
+- Target max 18 characters
+
+**CONTEXT_SLUG guidance:**
+
+| Action Type | CONTEXT_SLUG Source | Example |
+|---|---|---|
+| `aws:eks:pod-network-latency` | Downstream service name (from port/endpoint/user description) | `redis`, `msk`, `rds` |
+| `aws:eks:pod-network-packet-loss` | Same as above | `redis`, `dynamodb` |
+| `aws:eks:pod-network-blackhole-port` | Same as above | `kafka`, `elasticache` |
+| `aws:eks:pod-delete` | Omit (no directional context) | *(empty)* |
+| `aws:eks:pod-cpu-stress` | Omit | *(empty)* |
+| `aws:eks:pod-memory-stress` | Omit | *(empty)* |
+| Non-EKS actions | Omit unless user specifies a distinguishing purpose | *(empty)* |
+
+When the user describes the experiment, extract the downstream service context. For
+example: "payment pod 到 redis 的丢包" → `CONTEXT_SLUG=redis`;
+"payment pod 到 msk 的网络延迟" → `CONTEXT_SLUG=msk`.
 
 Generate files following the templates in `references/output-structure.md`:
 
@@ -552,15 +614,24 @@ Do NOT proceed to deployment until validation passes.
 
 #### 6b. Deploy the Stack
 
-**IMPORTANT:** Use the SAME timestamp for both output directory and stack name to ensure
-consistency. Extract the timestamp from the output directory name rather than generating
-a new one.
+**IMPORTANT:** The `EXPERIMENT_NAME` variable (which includes the random suffix) drives
+both the CFN stack name and all physical resource names within the stack. Generate the
+`RANDOM_SUFFIX` once and reuse it consistently across the stack name and the
+`ExperimentName` CFN parameter.
 
 ```bash
-# Generate a short random suffix (6 chars) to keep the stack name unique but short
-# CFN stack name limit: 128 chars; keep it well under that
+# Generate a short random suffix (6 chars) to keep names unique
+# CFN stack name limit: 128 chars; IAM role name limit: 64 chars
 RANDOM_SUFFIX=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c6)
-STACK_NAME="fis-${SCENARIO_SLUG}-${TARGET_SLUG}-${RANDOM_SUFFIX}"
+
+# EXPERIMENT_NAME drives all CFN physical resource names — must include RANDOM_SUFFIX
+# to guarantee uniqueness across multiple experiments with same scenario + target
+if [ -n "${CONTEXT_SLUG}" ]; then
+  EXPERIMENT_NAME="${SCENARIO_SLUG}-${TARGET_SLUG}-${CONTEXT_SLUG}-${RANDOM_SUFFIX}"
+else
+  EXPERIMENT_NAME="${SCENARIO_SLUG}-${TARGET_SLUG}-${RANDOM_SUFFIX}"
+fi
+STACK_NAME="fis-${EXPERIMENT_NAME}"
 
 aws cloudformation deploy \
   --template-file "${OUTPUT_DIR}/cfn-template.yaml" \
@@ -568,12 +639,34 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_NAMED_IAM \
   --region ${TARGET_REGION} \
   --no-fail-on-empty-changeset \
+  --parameter-overrides ExperimentName="${EXPERIMENT_NAME}" \
   ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
 ```
 
-**Example mapping:**
-- Output directory: `2026-03-31-14-30-22-az-power-interruption-my-cluster`
-- Stack name: `fis-az-power-interruption-my-cluster-a3x7k2`
+**Example mappings:**
+
+| Experiment | Output Directory | Stack Name |
+|---|---|---|
+| payment pod → redis packet-loss | `2026-04-11-10-30-00-pod-net-pktloss-payment-redis` | `fis-pod-net-pktloss-payment-redis-a3x7k2` |
+| payment pod → msk packet-loss | `2026-04-11-10-30-05-pod-net-pktloss-payment-msk` | `fis-pod-net-pktloss-payment-msk-b8y2m1` |
+| payment pod delete | `2026-04-11-10-30-10-pod-delete-payment` | `fis-pod-delete-payment-c4z9n3` |
+| AZ power interruption | `2026-04-11-10-30-15-az-power-int-my-cluster` | `fis-az-power-int-my-cluster-d5w1p7` |
+
+**CFN physical resource names** derived from `ExperimentName` (all globally unique):
+
+| Resource | Naming Pattern | Example |
+|---|---|---|
+| IAM Role | `FISRole-{ExperimentName}` | `FISRole-pod-net-pktloss-payment-redis-a3x7k2` |
+| Dashboard | `FIS-{ExperimentName}` | `FIS-pod-net-pktloss-payment-redis-a3x7k2` |
+| Alarm | `FIS-Stop-{ExperimentName}` | `FIS-Stop-pod-net-pktloss-payment-redis-a3x7k2` |
+| Lambda Role | *(no RoleName — CFN auto-generates)* | `fis-{stack-name-hash-12chars}` |
+| Lambda Func | `fis-rbac-mgr-{StackName}` | *(uses StackName, already unique)* |
+
+**Name length budget (IAM Role = 64 chars max):**
+`FISRole-` (8) + SCENARIO_SLUG (max 18) + `-` + TARGET_SLUG (max 20) + `-` + CONTEXT_SLUG (max 10) + `-` + RANDOM_SUFFIX (6) = 8 + 18 + 1 + 20 + 1 + 10 + 1 + 6 = **65**.
+In practice the slug lengths are well under the max, so this fits comfortably.
+If a generated name would exceed 64 chars, truncate `TARGET_SLUG` first, then
+`CONTEXT_SLUG`.
 
 #### 6c. Self-Healing Iteration Loop
 

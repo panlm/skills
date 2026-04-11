@@ -54,7 +54,7 @@
 ## 输出目录结构
 
 ```
-./{scenario-slug}-{yyyy-mm-dd-HH-MM-SS}/
+./{yyyy-mm-dd-HH-MM-SS}-{scenario-slug}-{target-slug}[-{context-slug}]/
 ├── README.md                          # 实验概览和执行说明
 ├── experiment-template.json           # FIS 实验模板（CLI 创建用）
 ├── iam-policy.json                    # 最小权限 IAM 策略
@@ -63,6 +63,12 @@
     ├── stop-condition-alarms.json     # CloudWatch 告警定义
     └── dashboard.json                 # CloudWatch Dashboard 定义
 ```
+
+可选的 `{context-slug}` 用于区分相同场景和 target 但不同下游服务的实验
+（如 `redis`、`msk`）。适用于网络故障注入 Action（延迟、丢包、端口黑洞）。
+
+场景 slug 使用标准缩写（如 `pod-net-pktloss`、`az-power-int`、`ec-rg-az-power`），
+以确保 IAM Role 名称不超过 64 字符限制。完整缩写表见 SKILL.md 步骤 5。
 
 另外，摘要报告保存为：
 ```
@@ -105,7 +111,7 @@
   - 检查：`aws eks describe-cluster --name {CLUSTER} --query 'cluster.accessConfig.authenticationMode'`
   - 如果模式为 `CONFIG_MAP`，用户需先更新集群到 `API_AND_CONFIG_MAP`
 - K8s RBAC 资源（ServiceAccount、Role、RoleBinding）通过 Lambda-backed CFN Custom Resource **自动管理** — 无需手动 `kubectl apply`
-- CFN 模板包含一个 Lambda 函数，幂等创建 K8s RBAC 资源（先检查是否已存在，存在则跳过）
+- CFN 模板包含一个 Lambda 函数，幂等创建 K8s RBAC 资源（先检查是否已存在，存在则跳过）。Lambda 使用 `botocore.signers.RequestSigner` 并携带 `x-k8s-aws-id` header 生成 EKS token — 这是 EKS API server 认证所必需的（普通的 `sts_client.generate_presigned_url` 缺少此 header，会导致 401 Unauthorized）。`ensure_resource` 辅助函数包含日志记录和错误检查，防止静默失败。
 - RBAC 资源使用**固定标准化名称**（`fis-sa`、`fis-experiment-role`、`fis-experiment-role-binding`），同一 namespace 下所有 FIS 实验共享
 - 删除 Stack 时**不会删除** RBAC 资源 — 它们是共享的，可能被其他实验使用
 - **强制要求：** 使用任何 `aws:eks:pod-*` Action 时，必须遵循 `references/eks-pod-action-prerequisites.md`
@@ -152,6 +158,7 @@ aws cloudformation deploy \
 步骤 5.5: CFN 权限预检（检测 cloudformation:RoleArn 条件）
          ↓
 步骤 6: 部署 CFN 模板并自动修复（最多 5 次重试）
+         ├── ExperimentName 包含随机后缀 → 所有物理资源名全局唯一
          ├── 成功 → 用真实 ARN 更新本地文件
          └── 失败 → 报告错误和所有尝试过的修复
          ↓
@@ -184,7 +191,7 @@ aws cloudformation deploy \
 
 7. **报告保存到文件。** 准备摘要写入带时间戳前缀的本地 Markdown 文件，终端输出保持简洁。
 
-8. **EKS RBAC 通过 CFN Custom Resource 管理。** EKS Pod Action 所需的 K8s RBAC 资源（ServiceAccount、Role、RoleBinding）由 Lambda-backed CFN Custom Resource 自动管理。使用固定标准化名称（`fis-sa`、`fis-experiment-role`、`fis-experiment-role-binding`），同一 namespace 下所有实验共享。Lambda 执行幂等创建（已存在则跳过），删除 Stack 时不会删除 RBAC 资源，因为其他实验可能仍在使用。
+8. **EKS RBAC 通过 CFN Custom Resource 管理。** EKS Pod Action 所需的 K8s RBAC 资源（ServiceAccount、Role、RoleBinding）由 Lambda-backed CFN Custom Resource 自动管理。使用固定标准化名称（`fis-sa`、`fis-experiment-role`、`fis-experiment-role-binding`），同一 namespace 下所有实验共享。Lambda 执行幂等创建（已存在则跳过），删除 Stack 时不会删除 RBAC 资源，因为其他实验可能仍在使用。Lambda 使用 `botocore.signers.RequestSigner` 并携带 `x-k8s-aws-id` header 生成 EKS bearer token，这是 EKS API server 正确认证所必需的。
 
 ## 目录结构
 

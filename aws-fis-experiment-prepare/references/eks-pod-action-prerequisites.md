@@ -48,7 +48,8 @@ The CFN template **MUST** include the following resources (in dependency order):
 FISRBACLambdaRole:
   Type: AWS::IAM::Role
   Properties:
-    RoleName: !Sub 'FISRBACLambda-${AWS::StackName}'  # Must stay under 64 characters
+    # No RoleName — let CFN auto-generate to avoid 64-char limit issues.
+    # The role is an internal resource; reference it via !GetAtt FISRBACLambdaRole.Arn.
     AssumeRolePolicyDocument:
       Version: '2012-10-17'
       Statement:
@@ -105,7 +106,7 @@ FISRBACLambdaFunction:
     - FISRBACLambdaRole
     - LambdaEKSAccessEntry
   Properties:
-    FunctionName: !Sub 'fis-rbac-manager-${AWS::StackName}'
+    FunctionName: !Sub 'fis-rbac-mgr-${AWS::StackName}'
     Runtime: python3.12
     Handler: index.handler
     Role: !GetAtt FISRBACLambdaRole.Arn
@@ -113,10 +114,11 @@ FISRBACLambdaFunction:
     Code:
       ZipFile: |
         import boto3, base64, json, urllib.request, urllib.error, os, re, time
+        from botocore.signers import RequestSigner
         import cfnresponse
 
         def get_eks_token(cluster_name, region):
-            """Generate EKS Bearer Token (same as aws eks get-token output)"""
+            """Generate EKS Bearer Token with x-k8s-aws-id header (same as aws eks get-token output)"""
             session = boto3.session.Session()
             client = session.client('eks', region_name=region)
             cluster_info = client.describe_cluster(name=cluster_name)['cluster']
@@ -124,13 +126,19 @@ FISRBACLambdaFunction:
             ca_data = cluster_info['certificateAuthority']['data']
 
             sts_client = session.client('sts', region_name=region)
-            url = sts_client.generate_presigned_url(
-                'get_caller_identity',
-                Params={},
-                ExpiresIn=60,
-                HttpMethod='GET'
-            )
-            token = 'k8s-aws-v1.' + base64.urlsafe_b64encode(url.encode()).decode().rstrip('=')
+            service_id = sts_client.meta.service_model.service_id
+            signer = RequestSigner(service_id, region, 'sts', 'v4',
+                                   session.get_credentials(), session.events)
+            params = {
+                'method': 'GET',
+                'url': f'https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15',
+                'body': {},
+                'headers': {'x-k8s-aws-id': cluster_name},
+                'context': {}
+            }
+            signed_url = signer.generate_presigned_url(params, region_name=region,
+                                                        expires_in=60, operation_name='')
+            token = 'k8s-aws-v1.' + base64.urlsafe_b64encode(signed_url.encode()).decode().rstrip('=')
             return endpoint, ca_data, token
 
         def k8s_request(method, path, endpoint, token, ca_data, body=None):
@@ -156,10 +164,14 @@ FISRBACLambdaFunction:
 
         def ensure_resource(get_path, post_path, body, endpoint, token, ca_data):
             """Idempotent create: GET first, POST only if 404"""
-            status, _ = k8s_request('GET', get_path, endpoint, token, ca_data)
+            status, resp = k8s_request('GET', get_path, endpoint, token, ca_data)
+            print(f'GET {get_path} -> {status}: {json.dumps(resp)[:500]}')
             if status == 200:
                 return  # already exists, skip
-            k8s_request('POST', post_path, endpoint, token, ca_data, body)
+            status2, resp2 = k8s_request('POST', post_path, endpoint, token, ca_data, body)
+            print(f'POST {post_path} -> {status2}: {json.dumps(resp2)[:500]}')
+            if status2 not in (200, 201, 409):
+                raise Exception(f'Failed to create resource at {post_path}: {status2} {json.dumps(resp2)[:300]}')
 
         def handler(event, context):
             props = event['ResourceProperties']
@@ -343,13 +355,13 @@ in addition to existing ones:
     "lambda:TagResource",
     "lambda:UntagResource"
   ],
-  "Resource": "arn:aws:lambda:*:*:function:fis-rbac-manager-*"
+  "Resource": "arn:aws:lambda:*:*:function:fis-rbac-mgr-*"
 },
 {
   "Sid": "IAMPassRoleToLambda",
   "Effect": "Allow",
   "Action": "iam:PassRole",
-  "Resource": "arn:aws:iam::*:role/FISRBACLambda-*",
+  "Resource": "arn:aws:iam::*:role/fis-*",
   "Condition": {
     "StringEquals": {
       "iam:PassedToService": "lambda.amazonaws.com"
@@ -373,11 +385,10 @@ in addition to existing ones:
 
 ## IAM Role Name Length
 
-IAM Role `RoleName` in CFN cannot exceed 64 characters.
-When using `!Sub` with `${AWS::StackName}`, estimate total length:
-- Stack name: max ~40 characters
-- Prefix: keep under 20 characters
-- Total: stay under 60 characters
+The Lambda Execution Role (`FISRBACLambdaRole`) does NOT specify a `RoleName` — CFN
+auto-generates a unique name, avoiding 64-char limit issues. The FIS Experiment Role
+(`FISExperimentRole`) uses `FISRole-{ExperimentName}` — see SKILL.md Step 6b for
+length budget details.
 
 ## CFN Deployment Notes
 

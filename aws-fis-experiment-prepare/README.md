@@ -54,7 +54,7 @@ Any valid FIS action ID, e.g.:
 ## Output Directory Structure
 
 ```
-./{scenario-slug}-{yyyy-mm-dd-HH-MM-SS}/
+./{yyyy-mm-dd-HH-MM-SS}-{scenario-slug}-{target-slug}[-{context-slug}]/
 ├── README.md                          # Experiment overview and execution instructions
 ├── experiment-template.json           # FIS experiment template for CLI creation
 ├── iam-policy.json                    # Least-privilege IAM permissions
@@ -63,6 +63,14 @@ Any valid FIS action ID, e.g.:
     ├── stop-condition-alarms.json     # CloudWatch alarm definitions
     └── dashboard.json                 # CloudWatch dashboard body
 ```
+
+The optional `{context-slug}` distinguishes experiments with the same scenario and target
+but different downstream services (e.g., `redis`, `msk`). Used for network fault injection
+actions (latency, packet-loss, blackhole-port).
+
+Scenario slugs use standard abbreviations (e.g., `pod-net-pktloss`, `az-power-int`,
+`ec-rg-az-power`) to stay within IAM Role 64-char name limits. See SKILL.md Step 5
+for the full abbreviation table.
 
 Additionally, a summary report is saved as:
 ```
@@ -105,7 +113,7 @@ After generating files, the skill immediately deploys the CloudFormation templat
   - Check with: `aws eks describe-cluster --name {CLUSTER} --query 'cluster.accessConfig.authenticationMode'`
   - If mode is `CONFIG_MAP` only, the user must update the cluster to `API_AND_CONFIG_MAP` first
 - K8s RBAC resources (ServiceAccount, Role, RoleBinding) are **automatically managed** via a Lambda-backed CFN Custom Resource — no manual `kubectl apply` is required
-- The CFN template includes a Lambda function that performs idempotent creation of K8s RBAC resources (checks if they exist before creating)
+- The CFN template includes a Lambda function that performs idempotent creation of K8s RBAC resources (checks if they exist before creating). The Lambda uses `botocore.signers.RequestSigner` with `x-k8s-aws-id` header for EKS token generation — this is required for EKS API server authentication (plain `sts_client.generate_presigned_url` lacks this header and results in 401 Unauthorized). The `ensure_resource` helper includes logging and error checking to prevent silent failures.
 - RBAC resources use **fixed standardized names** (`fis-sa`, `fis-experiment-role`, `fis-experiment-role-binding`) shared across all FIS experiments in the same namespace
 - RBAC resources are **not deleted** when a stack is removed — they are shared and may be used by other experiments
 - **MANDATORY:** When using any `aws:eks:pod-*` action, you MUST follow `references/eks-pod-action-prerequisites.md`
@@ -152,6 +160,7 @@ Step 5: Generate 6 configuration files in output directory
 Step 5.5: CFN permission pre-check (detect cloudformation:RoleArn condition)
          ↓
 Step 6: Deploy CFN template with self-healing loop (up to 5 retries)
+         ├── ExperimentName includes random suffix → all physical resource names globally unique
          ├── On success → update local files with real ARNs
          └── On failure → report error with all attempted fixes
          ↓
@@ -184,7 +193,9 @@ Step 7: Save summary report to local file (YYYY-mm-dd-HH-MM-SS-{scenario}-prepar
 
 7. **Report saved to file.** The preparation summary is written to a local markdown file with timestamp prefix, keeping the terminal output concise.
 
-8. **EKS RBAC via CFN Custom Resource.** K8s RBAC resources (ServiceAccount, Role, RoleBinding) for EKS Pod actions are managed automatically by a Lambda-backed CFN Custom Resource. Uses fixed standardized names (`fis-sa`, `fis-experiment-role`, `fis-experiment-role-binding`) shared across all experiments in the same namespace. Lambda performs idempotent creation (skip if exists) and does NOT delete RBAC on stack removal, since other experiments may still depend on them.
+8. **EKS RBAC via CFN Custom Resource.** K8s RBAC resources (ServiceAccount, Role, RoleBinding) for EKS Pod actions are managed automatically by a Lambda-backed CFN Custom Resource. Uses fixed standardized names (`fis-sa`, `fis-experiment-role`, `fis-experiment-role-binding`) shared across all experiments in the same namespace. Lambda performs idempotent creation (skip if exists) and does NOT delete RBAC on stack removal, since other experiments may still depend on them. The Lambda uses `botocore.signers.RequestSigner` with `x-k8s-aws-id` header for EKS bearer token generation, which is required for proper EKS API server authentication.
+
+9. **Naming convention prevents collisions.** `ExperimentName` includes a 6-character random suffix, making all CFN physical resource names (IAM Role, Dashboard, Alarm) globally unique. An optional `context-slug` in directory and resource names distinguishes experiments with the same scenario and target but different downstream services (e.g., `payment-redis` vs `payment-msk` for network fault injection).
 
 ## Directory Structure
 
