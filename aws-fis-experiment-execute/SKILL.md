@@ -136,15 +136,17 @@ Also extract dashboard URL and alarm ARNs if available.
 
 ### Step 5: Discover EKS Applications and Start Log Collection
 
-**REQUIRED:** Follow the `eks-app-log-analysis` skill (real-time mode) for Steps 5-6.
+**REQUIRED:** You MUST load the `eks-app-log-analysis` skill at this point. It contains
+the detailed procedures for application discovery and log collection. Load it now and
+execute its real-time mode steps as described below.
 
 This step runs **BEFORE** the experiment starts — discovering applications after the
 experiment begins risks missing early log entries that get rotated or overwritten.
 
-Execute the following from `eks-app-log-analysis`:
-1. **Step 3 (Collect Application Dependencies)** — auto-discover EKS apps depending on
+Execute from `eks-app-log-analysis` skill:
+1. **Its Step 3 (Collect Application Dependencies)** — auto-discover EKS apps depending on
    affected AWS services (from README's "Affected Resources" table), then confirm with user
-2. **Step 4 (Log Collection — Real-time Mode)** — start background `kubectl logs -f`
+2. **Its Step 4 (Log Collection — Real-time Mode)** — start background `kubectl logs -f`
    for all confirmed applications
 
 #### Optional: Baseline Log Collection (User Opt-In)
@@ -206,9 +208,9 @@ polling commands and experiment status reference.
   Query service-specific status (e.g., RDS instance status, ElastiCache replication
   group status, EKS node status) during monitoring to capture detailed observations.
 
-**Log insights during each poll cycle:** Follow `eks-app-log-analysis` Step 5
+**Log insights during each poll cycle:** Execute `eks-app-log-analysis` Step 5
 (Real-time Monitoring Display) — read recent logs, count errors/warnings, display
-per-app summary, detect recovery signals.
+per-app summary, detect recovery signals. The skill must already be loaded from Step 5.
 
 **During monitoring, remind the user:**
 - Check the CloudWatch dashboard for real-time metrics
@@ -228,10 +230,10 @@ then stop collection.
 
 #### Generate Application Log Analysis
 
-Follow `eks-app-log-analysis` Steps 7-8:
-- **Step 7 (Generate Analysis Report)** — analyze error patterns, peak rates, recovery
+Execute `eks-app-log-analysis` Steps 7-8 (skill already loaded from Step 5):
+- **Its Step 7 (Generate Analysis Report)** — analyze error patterns, peak rates, recovery
   times, and generate the "Application Log Analysis" section of the report
-- **Step 8 (Cleanup)** — kill background `kubectl logs` processes
+- **Its Step 8 (Cleanup)** — kill background `kubectl logs` processes
 
 The application log analysis output is embedded into the experiment results report
 (see Step 9 below), NOT saved as a separate file.
@@ -314,7 +316,7 @@ disruption even without a dedicated FIS action).
 ### Application Log Analysis
 
 Embed the analysis output from eks-app-log-analysis Step 7 here.
-Follow the report structure defined in eks-app-log-analysis SKILL.md:
+Use the report structure defined in eks-app-log-analysis SKILL.md:
 Summary table, per-application error timeline, key error patterns,
 log samples, insights, cross-service correlation, and recommendations.
 
