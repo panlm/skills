@@ -25,9 +25,10 @@ Preparing an AWS FIS experiment manually involves several error-prone, tedious s
 3. **Discovers target resources** — Queries the user's actual AWS resources and collects target identifiers.
 3. **Validates compatibility** — Inspects actual resources via AWS CLI (e.g., `describe-db-instances`, `describe-db-clusters`) and cross-checks against FIS action `resourceType` requirements before generating any files.
 4. **Determines monitoring configuration** — Defaults to `source: "none"` (no stop condition alarm). Only creates CloudWatch alarms if the user explicitly provides one. Generates a comprehensive CloudWatch dashboard with per-service availability, performance, and error/latency metrics.
-5. **Generates configuration files** — Produces a self-contained directory with 6 files: experiment template, IAM policy, CFN template, alarms, dashboard, and README.
-6. **Deploys with self-healing** — Deploys the CFN template, and if deployment fails, automatically analyzes errors, fixes the template, deletes the failed stack, and retries (up to 5 times).
-7. **Saves summary report** — Writes preparation results to a local markdown file (`YYYY-mm-dd-HH-MM-SS-{scenario}-prepare-summary.md`) and prints a brief summary to the terminal.
+5. **Reads CFN resource documentation** — Before generating the CFN template, reads the `AWS::FIS::ExperimentTemplate` CloudFormation documentation to ensure the template uses the current property schema.
+6. **Generates configuration files** — Produces a self-contained directory with 6 files: experiment template, IAM policy, CFN template, alarms, dashboard, and README.
+7. **Deploys with self-healing** — Deploys the CFN template, and if deployment fails, automatically analyzes errors, fixes the template, deletes the failed stack, and retries (up to 5 times).
+8. **Saves summary report** — Writes preparation results to a local markdown file (`YYYY-mm-dd-HH-MM-SS-{scenario}-prepare-summary.md`) and prints a brief summary to the terminal.
 
 ## Supported Scenarios
 
@@ -95,7 +96,7 @@ When incompatible, the skill explains the mismatch and suggests alternatives.
 
 After generating files, the skill immediately deploys the CloudFormation template:
 
-1. **Permission pre-check** — Inspects the caller's IAM policy for a `cloudformation:RoleArn` condition on CreateStack/UpdateStack/DeleteStack. If found, extracts the required CFN Service Role ARN and adds `--role-arn` to all subsequent CFN commands.
+1. **Permission pre-check** — Inspects the caller's IAM policy for a `cloudformation:RoleArn` condition on CreateStack/UpdateStack/DeleteStack. If found, extracts the required CFN Service Role ARN and adds `--role-arn` to all subsequent CFN commands. If no condition is found, uses IAM policy simulation (`simulate-principal-policy`) to verify the caller has CloudFormation permissions — stops early with guidance if permissions are missing.
 2. **Validate** — `aws cloudformation validate-template`
 3. **Deploy** — `aws cloudformation deploy --capabilities CAPABILITY_NAMED_IAM` (with `--role-arn` if required)
 4. **On failure** — Extract error from stack events, analyze root cause, fix template, delete failed stack, retry

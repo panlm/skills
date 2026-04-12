@@ -25,9 +25,10 @@
 3. **发现目标资源** — 查询用户实际的 AWS 资源，收集目标标识。
 3. **验证兼容性** — 通过 AWS CLI 检查实际资源（如 `describe-db-instances`、`describe-db-clusters`），与 FIS Action 的 `resourceType` 要求交叉校验，在生成任何文件之前完成。
 4. **确定监控配置** — 默认使用 `source: "none"`（不绑定 Stop Condition 告警）。仅在用户明确提供告警时才创建 CloudWatch Alarm。生成包含各服务可用性、性能和错误/延迟指标的综合 CloudWatch Dashboard。
-5. **生成配置文件** — 生成包含 6 个文件的自包含目录：实验模板、IAM 策略、CFN 模板、告警、Dashboard 和 README。
-6. **自动修复部署** — 部署 CFN 模板，若部署失败则自动分析错误、修复模板、删除失败 Stack、重试（最多 5 次）。
-7. **保存摘要报告** — 将准备结果写入本地 Markdown 文件（`YYYY-mm-dd-HH-MM-SS-{scenario}-prepare-summary.md`），终端仅打印简要摘要。
+5. **读取 CFN 资源文档** — 在生成 CFN 模板之前，读取 `AWS::FIS::ExperimentTemplate` CloudFormation 文档，确保模板使用当前的属性 schema。
+6. **生成配置文件** — 生成包含 6 个文件的自包含目录：实验模板、IAM 策略、CFN 模板、告警、Dashboard 和 README。
+7. **自动修复部署** — 部署 CFN 模板，若部署失败则自动分析错误、修复模板、删除失败 Stack、重试（最多 5 次）。
+8. **保存摘要报告** — 将准备结果写入本地 Markdown 文件（`YYYY-mm-dd-HH-MM-SS-{scenario}-prepare-summary.md`），终端仅打印简要摘要。
 
 ## 支持的场景
 
@@ -93,7 +94,7 @@
 
 生成文件后，Skill 立即部署 CloudFormation 模板：
 
-1. **权限预检** — 检查调用者 IAM 策略中 CreateStack/UpdateStack/DeleteStack 是否有 `cloudformation:RoleArn` 条件。如有，提取 CFN 服务角色 ARN 并在后续所有 CFN 命令中自动添加 `--role-arn`。
+1. **权限预检** — 检查调用者 IAM 策略中 CreateStack/UpdateStack/DeleteStack 是否有 `cloudformation:RoleArn` 条件。如有，提取 CFN 服务角色 ARN 并在后续所有 CFN 命令中自动添加 `--role-arn`。如未找到条件，使用 IAM 策略模拟（`simulate-principal-policy`）验证调用者是否有 CloudFormation 权限 — 权限不足时提前终止并提供指导。
 2. **验证** — `aws cloudformation validate-template`
 3. **部署** — `aws cloudformation deploy --capabilities CAPABILITY_NAMED_IAM`（如需要则带 `--role-arn`）
 4. **失败时** — 从 Stack 事件提取错误、分析根因、修复模板、删除失败 Stack、重试

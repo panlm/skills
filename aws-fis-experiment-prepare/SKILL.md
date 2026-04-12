@@ -461,6 +461,25 @@ When the user describes the experiment, extract the downstream service context. 
 example: "payment pod 到 redis 的丢包" → `CONTEXT_SLUG=redis`;
 "payment pod 到 msk 的网络延迟" → `CONTEXT_SLUG=msk`.
 
+#### Read CFN Resource Documentation Before Generating
+
+**REQUIRED:** Before generating `cfn-template.yaml`, read the `AWS::FIS::ExperimentTemplate`
+CloudFormation resource documentation to ensure the template uses the current property
+schema (Actions, Targets, StopConditions, LogConfiguration, ExperimentOptions, etc.).
+
+```
+aws___read_documentation:
+  url: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-fis-experimenttemplate.html
+```
+
+Review the required/optional properties and their types. Pay special attention to:
+- `Actions` — each action's `ActionId`, `Parameters`, `Targets`, `StartAfter`
+- `Targets` — `ResourceType`, `SelectionMode`, `ResourceArns` vs `ResourceTags` vs `Filters`
+- `StopConditions` — `Source` (`none` vs `aws:cloudwatch:alarm`), `Value`
+- `ExperimentOptions` — `AccountTargeting`, `EmptyTargetResolutionMode`
+
+Use the documented property names and structures verbatim when generating the CFN template.
+
 Generate files following the templates in `references/output-structure.md`:
 
 1. **experiment-template.json** — FIS experiment template for CLI creation
@@ -589,7 +608,26 @@ Also check attached managed policies via `list-attached-role-policies` +
    ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
    ```
 
-**If no condition is found:** leave `CFN_ROLE_ARN` unset, proceed without `--role-arn`.
+**If no condition is found:** verify the caller actually has CloudFormation permissions
+before proceeding. Use IAM policy simulation:
+
+```bash
+CALLER_ARN=$(aws sts get-caller-identity --query 'Arn' --output text)
+
+aws iam simulate-principal-policy \
+  --policy-source-arn "${CALLER_ARN}" \
+  --action-names cloudformation:CreateStack cloudformation:UpdateStack cloudformation:DeleteStack \
+  --query 'EvaluationResults[].{Action:EvalActionName, Decision:EvalDecision}' \
+  --output table
+```
+
+| Simulation Result | Action |
+|---|---|
+| All actions return `allowed` | Leave `CFN_ROLE_ARN` unset, proceed without `--role-arn` |
+| Any action returns `implicitDeny` or `explicitDeny` | **Stop and inform the user.** They need either: (1) a CFN service role (see setup guide below), or (2) broader IAM permissions for CloudFormation. Do NOT attempt deployment — it will fail. |
+
+> **Setup guide for CFN service role:**
+> https://panlm.github.io/others/cfn-service-role-for-fis-experiment-setup-guide/
 
 ### Step 6: Deploy CFN Template (Self-Healing Loop)
 
