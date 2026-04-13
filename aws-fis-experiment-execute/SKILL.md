@@ -145,7 +145,11 @@ Extract `ExperimentTemplateId` from stack outputs. See `references/cli-commands.
 
 Also extract dashboard URL and alarm ARNs if available.
 
-### Step 5: Classify Experiment Type
+### Step 5: Classify Experiment Type (CRITICAL — MUST complete before Step 6)
+
+**You MUST complete this classification BEFORE proceeding to Step 6.** The classification
+result determines whether Step 6 collects application logs or asks the user first.
+Do NOT skip this step. Do NOT assume the experiment type.
 
 Read `experiment-template.json` from the experiment directory. Extract all `actionId`
 values from the `actions` map. Classify the experiment into one of three types:
@@ -172,7 +176,9 @@ Actions found:
 
 ### Step 6: Discover EKS Applications and Start Log Collection (Conditional)
 
-This step is **conditional** based on the experiment type classified in Step 5.
+**CRITICAL:** This step is **conditional** based on the experiment type classified in
+Step 5. You MUST follow the correct path below based on the classification result.
+**Do NOT default to loading `eks-app-log-analysis` — check the experiment type FIRST.**
 
 #### POD_EXPERIMENT — App log collection REQUIRED
 
@@ -199,9 +205,10 @@ This is a mixed experiment targeting both pods and infrastructure.
 App log collection is enabled by default.
 ```
 
-#### INFRA_EXPERIMENT — App log collection skipped by default
+#### INFRA_EXPERIMENT — App log collection skipped by default (MUST ask user)
 
-Do NOT load `eks-app-log-analysis` by default. Instead, ask the user:
+**REQUIRED:** You MUST ask the user before collecting logs for infrastructure experiments.
+Do NOT load `eks-app-log-analysis` automatically. Do NOT skip this prompt. Ask the user:
 
 ```
 This experiment targets infrastructure components, not pods directly.
