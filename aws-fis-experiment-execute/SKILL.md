@@ -188,20 +188,27 @@ three paths sequentially.**
 
 #### Step 6a: INFRA_EXPERIMENT — Ask User About Log Collection
 
-**STOP. Do NOT load `eks-app-log-analysis` yet.** You MUST ask the user first:
+**STOP. Do NOT load `eks-app-log-analysis` yet.** Do NOT proceed to Step 7.
+Do NOT decide for the user. You MUST present the question below and wait for
+the user to type a response — just like the experiment confirmation in Step 7.
+
+Present this question to the user and **stop output to wait for their reply**:
 
 ```
-This experiment targets infrastructure components, not pods directly.
-App log collection is skipped by default. Would you like to collect
-application logs to observe upstream impact on EKS workloads?
-(Useful when infrastructure faults may cascade to application-level errors.) (y/N)
+This experiment targets infrastructure components (not pods directly).
+Would you like to collect application logs to observe upstream impact?
+(Infrastructure faults may cascade to application-level errors such as
+connection timeouts and failover retries.)
+
+Type "yes" to collect application logs, or "no" to skip.
 ```
 
-**Wait for the user's response before proceeding.**
+**Do NOT continue until the user has responded.** This is a mandatory interaction
+point — you cannot choose on behalf of the user.
 
 - If the user answers **yes**: proceed to Step 6c below to load `eks-app-log-analysis`
   and start log collection. Set `LOG_COLLECTION=ACTIVE`.
-- If the user answers **no** (or presses Enter / default): set `LOG_COLLECTION=SKIPPED`.
+- If the user answers **no**: set `LOG_COLLECTION=SKIPPED`.
   **Skip Step 6c entirely.** Proceed directly to Step 7.
 
 ---
