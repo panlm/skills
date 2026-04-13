@@ -7,17 +7,21 @@ description: >
   "运行混沌实验", "执行故障注入实验", "run the experiment in [directory]".
   Reads README.md from the experiment directory to extract the CFN stack name,
   verifies the stack is deployed successfully, extracts the experiment template
-  ID from stack outputs, then starts the experiment with strict user
-  confirmation, monitors progress, and generates results report.
+  ID from stack outputs, THEN asks the user whether to collect application logs
+  (auto-enabled for pod experiments, must ask for all others), then starts the
+  experiment with strict user confirmation, monitors progress, and generates
+  results report.
   Does NOT deploy infrastructure — only checks that it is already deployed.
 ---
 
 # AWS FIS Experiment Execute
 
 Verify that infrastructure is already deployed, run an AWS FIS experiment,
-monitor its progress, and generate a results report. Reads configuration from
-a prepared experiment directory whose CloudFormation stack has already been
-deployed.
+monitor its progress, and generate a results report. After extracting the
+template ID, **always determines whether to collect application logs** —
+auto-enabled for pod experiments (`aws:eks:pod-*`), must ask the user for
+all other experiment types. Reads configuration from a prepared experiment
+directory whose CloudFormation stack has already been deployed.
 
 ## Output Language Rule
 
