@@ -174,41 +174,21 @@ Actions found:
   ...
 ```
 
-### Step 6: Discover EKS Applications and Start Log Collection (Conditional)
+### Step 6: Decide and Execute Log Collection
 
-**CRITICAL:** This step is **conditional** based on the experiment type classified in
-Step 5. You MUST follow the correct path below based on the classification result.
-**Do NOT default to loading `eks-app-log-analysis` — check the experiment type FIRST.**
+Check the experiment type from Step 5 and follow **exactly one** of the three paths below.
+**Read the experiment type first, then jump to the matching section. Do NOT read all
+three paths sequentially.**
 
-#### POD_EXPERIMENT — App log collection REQUIRED
+**If `INFRA_EXPERIMENT`:** go to Step 6a.
+**If `MIXED_EXPERIMENT`:** go to Step 6b.
+**If `POD_EXPERIMENT`:** go to Step 6c.
 
-**REQUIRED:** You MUST load the `eks-app-log-analysis` skill at this point. It contains
-the detailed procedures for application discovery and log collection. Load it now and
-execute its real-time mode steps as described below.
+---
 
-This step runs **BEFORE** the experiment starts — discovering applications after the
-experiment begins risks missing early log entries that get rotated or overwritten.
+#### Step 6a: INFRA_EXPERIMENT — Ask User About Log Collection
 
-Execute from `eks-app-log-analysis` skill:
-1. **Its Step 3 (Collect Application Dependencies)** — auto-discover EKS apps depending on
-   affected AWS services (from README's "Affected Resources" table), then confirm with user
-2. **Its Step 4 (Log Collection — Real-time Mode)** — start background `kubectl logs -f`
-   for all confirmed applications
-
-#### MIXED_EXPERIMENT — App log collection enabled by default
-
-Load and execute `eks-app-log-analysis` exactly as for `POD_EXPERIMENT` above. Before
-starting, inform the user:
-
-```
-This is a mixed experiment targeting both pods and infrastructure.
-App log collection is enabled by default.
-```
-
-#### INFRA_EXPERIMENT — App log collection skipped by default (MUST ask user)
-
-**REQUIRED:** You MUST ask the user before collecting logs for infrastructure experiments.
-Do NOT load `eks-app-log-analysis` automatically. Do NOT skip this prompt. Ask the user:
+**STOP. Do NOT load `eks-app-log-analysis` yet.** You MUST ask the user first:
 
 ```
 This experiment targets infrastructure components, not pods directly.
@@ -217,14 +197,45 @@ application logs to observe upstream impact on EKS workloads?
 (Useful when infrastructure faults may cascade to application-level errors.) (y/N)
 ```
 
-- If the user answers **yes**: load `eks-app-log-analysis` and execute Steps 3+4 as above.
-  Set `LOG_COLLECTION=ACTIVE`.
-- If the user answers **no** (or default): skip log collection entirely.
-  Set `LOG_COLLECTION=SKIPPED`.
+**Wait for the user's response before proceeding.**
+
+- If the user answers **yes**: proceed to Step 6c below to load `eks-app-log-analysis`
+  and start log collection. Set `LOG_COLLECTION=ACTIVE`.
+- If the user answers **no** (or presses Enter / default): set `LOG_COLLECTION=SKIPPED`.
+  **Skip Step 6c entirely.** Proceed directly to Step 7.
+
+---
+
+#### Step 6b: MIXED_EXPERIMENT — Inform User, Then Collect Logs
+
+Inform the user:
+
+```
+This is a mixed experiment targeting both pods and infrastructure.
+App log collection is enabled by default.
+```
+
+Then proceed to Step 6c below to start log collection.
+
+---
+
+#### Step 6c: Start Log Collection (POD_EXPERIMENT, or opted-in INFRA/MIXED)
+
+Load the `eks-app-log-analysis` skill now. Execute its real-time mode steps:
+
+1. **Its Step 3 (Collect Application Dependencies)** — auto-discover EKS apps depending on
+   affected AWS services (from README's "Affected Resources" table), then confirm with user
+2. **Its Step 4 (Log Collection — Real-time Mode)** — start background `kubectl logs -f`
+   for all confirmed applications
+
+Set `LOG_COLLECTION=ACTIVE`.
+
+This step runs **BEFORE** the experiment starts — discovering applications after the
+experiment begins risks missing early log entries that get rotated or overwritten.
 
 #### Optional: Baseline Log Collection (User Opt-In)
 
-**Applies only when log collection is active.** Default: skip baseline.
+**Applies only when `LOG_COLLECTION=ACTIVE`.** Default: skip baseline.
 Only collect baseline logs if the user explicitly requests "collect baseline logs" or
 "capture pre/post experiment logs" or similar.
 
@@ -287,11 +298,11 @@ polling commands and experiment status reference.
   Query service-specific status (e.g., RDS instance status, ElastiCache replication
   group status, EKS node status) during monitoring to capture detailed observations.
 
-**Log insights during each poll cycle (only when log collection is active):** Execute
+**Log insights during each poll cycle (only when `LOG_COLLECTION=ACTIVE`):** Execute
 `eks-app-log-analysis` Step 5 (Real-time Monitoring Display) — read recent logs, count
 errors/warnings, display per-app summary, detect recovery signals. The skill must already
-be loaded from Step 6. If app log collection was skipped (INFRA_EXPERIMENT with no
-opt-in), skip this paragraph entirely — monitor only experiment status and service states.
+be loaded from Step 6c. If `LOG_COLLECTION=SKIPPED`, skip this paragraph entirely —
+monitor only experiment status and service states.
 
 **During monitoring, remind the user:**
 - Check the CloudWatch dashboard for real-time metrics
@@ -301,20 +312,19 @@ opt-in), skip this paragraph entirely — monitor only experiment status and ser
 
 After the experiment completes (any terminal state):
 
-**If app log collection was skipped** (INFRA_EXPERIMENT with no opt-in), skip this
-entire step and proceed directly to Step 10.
+**If `LOG_COLLECTION=SKIPPED`**, skip this entire step and proceed directly to Step 10.
 
 #### Optional: Post-Experiment Baseline (User Opt-In)
 
 **Default: stop immediately.** Only continue collecting post-experiment logs if the
-user opted in to baseline collection in Step 6.
+user opted in to baseline collection in Step 6c.
 
 If opted in: wait 2 minutes after experiment ends to capture recovery behavior logs,
 then stop collection.
 
 #### Generate Application Log Analysis
 
-Execute `eks-app-log-analysis` Steps 7-8 (skill already loaded from Step 6):
+Execute `eks-app-log-analysis` Steps 7-8 (skill already loaded from Step 6c):
 - **Its Step 7 (Generate Analysis Report)** — analyze error patterns, peak rates, recovery
   times, and generate the "Application Log Analysis" section of the report
 - **Its Step 8 (Cleanup)** — kill background `kubectl logs` processes
