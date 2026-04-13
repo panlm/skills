@@ -20,7 +20,7 @@ Running an AWS FIS experiment after preparation still involves manual verificati
 2. **Reads README.md** to extract the CFN stack name and experiment metadata.
 3. **Verifies stack deployment** — checks that the CloudFormation stack is in `CREATE_COMPLETE` or `UPDATE_COMPLETE` status.
 4. **Extracts template ID** from stack outputs.
-5. **Asks whether to collect app logs** — default is No (infra-focused). Auto-selects Yes if the user already expressed intent to analyze app logs. If Yes, loads `eks-app-log-analysis` skill to discover EKS apps and start background log collection before the experiment.
+5. **Determines whether to collect app logs** — auto-enables for pod-targeting experiments (`aws:eks:pod-*` actions) and when the user expressed log analysis intent. Otherwise asks the user (default: No). If Yes, loads `eks-app-log-analysis` skill to discover EKS apps and start background log collection before the experiment.
 6. **Enforces safety** — presents a clear impact warning with affected resources (and monitored applications if log collection is enabled), requires explicit user confirmation before starting.
 7. **Starts the experiment** only after explicit user confirmation.
 8. **Monitors progress** — polls experiment status every 30-60 seconds, records timestamps for each status change and per-service events. If log collection is enabled, also displays per-app error counts and recovery signals.
@@ -42,8 +42,9 @@ Step 3: Check CloudFormation stack status
          ↓
 Step 4: Extract experiment template ID from stack outputs
          ↓
-Step 4.5: Ask whether to collect app logs (default: No)
-         ├── No → skip to Step 6 (infra-only mode)
+Step 4.5: Determine whether to collect app logs
+         ├── Auto-Yes: pod experiments (aws:eks:pod-*) or user expressed intent
+         ├── Otherwise ask (default: No → skip to Step 6)
          └── Yes → proceed to Step 5
          ↓ (if Yes)
 Step 5: Discover EKS apps + start log collection [BEFORE experiment]
@@ -237,7 +238,7 @@ aws cloudwatch delete-dashboards --dashboard-names "FIS-{SCENARIO}" --region {RE
 
 4. **App discovery before experiment start.** When log collection is enabled, EKS application dependencies are discovered and log collection is started BEFORE the experiment begins. This prevents missing early log entries that may be rotated or overwritten during the experiment.
 
-5. **Log collection is opt-in (default: off).** Before starting the experiment, the skill asks whether to collect application logs — default is No. Infra teams can run experiments quickly without kubectl; app teams choose Yes to auto-load `eks-app-log-analysis` for discovery, collection, and analysis. If the user already expressed log analysis intent in conversation, it auto-selects Yes. `eks-app-log-analysis` can also be used independently for post-hoc analysis.
+5. **Log collection is opt-in (auto-enabled for pod experiments).** For `aws:eks:pod-*` actions, log collection is automatically enabled — pod experiments inherently need application log analysis. For other experiments, the skill asks (default No). Infra teams get a fast path without kubectl; app teams and pod experiments get full log analysis via `eks-app-log-analysis`. The skill can also be used independently for post-hoc analysis.
 
 6. **Baseline logs are opt-in.** By default, log collection starts immediately and stops when the experiment ends. Pre-experiment (2 min) and post-experiment (2 min) baseline collection is only activated when the user explicitly requests it, keeping the default flow fast.
 

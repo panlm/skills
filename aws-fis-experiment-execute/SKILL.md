@@ -144,16 +144,20 @@ Extract `ExperimentTemplateId` from stack outputs. See `references/cli-commands.
 
 Also extract dashboard URL and alarm ARNs if available.
 
-### Step 4.5: Ask Whether to Collect Application Logs
+### Step 4.5: Determine Whether to Collect Application Logs
 
-**After extracting the template ID, ask the user whether to collect EKS application
-logs during the experiment.** Default is No (skip log collection).
+**After extracting the template ID, determine whether to collect EKS application logs.**
 
-**Skip this question and auto-select Yes** if the user has already expressed intent to
-collect logs in their conversation (e.g., "run the experiment and analyze app logs",
-"执行实验并收集应用日志", "monitor application behavior", "查看应用表现").
+**Auto-select Yes (no question asked) when ANY of these conditions is true:**
+1. The experiment targets pods — the experiment template contains any `aws:eks:pod-*`
+   action (e.g., `pod-network-latency`, `pod-delete`, `pod-cpu-stress`). Check the
+   `experiment-template.json` in the experiment directory for action IDs starting with
+   `aws:eks:pod-`.
+2. The user has already expressed intent to collect logs in their conversation
+   (e.g., "run the experiment and analyze app logs", "执行实验并收集应用日志",
+   "monitor application behavior", "查看应用表现").
 
-If no prior intent is detected, ask:
+**Otherwise, ask the user** (default is No):
 
 ```
 Experiment ready. Before starting, would you like to collect
@@ -165,9 +169,10 @@ application logs during the experiment?
 
 Store the result as `COLLECT_APP_LOGS=true|false`.
 
-- **No (default):** Skip Steps 5 and 8 entirely. Steps 6, 7, and 9 run without any
-  log-related content (no "Applications being monitored" in the warning, no log
-  insights during monitoring, no Application Log Analysis section in the report).
+- **No (default for non-pod experiments):** Skip Steps 5 and 8 entirely. Steps 6, 7,
+  and 9 run without any log-related content (no "Applications being monitored" in the
+  warning, no log insights during monitoring, no Application Log Analysis section in
+  the report).
 - **Yes:** Proceed to Step 5 to load `eks-app-log-analysis` skill and start log collection.
 
 ### Step 5: Discover EKS Applications and Start Log Collection
