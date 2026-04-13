@@ -5,23 +5,15 @@ description: >
   CloudFormation stack has already been deployed. Triggers on "execute FIS
   experiment", "run FIS experiment", "start chaos experiment", "启动 FIS 实验",
   "运行混沌实验", "执行故障注入实验", "run the experiment in [directory]".
-  Reads README.md from the experiment directory to extract the CFN stack name,
-  verifies the stack is deployed successfully, extracts the experiment template
-  ID from stack outputs, THEN asks the user whether to collect application logs
-  (auto-enabled for pod experiments, must ask for all others), then starts the
-  experiment with strict user confirmation, monitors progress, and generates
-  results report.
   Does NOT deploy infrastructure — only checks that it is already deployed.
 ---
 
 # AWS FIS Experiment Execute
 
 Verify that infrastructure is already deployed, run an AWS FIS experiment,
-monitor its progress, and generate a results report. After extracting the
-template ID, **always determines whether to collect application logs** —
-auto-enabled for pod experiments (`aws:eks:pod-*`), must ask the user for
-all other experiment types. Reads configuration from a prepared experiment
-directory whose CloudFormation stack has already been deployed.
+monitor its progress, and generate a results report. Reads configuration from
+a prepared experiment directory whose CloudFormation stack has already been
+deployed.
 
 ## Output Language Rule
 
@@ -46,7 +38,8 @@ digraph execute_flow {
     "Read README for stack name" [shape=box];
     "Check CFN stack status" [shape=diamond];
     "Extract template ID from outputs" [shape=box];
-    "Pod experiment?\n(aws:eks:pod-*)" [shape=diamond];
+    "Classify experiment type\n+ display actionIds" [shape=box];
+    "Pod actions present?" [shape=diamond];
     "ASK user:\nCollect app logs?" [shape=box, style=bold];
     "Discover apps + start logs\n(eks-app-log-analysis)" [shape=box];
     "Baseline logs? (user opt-in)" [shape=diamond];
@@ -67,9 +60,10 @@ digraph execute_flow {
     "Read README for stack name" -> "Check CFN stack status";
     "Check CFN stack status" -> "Extract template ID from outputs" [label="CREATE_COMPLETE"];
     "Check CFN stack status" -> "Generate results report" [label="Not deployed / failed, abort"];
-    "Extract template ID from outputs" -> "Pod experiment?\n(aws:eks:pod-*)";
-    "Pod experiment?\n(aws:eks:pod-*)" -> "Discover apps + start logs\n(eks-app-log-analysis)" [label="Yes → auto-collect"];
-    "Pod experiment?\n(aws:eks:pod-*)" -> "ASK user:\nCollect app logs?" [label="No"];
+    "Extract template ID from outputs" -> "Classify experiment type\n+ display actionIds";
+    "Classify experiment type\n+ display actionIds" -> "Pod actions present?";
+    "Pod actions present?" -> "Discover apps + start logs\n(eks-app-log-analysis)" [label="Yes → auto-collect"];
+    "Pod actions present?" -> "ASK user:\nCollect app logs?" [label="No"];
     "ASK user:\nCollect app logs?" -> "Discover apps + start logs\n(eks-app-log-analysis)" [label="User says Yes"];
     "ASK user:\nCollect app logs?" -> "User confirms experiment start" [label="User says No"];
     "Discover apps + start logs\n(eks-app-log-analysis)" -> "Baseline logs? (user opt-in)";
@@ -151,39 +145,65 @@ Extract `ExperimentTemplateId` from stack outputs. See `references/cli-commands.
 
 Also extract dashboard URL and alarm ARNs if available.
 
-### Step 4.5: Determine Whether to Collect Application Logs
+### Step 5: Classify Experiment and Determine Log Collection
 
-**After extracting the template ID, determine whether to collect EKS application logs.**
+**You MUST complete this step BEFORE proceeding to Step 6.** The classification
+result determines whether Step 6 collects application logs or asks the user first.
+Do NOT skip this step. Do NOT assume the experiment type.
 
-**Auto-select Yes (no question asked) when ANY of these conditions is true:**
-1. The experiment targets pods — the experiment template contains any `aws:eks:pod-*`
-   action (e.g., `pod-network-latency`, `pod-delete`, `pod-cpu-stress`). Check the
-   `experiment-template.json` in the experiment directory for action IDs starting with
-   `aws:eks:pod-`.
-2. The user has already expressed intent to collect logs in their conversation
-   (e.g., "run the experiment and analyze app logs", "执行实验并收集应用日志",
-   "monitor application behavior", "查看应用表现").
+Read `experiment-template.json` from the experiment directory. Extract all `actionId`
+values from the `actions` map. Determine whether any `actionId` starts with
+`aws:eks:pod-` (e.g., `pod-network-latency`, `pod-delete`, `pod-cpu-stress`).
 
-**If NEITHER condition above is met, you MUST ask the user.** Do NOT skip this question.
-Do NOT assume the answer is No. Present the following prompt and wait for a response:
+For **Scenario Library templates** (where actions may be opaque or use custom resource
+injection such as `aws:eks:inject-kubernetes-custom-resource`): if the scenario name or
+README description indicates pod-level fault injection, treat as pod experiment.
+Otherwise treat as non-pod experiment.
+
+Display the classification to the user:
+```
+Experiment type: {POD (aws:eks:pod-*) | NON-POD}
+Actions found:
+  - {actionId_1}
+  - {actionId_2}
+  ...
+```
+
+**If ANY `aws:eks:pod-*` action is present:** auto-select `COLLECT_APP_LOGS=true`.
+Inform the user:
+```
+Pod experiment detected — app log collection is enabled automatically.
+```
+Proceed directly to Step 6.
+
+**If NO `aws:eks:pod-*` action is present:** you MUST ask the user.
+
+**STOP. Do NOT load `eks-app-log-analysis` yet.** Do NOT proceed to Step 6.
+Do NOT decide for the user. You MUST present the question below and **stop output
+to wait for their reply** — just like the experiment confirmation in Step 7.
 
 ```
-Experiment ready. Before starting, would you like to collect
-application logs during the experiment?
+This experiment targets infrastructure components (not pods directly).
+Would you like to collect application logs to observe upstream impact?
+(Infrastructure faults may cascade to application-level errors such as
+connection timeouts and failover retries.)
 
   [No]  — Skip app log collection (default, press Enter)
   [Yes] — Discover EKS apps and collect logs (requires kubectl)
 ```
 
+**Do NOT continue until the user has responded.** This is a mandatory interaction
+point — you cannot choose on behalf of the user.
+
 Store the result as `COLLECT_APP_LOGS=true|false`.
 
-- **No (default for non-pod experiments):** Skip Steps 5 and 8 entirely. Steps 6, 7,
-  and 9 run without any log-related content (no "Applications being monitored" in the
+- **No (default for non-pod experiments):** Skip Steps 6 and 9 entirely. Steps 7, 8,
+  and 10 run without any log-related content (no "Applications being monitored" in the
   warning, no log insights during monitoring, no Application Log Analysis section in
   the report).
-- **Yes:** Proceed to Step 5 to load `eks-app-log-analysis` skill and start log collection.
+- **Yes:** Proceed to Step 6 to load `eks-app-log-analysis` skill and start log collection.
 
-### Step 5: Discover EKS Applications and Start Log Collection
+### Step 6: Discover EKS Applications and Start Log Collection
 
 **Only execute this step if `COLLECT_APP_LOGS=true`.**
 
@@ -208,7 +228,7 @@ Execute from `eks-app-log-analysis` skill:
 If opted in: wait 2 minutes after starting log collection to capture normal-state logs
 as baseline, then proceed to experiment confirmation.
 
-### Step 6: Start Experiment (CRITICAL CONFIRMATION)
+### Step 7: Start Experiment (CRITICAL CONFIRMATION)
 
 **This is the most dangerous step. The experiment WILL affect real resources.**
 
@@ -223,6 +243,7 @@ Target AZ:   {AZ_ID}
 Duration:    {DURATION}
 Stack:       {STACK_NAME} (verified: CREATE_COMPLETE)
 Template ID: {TEMPLATE_ID}
+Experiment type: {POD (aws:eks:pod-*) | NON-POD}
 
 Resources that WILL be affected:
   - {list each affected resource type and count from README}
@@ -243,11 +264,11 @@ Log collection: ACTIVE (collecting to {LOG_DIR})
 ```
 
 **Only proceed if the user explicitly confirms.** If user aborts and
-`COLLECT_APP_LOGS=true`, proceed to Step 8 to stop log collection first.
+`COLLECT_APP_LOGS=true`, proceed to Step 9 to stop log collection first.
 
 Save the returned `experiment.id`.
 
-### Step 7: Monitor Experiment
+### Step 8: Monitor Experiment
 
 Poll the experiment status and display progress. See `references/cli-commands.md` for
 polling commands and experiment status reference.
@@ -266,38 +287,38 @@ polling commands and experiment status reference.
 **If `COLLECT_APP_LOGS=true` — log insights during each poll cycle:** Execute
 `eks-app-log-analysis` Step 5 (Real-time Monitoring Display) — read recent logs, count
 errors/warnings, display per-app summary, detect recovery signals. The skill must
-already be loaded from Step 5.
+already be loaded from Step 6.
 
 **During monitoring, remind the user:**
 - Check the CloudWatch dashboard for real-time metrics
 - The experiment can be stopped at any time (see `references/cli-commands.md` for stop command)
 
-### Step 8: Stop Log Collection and Analyze
+### Step 9: Stop Log Collection and Analyze
 
 **Only execute this step if `COLLECT_APP_LOGS=true`.** If log collection was skipped,
-proceed directly to Step 9.
+proceed directly to Step 10.
 
 After the experiment completes (any terminal state):
 
 #### Optional: Post-Experiment Baseline (User Opt-In)
 
 **Default: stop immediately.** Only continue collecting post-experiment logs if the
-user opted in to baseline collection in Step 5.
+user opted in to baseline collection in Step 6.
 
 If opted in: wait 2 minutes after experiment ends to capture recovery behavior logs,
 then stop collection.
 
 #### Generate Application Log Analysis
 
-Execute `eks-app-log-analysis` Steps 7-8 (skill already loaded from Step 5):
+Execute `eks-app-log-analysis` Steps 7-8 (skill already loaded from Step 6):
 - **Its Step 7 (Generate Analysis Report)** — analyze error patterns, peak rates, recovery
   times, and generate the "Application Log Analysis" section of the report
 - **Its Step 8 (Cleanup)** — kill background `kubectl logs` processes
 
 The application log analysis output is embedded into the experiment results report
-(see Step 9 below), NOT saved as a separate file.
+(see Step 10 below), NOT saved as a separate file.
 
-### Step 9: Save Results Report to Local File
+### Step 10: Save Results Report to Local File
 
 After the experiment completes (any terminal state), generate a results report and
 **write it directly to a local markdown file** instead of outputting the full content
@@ -412,6 +433,7 @@ After saving the file, print a brief summary to the terminal listing only:
 - The file path of the saved results report
 - Experiment ID and final status
 - Start time, end time, and duration (all timestamps in ISO 8601 with timezone)
+- Experiment type (POD / NON-POD)
 - Per-action status (one line each)
 - Per-service recovery status (one line each)
 - Application log summary — total errors per app, one line each (**only if `COLLECT_APP_LOGS=true`**)

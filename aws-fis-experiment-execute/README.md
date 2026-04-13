@@ -20,52 +20,54 @@ Running an AWS FIS experiment after preparation still involves manual verificati
 2. **Reads README.md** to extract the CFN stack name and experiment metadata.
 3. **Verifies stack deployment** — checks that the CloudFormation stack is in `CREATE_COMPLETE` or `UPDATE_COMPLETE` status.
 4. **Extracts template ID** from stack outputs.
-5. **Determines whether to collect app logs** — auto-enables for pod-targeting experiments (`aws:eks:pod-*` actions) and when the user expressed log analysis intent. Otherwise asks the user (default: No). If Yes, loads `eks-app-log-analysis` skill to discover EKS apps and start background log collection before the experiment.
-6. **Enforces safety** — presents a clear impact warning with affected resources (and monitored applications if log collection is enabled), requires explicit user confirmation before starting.
-7. **Starts the experiment** only after explicit user confirmation.
-8. **Monitors progress** — polls experiment status every 30-60 seconds, records timestamps for each status change and per-service events. If log collection is enabled, also displays per-app error counts and recovery signals.
-9. **Stops log collection and analyzes** — (**only if log collection enabled**) follows `eks-app-log-analysis` Steps 7-8 to kill background processes, analyze error patterns, peak rates, and recovery times.
-10. **Saves results report** — writes the experiment results to a local markdown file with **per-service impact analysis** and (if log collection enabled) **application log analysis**. Prints a brief summary to the terminal.
+5. **Classifies experiment type and determines log collection** — reads `experiment-template.json` to extract all action IDs, classifies as POD or NON-POD experiment, and displays the classification to the user. Auto-enables log collection for pod experiments (`aws:eks:pod-*` actions). For non-pod experiments, asks the user (default: No). Handles Scenario Library templates with opaque actions via fallback logic.
+6. **Discovers EKS apps and starts log collection** — (**only if log collection enabled**) loads `eks-app-log-analysis` skill to discover EKS apps and start background `kubectl logs -f` **before the experiment starts** to avoid missing early log entries.
+7. **Enforces safety** — presents a clear impact warning with affected resources, experiment type, and (if log collection enabled) monitored applications, requires explicit user confirmation before starting.
+8. **Starts the experiment** only after explicit user confirmation.
+9. **Monitors progress** — polls experiment status every 30-60 seconds, records timestamps for each status change and per-service events. If log collection is enabled, also displays per-app error counts and recovery signals.
+10. **Stops log collection and analyzes** — (**only if log collection enabled**) follows `eks-app-log-analysis` Steps 7-8 to kill background processes, analyze error patterns, peak rates, and recovery times.
+11. **Saves results report** — writes the experiment results to a local markdown file with **per-service impact analysis** and (if log collection enabled) **application log analysis**. Prints a brief summary to the terminal.
 
 **Note:** This skill does **NOT** deploy infrastructure. It only verifies that the stack is already deployed and proceeds with experiment execution.
 
 ## Workflow Overview
 
 ```
-Step 1: Load experiment directory + validate required files
-         ↓
-Step 2: Read README.md → extract CFN stack name + metadata
-         ↓
-Step 3: Check CloudFormation stack status
-         ├── CREATE_COMPLETE or UPDATE_COMPLETE → proceed
-         └── Not ready / failed / not found → abort with guidance
-         ↓
-Step 4: Extract experiment template ID from stack outputs
-         ↓
-Step 4.5: Determine whether to collect app logs
-         ├── Auto-Yes: pod experiments (aws:eks:pod-*) or user expressed intent
-         ├── Otherwise ask (default: No → skip to Step 6)
-         └── Yes → proceed to Step 5
-         ↓ (if Yes)
-Step 5: Discover EKS apps + start log collection [BEFORE experiment]
-         ├── Load eks-app-log-analysis skill (real-time mode) Steps 3-4
-         ├── Default: start collecting immediately
-         └── Optional (user opt-in): collect 2 min baseline first
-         ↓
-Step 6: Start experiment [CRITICAL — requires explicit user confirmation]
-         ├── Display impact warning (resources, duration, stop conditions)
-         ├── User confirms → start experiment
-         └── User declines → abort (cleanup logs if collected)
-         ↓
-Step 7: Monitor experiment (+ log insights if collecting)
-         ├── Poll status every 30s (first 5 min) then 60s
-         ├── Record timestamps for each status change and action transition
-         ├── If collecting: show per-app error/warning counts
-         └── Remind user: check dashboard
-         ↓ (if collecting)
-Step 8: Stop log collection + analyze (via eks-app-log-analysis Steps 7-8)
-         ↓
-Step 9: Save results report to local file (YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md)
+Step 1:  Load experiment directory + validate required files
+          ↓
+Step 2:  Read README.md → extract CFN stack name + metadata
+          ↓
+Step 3:  Check CloudFormation stack status
+          ├── CREATE_COMPLETE or UPDATE_COMPLETE → proceed
+          └── Not ready / failed / not found → abort with guidance
+          ↓
+Step 4:  Extract experiment template ID from stack outputs
+          ↓
+Step 5:  Classify experiment type + determine log collection
+          ├── Read experiment-template.json, extract actionIds, display to user
+          ├── Auto-Yes: pod experiments (any aws:eks:pod-* action)
+          ├── Non-pod: MUST ask user (default: No → skip to Step 7)
+          └── Yes → proceed to Step 6
+          ↓ (if Yes)
+Step 6:  Discover EKS apps + start log collection [BEFORE experiment]
+          ├── Load eks-app-log-analysis skill (real-time mode) Steps 3-4
+          ├── Default: start collecting immediately
+          └── Optional (user opt-in): collect 2 min baseline first
+          ↓
+Step 7:  Start experiment [CRITICAL — requires explicit user confirmation]
+          ├── Display impact warning (resources, experiment type, duration, stop conditions)
+          ├── User confirms → start experiment
+          └── User declines → abort (cleanup logs if collected)
+          ↓
+Step 8:  Monitor experiment (+ log insights if collecting)
+          ├── Poll status every 30s (first 5 min) then 60s
+          ├── Record timestamps for each status change and action transition
+          ├── If collecting: show per-app error/warning counts
+          └── Remind user: check dashboard
+          ↓ (if collecting)
+Step 9:  Stop log collection + analyze (via eks-app-log-analysis Steps 7-8)
+          ↓
+Step 10: Save results report to local file (YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md)
 ```
 
 ## Safety Rules
@@ -236,17 +238,19 @@ aws cloudwatch delete-dashboards --dashboard-names "FIS-{SCENARIO}" --region {RE
 
 3. **Explicit confirmation is non-negotiable.** FIS experiments cause real impact. The skill never auto-starts — it always presents a warning with specific resource details and requires the user to type confirmation.
 
-4. **App discovery before experiment start.** When log collection is enabled, EKS application dependencies are discovered and log collection is started BEFORE the experiment begins. This prevents missing early log entries that may be rotated or overwritten during the experiment.
+4. **Experiment classification is explicit.** Before deciding on log collection, the skill reads `experiment-template.json`, extracts all action IDs, classifies the experiment as POD or NON-POD, and displays the classification with action IDs to the user. This transparency ensures the user can verify the classification before proceeding. Scenario Library templates with opaque actions are handled via fallback logic based on scenario name and README description.
 
-5. **Log collection is opt-in (auto-enabled for pod experiments).** For `aws:eks:pod-*` actions, log collection is automatically enabled — pod experiments inherently need application log analysis. For other experiments, the skill asks (default No). Infra teams get a fast path without kubectl; app teams and pod experiments get full log analysis via `eks-app-log-analysis`. The skill can also be used independently for post-hoc analysis.
+5. **App discovery before experiment start.** When log collection is enabled, EKS application dependencies are discovered and log collection is started BEFORE the experiment begins. This prevents missing early log entries that may be rotated or overwritten during the experiment.
 
-6. **Baseline logs are opt-in.** By default, log collection starts immediately and stops when the experiment ends. Pre-experiment (2 min) and post-experiment (2 min) baseline collection is only activated when the user explicitly requests it, keeping the default flow fast.
+6. **Log collection is opt-in (auto-enabled for pod experiments).** For `aws:eks:pod-*` actions, log collection is automatically enabled — pod experiments inherently need application log analysis. For all other experiments, the skill explicitly asks the user (default No) and waits for a response. This is a mandatory interaction point — the agent cannot decide on behalf of the user. Infra teams get a fast path without kubectl; app teams and pod experiments get full log analysis via `eks-app-log-analysis`. The skill can also be used independently for post-hoc analysis.
 
-7. **Continuous monitoring with log insights.** During the experiment, each poll cycle shows both experiment status and per-app error/warning counts from collected logs, giving operators a real-time view of application impact alongside infrastructure status.
+7. **Baseline logs are opt-in.** By default, log collection starts immediately and stops when the experiment ends. Pre-experiment (2 min) and post-experiment (2 min) baseline collection is only activated when the user explicitly requests it, keeping the default flow fast.
 
-8. **Results saved to file.** The experiment results report is written to a timestamped local markdown file, keeping terminal output concise while preserving a full record.
+8. **Continuous monitoring with log insights.** During the experiment, each poll cycle shows both experiment status and per-app error/warning counts from collected logs, giving operators a real-time view of application impact alongside infrastructure status.
 
-9. **Cleanup is offered, not forced.** After the experiment, cleanup commands are suggested but never executed without confirmation.
+9. **Results saved to file.** The experiment results report is written to a timestamped local markdown file, keeping terminal output concise while preserving a full record.
+
+10. **Cleanup is offered, not forced.** After the experiment, cleanup commands are suggested but never executed without confirmation.
 
 ## Directory Structure
 
