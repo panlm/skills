@@ -157,7 +157,8 @@ Also extract dashboard URL and alarm ARNs if available.
    (e.g., "run the experiment and analyze app logs", "执行实验并收集应用日志",
    "monitor application behavior", "查看应用表现").
 
-**Otherwise, ask the user** (default is No):
+**If NEITHER condition above is met, you MUST ask the user.** Do NOT skip this question.
+Do NOT assume the answer is No. Present the following prompt and wait for a response:
 
 ```
 Experiment ready. Before starting, would you like to collect
