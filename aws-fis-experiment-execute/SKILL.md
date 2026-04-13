@@ -231,7 +231,12 @@ Then proceed to Step 6c below to start log collection.
 Load the `eks-app-log-analysis` skill now. Execute its real-time mode steps:
 
 1. **Its Step 3 (Collect Application Dependencies)** — auto-discover EKS apps depending on
-   affected AWS services (from README's "Affected Resources" table), then confirm with user
+   affected AWS services (from README's "Affected Resources" table).
+   **If arriving from Step 6a (INFRA_EXPERIMENT opt-in):** the user already confirmed they
+   want log collection — auto-confirm all discovered apps and display the list as
+   informational only. Do NOT ask for a second confirmation. Proceed directly to Step 4.
+   **If POD_EXPERIMENT or MIXED_EXPERIMENT:** confirm the discovered app list with the user
+   as described in eks-app-log-analysis Step 3b.
 2. **Its Step 4 (Log Collection — Real-time Mode)** — start background `kubectl logs -f`
    for all confirmed applications
 
