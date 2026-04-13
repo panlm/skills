@@ -42,7 +42,8 @@ digraph execute_flow {
     "Read README for stack name" [shape=box];
     "Check CFN stack status" [shape=diamond];
     "Extract template ID from outputs" [shape=box];
-    "Collect app logs?" [shape=diamond];
+    "Pod experiment?\n(aws:eks:pod-*)" [shape=diamond];
+    "ASK user:\nCollect app logs?" [shape=box, style=bold];
     "Discover apps + start logs\n(eks-app-log-analysis)" [shape=box];
     "Baseline logs? (user opt-in)" [shape=diamond];
     "Wait 2 min baseline" [shape=box];
@@ -62,9 +63,11 @@ digraph execute_flow {
     "Read README for stack name" -> "Check CFN stack status";
     "Check CFN stack status" -> "Extract template ID from outputs" [label="CREATE_COMPLETE"];
     "Check CFN stack status" -> "Generate results report" [label="Not deployed / failed, abort"];
-    "Extract template ID from outputs" -> "Collect app logs?";
-    "Collect app logs?" -> "Discover apps + start logs\n(eks-app-log-analysis)" [label="Yes"];
-    "Collect app logs?" -> "User confirms experiment start" [label="No (default)"];
+    "Extract template ID from outputs" -> "Pod experiment?\n(aws:eks:pod-*)";
+    "Pod experiment?\n(aws:eks:pod-*)" -> "Discover apps + start logs\n(eks-app-log-analysis)" [label="Yes → auto-collect"];
+    "Pod experiment?\n(aws:eks:pod-*)" -> "ASK user:\nCollect app logs?" [label="No"];
+    "ASK user:\nCollect app logs?" -> "Discover apps + start logs\n(eks-app-log-analysis)" [label="User says Yes"];
+    "ASK user:\nCollect app logs?" -> "User confirms experiment start" [label="User says No"];
     "Discover apps + start logs\n(eks-app-log-analysis)" -> "Baseline logs? (user opt-in)";
     "Baseline logs? (user opt-in)" -> "Wait 2 min baseline" [label="Yes"];
     "Baseline logs? (user opt-in)" -> "User confirms experiment start" [label="No (default)"];
