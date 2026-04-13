@@ -42,12 +42,15 @@ digraph execute_flow {
     "Read README for stack name" [shape=box];
     "Check CFN stack status" [shape=diamond];
     "Extract template ID from outputs" [shape=box];
+    "Classify experiment type" [shape=diamond];
     "Discover apps + start logs\n(eks-app-log-analysis)" [shape=box];
+    "User wants app logs?" [shape=diamond];
     "Baseline logs? (user opt-in)" [shape=diamond];
     "Wait 2 min baseline" [shape=box];
     "User confirms experiment start" [shape=diamond, style=bold, color=red];
     "Start experiment" [shape=box];
     "Monitor experiment + log insights" [shape=box];
+    "Monitor experiment (no logs)" [shape=box];
     "Experiment complete?" [shape=diamond];
     "Post-baseline? (user opt-in)" [shape=diamond];
     "Wait 2 min post-baseline" [shape=box];
@@ -59,17 +62,25 @@ digraph execute_flow {
     "Read README for stack name" -> "Check CFN stack status";
     "Check CFN stack status" -> "Extract template ID from outputs" [label="CREATE_COMPLETE"];
     "Check CFN stack status" -> "Generate results report" [label="Not deployed / failed, abort"];
-    "Extract template ID from outputs" -> "Discover apps + start logs\n(eks-app-log-analysis)";
+    "Extract template ID from outputs" -> "Classify experiment type";
+    "Classify experiment type" -> "Discover apps + start logs\n(eks-app-log-analysis)" [label="POD / MIXED"];
+    "Classify experiment type" -> "User wants app logs?" [label="INFRA"];
+    "User wants app logs?" -> "Discover apps + start logs\n(eks-app-log-analysis)" [label="Yes"];
+    "User wants app logs?" -> "User confirms experiment start" [label="No (default)"];
     "Discover apps + start logs\n(eks-app-log-analysis)" -> "Baseline logs? (user opt-in)";
     "Baseline logs? (user opt-in)" -> "Wait 2 min baseline" [label="Yes"];
     "Baseline logs? (user opt-in)" -> "User confirms experiment start" [label="No (default)"];
     "Wait 2 min baseline" -> "User confirms experiment start";
     "User confirms experiment start" -> "Start experiment" [label="Yes, I confirm"];
-    "User confirms experiment start" -> "Stop logs + analyze\n(eks-app-log-analysis)" [label="No, abort"];
-    "Start experiment" -> "Monitor experiment + log insights";
+    "User confirms experiment start" -> "Stop logs + analyze\n(eks-app-log-analysis)" [label="No, abort\n(if logs active)"];
+    "Start experiment" -> "Monitor experiment + log insights" [label="Logs active"];
+    "Start experiment" -> "Monitor experiment (no logs)" [label="Logs skipped"];
     "Monitor experiment + log insights" -> "Experiment complete?";
-    "Experiment complete?" -> "Monitor experiment + log insights" [label="No, poll again"];
-    "Experiment complete?" -> "Post-baseline? (user opt-in)" [label="Yes"];
+    "Monitor experiment (no logs)" -> "Experiment complete?";
+    "Experiment complete?" -> "Monitor experiment + log insights" [label="No, poll again\n(logs active)"];
+    "Experiment complete?" -> "Monitor experiment (no logs)" [label="No, poll again\n(logs skipped)"];
+    "Experiment complete?" -> "Post-baseline? (user opt-in)" [label="Yes (logs active)"];
+    "Experiment complete?" -> "Generate results report" [label="Yes (logs skipped)"];
     "Post-baseline? (user opt-in)" -> "Wait 2 min post-baseline" [label="Yes"];
     "Post-baseline? (user opt-in)" -> "Stop logs + analyze\n(eks-app-log-analysis)" [label="No (default)"];
     "Wait 2 min post-baseline" -> "Stop logs + analyze\n(eks-app-log-analysis)";
@@ -134,7 +145,36 @@ Extract `ExperimentTemplateId` from stack outputs. See `references/cli-commands.
 
 Also extract dashboard URL and alarm ARNs if available.
 
-### Step 5: Discover EKS Applications and Start Log Collection
+### Step 5: Classify Experiment Type
+
+Read `experiment-template.json` from the experiment directory. Extract all `actionId`
+values from the `actions` map. Classify the experiment into one of three types:
+
+- **`POD_EXPERIMENT`** — ALL `actionId` values match `aws:eks:pod-*`
+- **`MIXED_EXPERIMENT`** — some `actionId` values match `aws:eks:pod-*` AND some do not
+- **`INFRA_EXPERIMENT`** — NO `actionId` values match `aws:eks:pod-*` (e.g., `aws:ec2:*`,
+  `aws:network:*`, `aws:eks:terminate-nodegroup-instances`,
+  `aws:eks:inject-kubernetes-custom-resource`, `aws:fis:inject-*`, `aws:rds:*`, or any
+  other non-pod action)
+
+For **Scenario Library templates** (where actions may be opaque or use custom resource
+injection): if the scenario name or README description indicates pod-level fault injection,
+classify as `POD_EXPERIMENT`. Otherwise default to `INFRA_EXPERIMENT`.
+
+Display the classification to the user:
+```
+Experiment type: {POD_EXPERIMENT | MIXED_EXPERIMENT | INFRA_EXPERIMENT}
+Actions found:
+  - {actionId_1}
+  - {actionId_2}
+  ...
+```
+
+### Step 6: Discover EKS Applications and Start Log Collection (Conditional)
+
+This step is **conditional** based on the experiment type classified in Step 5.
+
+#### POD_EXPERIMENT — App log collection REQUIRED
 
 **REQUIRED:** You MUST load the `eks-app-log-analysis` skill at this point. It contains
 the detailed procedures for application discovery and log collection. Load it now and
@@ -149,15 +189,42 @@ Execute from `eks-app-log-analysis` skill:
 2. **Its Step 4 (Log Collection — Real-time Mode)** — start background `kubectl logs -f`
    for all confirmed applications
 
+#### MIXED_EXPERIMENT — App log collection enabled by default
+
+Load and execute `eks-app-log-analysis` exactly as for `POD_EXPERIMENT` above. Before
+starting, inform the user:
+
+```
+This is a mixed experiment targeting both pods and infrastructure.
+App log collection is enabled by default.
+```
+
+#### INFRA_EXPERIMENT — App log collection skipped by default
+
+Do NOT load `eks-app-log-analysis` by default. Instead, ask the user:
+
+```
+This experiment targets infrastructure components, not pods directly.
+App log collection is skipped by default. Would you like to collect
+application logs to observe upstream impact on EKS workloads?
+(Useful when infrastructure faults may cascade to application-level errors.) (y/N)
+```
+
+- If the user answers **yes**: load `eks-app-log-analysis` and execute Steps 3+4 as above.
+  Set `LOG_COLLECTION=ACTIVE`.
+- If the user answers **no** (or default): skip log collection entirely.
+  Set `LOG_COLLECTION=SKIPPED`.
+
 #### Optional: Baseline Log Collection (User Opt-In)
 
-**Default: skip baseline.** Only collect baseline logs if the user explicitly requests
-"collect baseline logs" or "capture pre/post experiment logs" or similar.
+**Applies only when log collection is active.** Default: skip baseline.
+Only collect baseline logs if the user explicitly requests "collect baseline logs" or
+"capture pre/post experiment logs" or similar.
 
 If opted in: wait 2 minutes after starting log collection to capture normal-state logs
 as baseline, then proceed to experiment confirmation.
 
-### Step 6: Start Experiment (CRITICAL CONFIRMATION)
+### Step 7: Start Experiment (CRITICAL CONFIRMATION)
 
 **This is the most dangerous step. The experiment WILL affect real resources.**
 
@@ -172,27 +239,32 @@ Target AZ:   {AZ_ID}
 Duration:    {DURATION}
 Stack:       {STACK_NAME} (verified: CREATE_COMPLETE)
 Template ID: {TEMPLATE_ID}
+Experiment type: {POD_EXPERIMENT | MIXED_EXPERIMENT | INFRA_EXPERIMENT}
 
 Resources that WILL be affected:
   - {list each affected resource type and count from README}
 
 Applications being monitored:
   - {list each namespace/deployment from SERVICE_APP_MAP}
+  (or "None — log collection skipped" if INFRA_EXPERIMENT with no opt-in)
 
 Stop Conditions:
   - {list each alarm that will stop the experiment}
 
 Log collection: ACTIVE (collecting to {LOG_DIR})
+               — OR —
+Log collection: SKIPPED (infrastructure experiment)
 
 Type "Yes, start experiment" to proceed, or "No" to abort.
 ```
 
-**Only proceed if the user explicitly confirms.** If user aborts, still proceed to
-Step 8 to stop log collection and generate whatever report is possible.
+**Only proceed if the user explicitly confirms.** If user aborts and log collection is
+active, still proceed to Step 9 to stop log collection and generate whatever report is
+possible.
 
 Save the returned `experiment.id`.
 
-### Step 7: Monitor Experiment + Log Insights
+### Step 8: Monitor Experiment + Log Insights
 
 Poll the experiment status and display progress. See `references/cli-commands.md` for
 polling commands and experiment status reference.
@@ -208,37 +280,42 @@ polling commands and experiment status reference.
   Query service-specific status (e.g., RDS instance status, ElastiCache replication
   group status, EKS node status) during monitoring to capture detailed observations.
 
-**Log insights during each poll cycle:** Execute `eks-app-log-analysis` Step 5
-(Real-time Monitoring Display) — read recent logs, count errors/warnings, display
-per-app summary, detect recovery signals. The skill must already be loaded from Step 5.
+**Log insights during each poll cycle (only when log collection is active):** Execute
+`eks-app-log-analysis` Step 5 (Real-time Monitoring Display) — read recent logs, count
+errors/warnings, display per-app summary, detect recovery signals. The skill must already
+be loaded from Step 6. If app log collection was skipped (INFRA_EXPERIMENT with no
+opt-in), skip this paragraph entirely — monitor only experiment status and service states.
 
 **During monitoring, remind the user:**
 - Check the CloudWatch dashboard for real-time metrics
 - The experiment can be stopped at any time (see `references/cli-commands.md` for stop command)
 
-### Step 8: Stop Log Collection and Analyze
+### Step 9: Stop Log Collection and Analyze
 
 After the experiment completes (any terminal state):
+
+**If app log collection was skipped** (INFRA_EXPERIMENT with no opt-in), skip this
+entire step and proceed directly to Step 10.
 
 #### Optional: Post-Experiment Baseline (User Opt-In)
 
 **Default: stop immediately.** Only continue collecting post-experiment logs if the
-user opted in to baseline collection in Step 5.
+user opted in to baseline collection in Step 6.
 
 If opted in: wait 2 minutes after experiment ends to capture recovery behavior logs,
 then stop collection.
 
 #### Generate Application Log Analysis
 
-Execute `eks-app-log-analysis` Steps 7-8 (skill already loaded from Step 5):
+Execute `eks-app-log-analysis` Steps 7-8 (skill already loaded from Step 6):
 - **Its Step 7 (Generate Analysis Report)** — analyze error patterns, peak rates, recovery
   times, and generate the "Application Log Analysis" section of the report
 - **Its Step 8 (Cleanup)** — kill background `kubectl logs` processes
 
 The application log analysis output is embedded into the experiment results report
-(see Step 9 below), NOT saved as a separate file.
+(see Step 10 below), NOT saved as a separate file.
 
-### Step 9: Save Results Report to Local File
+### Step 10: Save Results Report to Local File
 
 After the experiment completes (any terminal state), generate a results report and
 **write it directly to a local markdown file** instead of outputting the full content
@@ -315,10 +392,15 @@ disruption even without a dedicated FIS action).
 
 ### Application Log Analysis
 
-Embed the analysis output from eks-app-log-analysis Step 7 here.
-Use the report structure defined in eks-app-log-analysis SKILL.md:
+**If log collection was active:** Embed the analysis output from eks-app-log-analysis
+Step 7 here. Use the report structure defined in eks-app-log-analysis SKILL.md:
 Summary table, per-application error timeline, key error patterns,
 log samples, insights, cross-service correlation, and recommendations.
+
+**If log collection was skipped:** Replace this section with:
+> Application log collection was not performed for this infrastructure-focused experiment.
+> To collect application logs for future runs of this experiment, answer "y" when prompted
+> during experiment setup.
 
 ### Recovery Status Summary
 
@@ -338,20 +420,26 @@ log samples, insights, cross-service correlation, and recommendations.
 
 ### Appendix: Log File Locations
 
+**If log collection was active:**
+
 **Raw log directory:** `{LOG_DIR}`
 
 | Application | Log File |
 |---|---|
 | {namespace/deployment} | `{LOG_DIR}/{service}/{deployment}.log` |
+
+**If log collection was skipped:** Omit this section entirely.
 ```
 
 After saving the file, print a brief summary to the terminal listing only:
 - The file path of the saved results report
 - Experiment ID and final status
 - Start time, end time, and duration (all timestamps in ISO 8601 with timezone)
+- Experiment type (POD_EXPERIMENT / MIXED_EXPERIMENT / INFRA_EXPERIMENT)
 - Per-action status (one line each)
 - Per-service recovery status (one line each)
-- Application log summary (total errors per app, one line each)
+- Application log summary (total errors per app, one line each) — or
+  "Application log collection: SKIPPED" if logs were not collected
 - Issues requiring attention (if any)
 - Cleanup instructions
 
