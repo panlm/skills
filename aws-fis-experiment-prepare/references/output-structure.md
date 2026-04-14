@@ -258,6 +258,12 @@ Parameters:
       Unique experiment identifier. Includes random suffix to prevent
       resource name collisions across multiple experiments with the same
       scenario and target. Passed via --parameter-overrides at deploy time.
+  RandomSuffix:
+    Type: String
+    Default: '{RANDOM_SUFFIX}'
+    Description: >-
+      6-character random suffix (same suffix used in ExperimentName).
+      Used for Lambda function naming to keep names short and globally unique.
   TargetAZ:
     Type: String
     Default: '{AZ_ID}'

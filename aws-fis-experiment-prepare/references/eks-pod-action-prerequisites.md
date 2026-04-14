@@ -106,7 +106,7 @@ FISRBACLambdaFunction:
     - FISRBACLambdaRole
     - LambdaEKSAccessEntry
   Properties:
-    FunctionName: !Sub 'fis-rbac-mgr-${AWS::StackName}'
+     FunctionName: !Sub 'fis-rbac-${RandomSuffix}'
     Runtime: python3.12
     Handler: index.handler
     Role: !GetAtt FISRBACLambdaRole.Arn
@@ -355,7 +355,7 @@ in addition to existing ones:
     "lambda:TagResource",
     "lambda:UntagResource"
   ],
-  "Resource": "arn:aws:lambda:*:*:function:fis-rbac-mgr-*"
+  "Resource": "arn:aws:lambda:*:*:function:fis-rbac-*"
 },
 {
   "Sid": "IAMPassRoleToLambda",

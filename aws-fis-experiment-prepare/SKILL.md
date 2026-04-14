@@ -677,7 +677,7 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_NAMED_IAM \
   --region ${TARGET_REGION} \
   --no-fail-on-empty-changeset \
-  --parameter-overrides ExperimentName="${EXPERIMENT_NAME}" \
+  --parameter-overrides ExperimentName="${EXPERIMENT_NAME}" RandomSuffix="${RANDOM_SUFFIX}" \
   ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
 ```
 
@@ -701,13 +701,19 @@ the experiment template ID (e.g., `2026-04-11-10-30-00-pod-net-pktloss-payment-r
 | Dashboard | `FIS-{ExperimentName}` | `FIS-pod-net-pktloss-payment-redis-a3x7k2` |
 | Alarm | `FIS-Stop-{ExperimentName}` | `FIS-Stop-pod-net-pktloss-payment-redis-a3x7k2` |
 | Lambda Role | *(no RoleName — CFN auto-generates)* | `fis-{stack-name-hash-12chars}` |
-| Lambda Func | `fis-rbac-mgr-{StackName}` | *(uses StackName, already unique)* |
+| Lambda Func | `fis-rbac-{RandomSuffix}` | `fis-rbac-a3x7k2` |
 
-**Name length budget (IAM Role = 64 chars max):**
-`FISRole-` (8) + SCENARIO_SLUG (max 18) + `-` + TARGET_SLUG (max 20) + `-` + CONTEXT_SLUG (max 10) + `-` + RANDOM_SUFFIX (6) = 8 + 18 + 1 + 20 + 1 + 10 + 1 + 6 = **65**.
-In practice the slug lengths are well under the max, so this fits comfortably.
-If a generated name would exceed 64 chars, truncate `TARGET_SLUG` first, then
-`CONTEXT_SLUG`.
+**Name length budget (64 chars max — applies to IAM Role name):**
+
+| Resource | Prefix | + ExperimentName max | = Total max |
+|---|---|---|---|
+| IAM Role | `FISRole-` (8) | 56 | 64 |
+| Lambda Func | `fis-rbac-` (9) | 6 (RandomSuffix only) | **15** (always safe) |
+
+ExperimentName max = SCENARIO_SLUG (18) + `-` + TARGET_SLUG (20) + `-` + CONTEXT_SLUG (10) + `-` + RANDOM_SUFFIX (6) = **56**.
+In practice slug lengths are well under the max, so this fits comfortably.
+If a generated IAM Role name would exceed 64 chars, truncate `TARGET_SLUG`
+first (reduce from 20), then `CONTEXT_SLUG` (reduce from 10).
 
 #### 6c. Self-Healing Iteration Loop
 
