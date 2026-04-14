@@ -223,11 +223,11 @@ aws cloudwatch delete-dashboards --dashboard-names "FIS-{SCENARIO}" --region {RE
 ## Usage Examples
 
 ```
-"Execute the FIS experiment in ./2025-03-27-10-30-00-az-power-interruption-my-cluster/"
+"Execute the FIS experiment in ./2025-03-27-10-30-00-az-power-interruption-my-cluster-EXT1a2b3c4d5e6f7/"
 "Run the chaos experiment I just prepared"
 "启动 FIS 实验"
 "Check if the stack is deployed and run the experiment"
-"运行混沌实验，目录在 ./2025-03-27-rds-failover-prod-db/"
+"运行混沌实验，目录在 ./2025-03-27-rds-failover-prod-db-EXTa1b2c3d4e5f6g/"
 ```
 
 ## Key Design Decisions

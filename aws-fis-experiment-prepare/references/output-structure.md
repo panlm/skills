@@ -6,7 +6,7 @@ All placeholders use `{CURLY_BRACES}` notation.
 ## Directory Layout
 
 ```
-./{yyyy-mm-dd-HH-MM-SS}-{scenario-slug}-{target-slug}[-{context-slug}]/
+./{yyyy-mm-dd-HH-MM-SS}-{scenario-slug}-{target-slug}[-{context-slug}]-{TEMPLATE_ID}/
 ├── README.md
 ├── experiment-template.json
 ├── iam-policy.json
@@ -156,6 +156,19 @@ aws iam delete-role-policy --role-name FISRole-{SCENARIO}-{TARGET_SLUG} --policy
 aws iam delete-role --role-name FISRole-{SCENARIO}-{TARGET_SLUG}
 # Delete alarms...
 ```
+
+## CFN Deployment Status
+
+- **Stack Name:** {STACK_NAME}
+- **Status:** {DEPLOYMENT_STATUS}
+- **Experiment Template ID:** {TEMPLATE_ID}
+- **CloudWatch Dashboard URL:** {DASHBOARD_URL}
+
+## Next Step
+
+To start the experiment:
+- Use aws-fis-experiment-execute skill, OR
+- Manually: `aws fis start-experiment --experiment-template-id {TEMPLATE_ID} --region {REGION}`
 ```
 
 ---
