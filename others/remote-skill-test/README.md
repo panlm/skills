@@ -17,9 +17,9 @@ This is tedious and error-prone, especially during iterative skill development.
 ## What This Skill Does
 
 1. **Collects SSH config and target skill name** from the user (no credentials stored in files).
-2. **Reads `test-prompt.md`** from the target skill's directory in the local repo.
-3. **Creates a timestamped test directory** on the remote host: `~/skill-tests/{timestamp}-{skill-name}/`.
-4. **Installs the target skill at project level** inside the test directory via `npx skills add panlm/skills --skill {SKILL_NAME} -y` (not global, only the target skill is installed for faster setup and isolation).
+2. **Creates a timestamped test directory** on the remote host: `~/skill-tests/{timestamp}-{skill-name}/`.
+3. **Installs the target skill at project level** inside the test directory via `npx skills add panlm/skills --skill {SKILL_NAME} -y` (not global, only the target skill is installed for faster setup and isolation).
+4. **Finds and reads `test-prompt.md`** from the remote installed skill directory — uses `find` to auto-discover the file since different agents install skills to different paths (`.agents/skills/`, `.claude/skills/`, `.kiro/skills/`, etc.). The test prompt is bundled with the skill and installed alongside it.
 5. **Executes the target skill** via `opencode run --dangerously-skip-permissions` with the assembled prompt. All output (stdout + stderr) is captured to `opencode-run.log` via `tee` for diagnostics.
 6. **Retrieves the generated report and execution log** via `scp` into a timestamped local directory `./test-results/{skill-name}/{timestamp}/`. File names are kept identical to the remote originals.
 7. **Finds the previous run's report** on the remote host by searching `~/skill-tests/*-{skill-name}/` directories, then retrieves it into the **same local run directory**. Both reports (current + previous) live side-by-side with their original file names for easy comparison.
@@ -32,7 +32,7 @@ This is tedious and error-prone, especially during iterative skill development.
 
 2. **SSH config asked at runtime.** No IP addresses, usernames, or key paths are stored in any committed file. The skill asks the user every time (or the user can provide an SSH config alias).
 
-3. **test-prompt.md as the contract.** Each testable skill maintains its own `test-prompt.md` with a prompt template. The `{DEPENDENCY_PATH}` placeholder is replaced at runtime with user-provided paths. Auto-confirm directives are appended automatically.
+3. **test-prompt.md bundled with each skill.** Each testable skill maintains its own `test-prompt.md` which is installed alongside the skill via `npx skills add`. The test prompt is auto-discovered on the remote host using `find` (since different agents install skills to different directories), not read from the local repo. The `{DEPENDENCY_PATH}` placeholder is replaced at runtime with user-provided paths. Auto-confirm directives are appended automatically.
 
 4. **Timestamped directories with skill name.** Remote test directories use `{timestamp}-{skill-name}` format, making it trivial to find the previous run for the same skill and compare reports.
 
@@ -49,11 +49,11 @@ This is tedious and error-prone, especially during iterative skill development.
 ```
 Step 1:  Collect SSH config + skill name + dependency paths
           ↓
-Step 2:  Read test-prompt.md, replace {DEPENDENCY_PATH}, append auto-confirm
+Step 2:  SSH → mkdir ~/skill-tests/{timestamp}-{skill-name}/
           ↓
-Step 3:  SSH → mkdir ~/skill-tests/{timestamp}-{skill-name}/
+Step 3:  SSH → cd test-dir && npx skills add panlm/skills --skill {skill-name} -y (project level, target skill only)
           ↓
-Step 4:  SSH → cd test-dir && npx skills add panlm/skills --skill {skill-name} -y (project level, target skill only)
+Step 4:  SSH → find test-prompt.md under test-dir (auto-discover agent skill path), replace {DEPENDENCY_PATH}, append auto-confirm
           ↓
 Step 5:  SSH → cd test-dir && opencode run --dangerously-skip-permissions "prompt" | tee opencode-run.log
           ↓

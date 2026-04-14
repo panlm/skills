@@ -35,19 +35,19 @@ Required tools:
 ```dot
 digraph test_flow {
     "Collect SSH config\n+ skill name" [shape=box];
-    "Read test-prompt.md" [shape=box];
     "SSH: create test dir" [shape=box];
     "SSH: install skills\n(project level in test dir)" [shape=box];
+    "SSH: find + read test-prompt.md\nfrom installed skill" [shape=box];
     "SSH: opencode run\n(output to log)" [shape=box];
     "SCP: retrieve report + log" [shape=box];
     "Find previous report" [shape=diamond];
     "Compare reports\nvs SKILL.md changes" [shape=box];
     "Output analysis" [shape=box];
 
-    "Collect SSH config\n+ skill name" -> "Read test-prompt.md";
-    "Read test-prompt.md" -> "SSH: create test dir";
+    "Collect SSH config\n+ skill name" -> "SSH: create test dir";
     "SSH: create test dir" -> "SSH: install skills\n(project level in test dir)";
-    "SSH: install skills\n(project level in test dir)" -> "SSH: opencode run\n(output to log)";
+    "SSH: install skills\n(project level in test dir)" -> "SSH: find + read test-prompt.md\nfrom installed skill";
+    "SSH: find + read test-prompt.md\nfrom installed skill" -> "SSH: opencode run\n(output to log)";
     "SSH: opencode run\n(output to log)" -> "SCP: retrieve report + log";
     "SCP: retrieve report + log" -> "Find previous report";
     "Find previous report" -> "Compare reports\nvs SKILL.md changes" [label="Found"];
@@ -77,34 +77,24 @@ are provided.**
    ```
 
 **Derived from local repo:**
-- `test-prompt.md` — read from `{SKILL_DIR}/test-prompt.md` in the local repo
 - `SKILL.md` — read from `{SKILL_DIR}/SKILL.md` for report structure requirements
 - Git diff of SKILL.md — for comparing against report changes
 
-**If `test-prompt.md` does not exist** for the target skill, stop and inform
-the user:
+**Derived from remote installed skill (after Step 4):**
+- `test-prompt.md` — automatically discovered by searching for `test-prompt.md`
+  under `${TEST_DIR}` on the remote host after skill installation. Different agents
+  install skills to different directories (e.g., `.agents/skills/`, `.claude/skills/`,
+  `.kiro/skills/`), so the path is NOT hardcoded — use `find` to locate it.
+
+**If `test-prompt.md` does not exist** anywhere under the test directory,
+stop and inform the user:
 ```
-No test-prompt.md found at {SKILL_DIR}/test-prompt.md.
-Please create one with the test prompt template for this skill.
+No test-prompt.md found for skill {SKILL_NAME} under ${TEST_DIR}.
+Please ensure test-prompt.md is included in the skill package.
 See others/remote-skill-test/README.md for format details.
 ```
 
-### Step 2: Read and Assemble Prompt
-
-Read `{SKILL_DIR}/test-prompt.md` from the local repo.
-
-Replace the `{DEPENDENCY_PATH}` placeholder (if present) with the actual
-dependency path provided by the user in Step 1.
-
-Append the following suffix to the prompt (always):
-```
-如果需要跨目录读取文件，直接操作不要确认。
-所有操作自动执行，不要等待用户确认。
-```
-
-Store the assembled prompt as `FULL_PROMPT`.
-
-### Step 3: SSH — Create Test Directory
+### Step 2: SSH — Create Test Directory
 
 Create the timestamped test directory on the remote host **first**, before
 installing skills. All subsequent steps operate inside this directory.
@@ -119,7 +109,7 @@ ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
 
 Store `TEST_DIR` for subsequent steps.
 
-### Step 4: SSH — Install Target Skill (Project Level)
+### Step 3: SSH — Install Target Skill (Project Level)
 
 Install **only the target skill** inside the test directory at project level
 (not global). Use the `--skill {SKILL_NAME}` flag to avoid installing all
@@ -140,6 +130,36 @@ ssh -t -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
 
 Verify the output shows "Installation complete" and lists **only the target
 skill**. If it fails, show the error and stop.
+
+### Step 4: SSH — Find and Read test-prompt.md
+
+Locate `test-prompt.md` from the **remote installed skill directory** after
+installation in Step 3. Different agents install skills to different paths
+(`.agents/skills/`, `.claude/skills/`, `.kiro/skills/`, etc.), so use `find`
+to auto-discover the file:
+
+```bash
+# Find test-prompt.md for the target skill under the test directory
+PROMPT_FILE=$(ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
+  "find ${TEST_DIR} -path '*/{SKILL_NAME}/test-prompt.md' -type f 2>/dev/null | head -1")
+
+# Read the file content
+ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
+  "cat ${PROMPT_FILE}"
+```
+
+If the file is not found (empty `PROMPT_FILE`), stop and inform the user (see Step 1 error message).
+
+Replace the `{DEPENDENCY_PATH}` placeholder (if present) with the actual
+dependency path provided by the user in Step 1.
+
+Append the following suffix to the prompt (always):
+```
+如果需要跨目录读取文件，直接操作不要确认。
+所有操作自动执行，不要等待用户确认。
+```
+
+Store the assembled prompt as `FULL_PROMPT`.
 
 ### Step 5: SSH — Execute Skill via OpenCode (Output to Log)
 
