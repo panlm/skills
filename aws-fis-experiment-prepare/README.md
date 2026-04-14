@@ -73,7 +73,7 @@ The `{TEMPLATE_ID}` is the FIS experiment template ID (e.g., `EXT1a2b3c4d5e6f7`)
 after successful CFN deployment for easy identification.
 
 Scenario slugs use standard abbreviations (e.g., `pod-net-pktloss`, `az-power-int`,
-`ec-rg-az-power`) to stay within IAM Role 64-char name limits. See SKILL.md Step 5
+`ec-rg-az-power`) to keep CFN stack names and resource names concise. See SKILL.md Step 5
 for the full abbreviation table.
 
 ## Resource-Action Compatibility Validation

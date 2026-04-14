@@ -51,6 +51,7 @@ output — users need the exact stack name for cleanup commands.
 ```markdown
 # FIS Experiment: {Scenario Name}
 
+**Directory:** {OUTPUT_DIR}
 **Region:** {REGION}
 **Target AZ:** {AZ_ID} (if applicable)
 **Created:** {TIMESTAMP}

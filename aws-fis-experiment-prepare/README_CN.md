@@ -71,7 +71,7 @@
 `{TEMPLATE_ID}` 是 FIS 实验模版 ID（如 `EXT1a2b3c4d5e6f7`），在 CFN 部署成功后追加到目录名，方便用户查找。
 
 场景 slug 使用标准缩写（如 `pod-net-pktloss`、`az-power-int`、`ec-rg-az-power`），
-以确保 IAM Role 名称不超过 64 字符限制。完整缩写表见 SKILL.md 步骤 5。
+以确保 CFN Stack 名称和资源名称简洁可读。完整缩写表见 SKILL.md 步骤 5。
 
 ## 资源-Action 兼容性验证
 
