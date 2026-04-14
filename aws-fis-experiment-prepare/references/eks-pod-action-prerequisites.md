@@ -48,8 +48,7 @@ The CFN template **MUST** include the following resources (in dependency order):
 FISRBACLambdaRole:
   Type: AWS::IAM::Role
   Properties:
-    # No RoleName — let CFN auto-generate to avoid 64-char limit issues.
-    # The role is an internal resource; reference it via !GetAtt FISRBACLambdaRole.Arn.
+    RoleName: !Sub 'fis-lambda-role-${RandomSuffix}'
     AssumeRolePolicyDocument:
       Version: '2012-10-17'
       Statement:
@@ -385,8 +384,8 @@ in addition to existing ones:
 
 ## IAM Role Name Length
 
-The Lambda Execution Role (`FISRBACLambdaRole`) does NOT specify a `RoleName` — CFN
-auto-generates a unique name, avoiding 64-char limit issues. The FIS Experiment Role
+The Lambda Execution Role (`FISRBACLambdaRole`) uses `fis-lambda-role-{RandomSuffix}` for
+a short, predictable name within the 64-char limit. The FIS Experiment Role
 (`FISExperimentRole`) uses `FISRole-{ExperimentName}` — see SKILL.md Step 6b for
 length budget details.
 
