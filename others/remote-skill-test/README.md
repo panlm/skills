@@ -19,10 +19,10 @@ This is tedious and error-prone, especially during iterative skill development.
 1. **Collects SSH config and target skill name** from the user (no credentials stored in files).
 2. **Reads `test-prompt.md`** from the target skill's directory in the local repo.
 3. **Creates a timestamped test directory** on the remote host: `~/skill-tests/{timestamp}-{skill-name}/`.
-4. **Installs skills at project level** inside the test directory via `npx skills add panlm/skills -y` (not global, so each test run is isolated).
+4. **Installs the target skill at project level** inside the test directory via `npx skills add panlm/skills --skill {SKILL_NAME} -y` (not global, only the target skill is installed for faster setup and isolation).
 5. **Executes the target skill** via `opencode run --dangerously-skip-permissions` with the assembled prompt. All output (stdout + stderr) is captured to `opencode-run.log` via `tee` for diagnostics.
-6. **Retrieves the generated report and execution log** via `scp` back to `./test-results/{skill-name}/`.
-7. **Finds the previous run's report** by searching `~/skill-tests/*-{skill-name}/` directories.
+6. **Retrieves the generated report and execution log** via `scp` into a timestamped local directory `./test-results/{skill-name}/{timestamp}/`. File names are kept identical to the remote originals.
+7. **Finds the previous run's report** on the remote host by searching `~/skill-tests/*-{skill-name}/` directories, then retrieves it into the **same local run directory**. Both reports (current + previous) live side-by-side with their original file names for easy comparison.
 8. **Compares reports** — checks structure compliance against SKILL.md template, diffs structural changes between runs, and correlates with recent SKILL.md git changes.
 9. **Outputs analysis** — compliance table, change summary, and verdict (PASS / PARTIAL / FAIL).
 
@@ -40,9 +40,9 @@ This is tedious and error-prone, especially during iterative skill development.
 
 6. **OpenCode `run` for non-interactive execution.** Uses `opencode run --dangerously-skip-permissions "prompt"` which runs in non-interactive mode — no TUI, no manual interaction, no permission prompts. All output is captured to `opencode-run.log` via `tee` for diagnostics.
 
-7. **Project-level skill installation.** Skills are installed inside the test directory (not globally) via `npx skills add panlm/skills -y`. Each test run is isolated and uses the latest version without affecting other environments.
+7. **Project-level single-skill installation.** Only the target skill is installed inside the test directory via `npx skills add panlm/skills --skill {SKILL_NAME} -y`. This is faster than installing all skills, keeps the test environment minimal, and each test run is isolated without affecting other environments.
 
-8. **Reports and logs stored locally for review.** Retrieved reports and `opencode-run.log` are saved to `./test-results/{skill-name}/` in the local repo, making them easy to review and git-track if desired.
+8. **Reports and logs stored locally in timestamped directories.** Each test run is saved to `./test-results/{skill-name}/{timestamp}/`. The current report, previous report, execution log, and test analysis are all co-located in a single directory with their original file names, making each run self-contained and easy to review.
 
 ## Workflow Overview
 
@@ -53,15 +53,15 @@ Step 2:  Read test-prompt.md, replace {DEPENDENCY_PATH}, append auto-confirm
           ↓
 Step 3:  SSH → mkdir ~/skill-tests/{timestamp}-{skill-name}/
           ↓
-Step 4:  SSH → cd test-dir && npx skills add panlm/skills -y (project level)
+Step 4:  SSH → cd test-dir && npx skills add panlm/skills --skill {skill-name} -y (project level, target skill only)
           ↓
 Step 5:  SSH → cd test-dir && opencode run --dangerously-skip-permissions "prompt" | tee opencode-run.log
           ↓
-Step 6:  SCP → retrieve report files + opencode-run.log to local ./test-results/{skill-name}/
-          ↓
-Step 7:  SSH → find previous ~/skill-tests/*-{skill-name}/ directory
-          ├── Found → SCP previous report for comparison
-          └── Not found → first run, skip comparison
+Step 6:  SCP → retrieve report files + opencode-run.log to local ./test-results/{skill-name}/{timestamp}/
+           ↓
+Step 7:  SSH → find previous ~/skill-tests/*-{skill-name}/ directory on remote
+           ├── Found → SCP previous report into the same local run directory
+           └── Not found → first run, skip comparison
           ↓
 Step 8:  Analyze: structure compliance + diff vs previous + correlate SKILL.md changes
           ↓

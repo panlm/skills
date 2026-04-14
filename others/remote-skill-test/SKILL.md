@@ -119,11 +119,11 @@ ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
 
 Store `TEST_DIR` for subsequent steps.
 
-### Step 4: SSH — Install Skills (Project Level)
+### Step 4: SSH — Install Target Skill (Project Level)
 
-Install skills **inside the test directory** at project level (not global).
-This ensures the test uses the latest version without affecting the global
-installation.
+Install **only the target skill** inside the test directory at project level
+(not global). Use the `--skill {SKILL_NAME}` flag to avoid installing all
+skills from the repository, which saves time and reduces noise.
 
 **Important:** The remote host may use `nvm` for Node.js. Use `bash -i -c`
 to load `.bashrc` environment variables (LLM provider URL, API keys, etc.)
@@ -132,11 +132,14 @@ that the interactive guard in `.bashrc` would otherwise block.
 ```bash
 ssh -t -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
   "bash -i -c 'source ~/.nvm/nvm.sh 2>/dev/null; \
-   cd ${TEST_DIR} && npx skills add panlm/skills -y'"
+   cd ${TEST_DIR} && npx skills add panlm/skills --skill {SKILL_NAME} -y'"
 ```
 
-Verify the output shows "Installation complete". If it fails, show the error
-and stop.
+`{SKILL_NAME}` is the target skill name collected in Step 1 (e.g.,
+`aws-best-practice-research`, `aws-fis-experiment-execute`).
+
+Verify the output shows "Installation complete" and lists **only the target
+skill**. If it fails, show the error and stop.
 
 ### Step 5: SSH — Execute Skill via OpenCode (Output to Log)
 
@@ -170,6 +173,10 @@ output useful for diagnostics. Proceed to Step 6 to retrieve it.
 
 ### Step 6: SCP — Retrieve Reports and Log
 
+Each test run is stored in its own timestamped subdirectory under
+`test-results/{SKILL_NAME}/`. The `{TIMESTAMP}` used here is the same one
+from Step 3 (when the remote test directory was created).
+
 List files in the remote test directory to find generated reports and the log:
 
 ```bash
@@ -177,27 +184,25 @@ ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
   "ls -la ${TEST_DIR}/"
 ```
 
-Copy all report files (`.md` files, excluding README.md) and the execution log
-back to local:
+Create the local run directory and copy all report files (`.md` files,
+excluding README.md) and the execution log. **Keep the original remote
+file names** — do not rename them:
 
 ```bash
-LOCAL_RESULTS="./test-results/{SKILL_NAME}/"
-mkdir -p "${LOCAL_RESULTS}"
+LOCAL_RUN_DIR="./test-results/{SKILL_NAME}/{TIMESTAMP}/"
+mkdir -p "${LOCAL_RUN_DIR}"
 
 scp -i {SSH_KEY} -o StrictHostKeyChecking=no \
-  {USER}@{HOST}:"${TEST_DIR}/*.md" "${LOCAL_RESULTS}/"
+  {USER}@{HOST}:"${TEST_DIR}/*.md" "${LOCAL_RUN_DIR}/"
 
 # Also retrieve the execution log for diagnostics
 scp -i {SSH_KEY} -o StrictHostKeyChecking=no \
-  {USER}@{HOST}:"${TEST_DIR}/opencode-run.log" "${LOCAL_RESULTS}/"
+  {USER}@{HOST}:"${TEST_DIR}/opencode-run.log" "${LOCAL_RUN_DIR}/"
 ```
 
-The `opencode-run.log` contains the full `opencode run` session output —
-tool calls, agent responses, errors — useful for diagnosing failures.
+### Step 7: Find and Retrieve Previous Report
 
-### Step 7: Find Previous Report
-
-Search for the previous test run of the same skill on the remote host:
+Search for the previous test run of the same skill **on the remote host**:
 
 ```bash
 ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
@@ -208,13 +213,31 @@ This returns the second-to-last directory (the previous run). If only one
 directory exists (first run), skip comparison and output the current report
 analysis only.
 
-If a previous directory is found, retrieve its report:
+If a previous directory is found, retrieve its report **into the same local
+run directory** (`LOCAL_RUN_DIR`) so all comparison materials are co-located.
+The previous report's file name naturally differs from the current one (both
+have different timestamps embedded), so there is no collision:
 
 ```bash
 PREV_DIR="{result from above}"
 scp -i {SSH_KEY} -o StrictHostKeyChecking=no \
-  {USER}@{HOST}:"${PREV_DIR}/*.md" "${LOCAL_RESULTS}/previous/"
+  {USER}@{HOST}:"${PREV_DIR}/*.md" "${LOCAL_RUN_DIR}/"
 ```
+
+After this step, the local run directory contains everything needed for
+comparison:
+
+```
+test-results/{SKILL_NAME}/{TIMESTAMP}/
+├── 2026-04-14-05-51-49-demo-cluster-assessment-report.md   # current report
+├── 2026-04-14-05-29-47-amazon-eks-best-practice-checklist.md  # previous report
+├── opencode-run.log                                        # execution log
+└── test-analysis.md                                        # (generated in Step 9)
+```
+
+Read both report files from `LOCAL_RUN_DIR` for comparison in Step 8. The
+current report is the one whose timestamp is closest to `{TIMESTAMP}`; the
+other `.md` file(s) are from the previous run.
 
 ### Step 8: Analyze and Compare Reports
 
@@ -294,7 +317,7 @@ Present the analysis to the user:
 {Overall assessment: PASS / PARTIAL / FAIL with explanation}
 ```
 
-Save this analysis to `./test-results/{SKILL_NAME}/{TIMESTAMP}-test-analysis.md`.
+Save this analysis to `./test-results/{SKILL_NAME}/{TIMESTAMP}/test-analysis.md`.
 
 ## test-prompt.md Format
 
