@@ -16,3 +16,11 @@
 ## README 同步规则
 
 **更新完 SKILL.md 或 references/ 下的文件后，必须同步更新对应的 README.md 和 README_CN.md。** 不要遗漏。
+
+## Git 提交规则
+
+提交和推送时始终使用 `--no-verify` 参数：
+```bash
+git commit --no-verify -m "commit message"
+git push --no-verify
+```

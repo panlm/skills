@@ -186,9 +186,8 @@ After experiment completes (or immediately in post-hoc mode), generate the repor
 
 ```bash
 TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
-# Save the report in the current working directory (where the user invoked the skill),
-# NOT in the experiment directory
-REPORT_FILE="./${TIMESTAMP}-app-log-analysis.md"
+# Save the report in the experiment directory (EXPERIMENT_DIR)
+REPORT_FILE="${EXPERIMENT_DIR}/${TIMESTAMP}-app-log-analysis.md"
 ```
 
 Report structure:
@@ -285,10 +284,10 @@ Remove the PID file after cleanup.
 ## Output Files
 
 ```
-./                                            # Current working directory
-└── {timestamp}-app-log-analysis.md           # Analysis report
+{EXPERIMENT_DIR}/                                 # Experiment directory
+└── {timestamp}-app-log-analysis.md               # Analysis report
 
-/tmp/{timestamp}-fis-app-logs/                # Temp directory for raw logs
+/tmp/{timestamp}-fis-app-logs/                    # Temp directory for raw logs
 ├── rds-cluster-xxx/
 │   ├── app-backend.log
 │   └── api-server.log

@@ -328,8 +328,7 @@ to the terminal. Use the following file naming convention:
 TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
 SCENARIO_SLUG=$(echo "{SCENARIO_NAME}" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-')
 # File name: ${TIMESTAMP}-${SCENARIO_SLUG}-experiment-results.md
-# Save the file in the current working directory (where the user invoked the skill),
-# NOT in the experiment directory
+# Save the file in the experiment directory (EXPERIMENT_DIR)
 ```
 
 **Timeline emphasis:** Timestamps in the report header (Start Time, End Time) use full

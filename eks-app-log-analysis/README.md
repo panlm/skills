@@ -87,13 +87,14 @@ The generated report includes:
 
 ```
 {experiment-dir}/
-├── {timestamp}-app-logs/          # Timestamped for multiple runs
-│   ├── {service-1}/
-│   │   ├── {app-1}.log
-│   │   └── {app-2}.log
-│   └── {service-2}/
-│       └── {app-3}.log
-└── {timestamp}-app-log-analysis.md
+├── {timestamp}-app-log-analysis.md    # Analysis report (saved to experiment directory)
+│
+/tmp/{timestamp}-fis-app-logs/         # Temp directory for raw logs
+├── {service-1}/
+│   ├── {app-1}.log
+│   └── {app-2}.log
+└── {service-2}/
+    └── {app-3}.log
 ```
 
 ## Usage Examples

@@ -26,7 +26,7 @@ Running an AWS FIS experiment after preparation still involves manual verificati
 8. **Starts the experiment** only after explicit user confirmation.
 9. **Monitors progress** — polls experiment status every 30-60 seconds, records timestamps for each status change and per-service events. If log collection is enabled, also displays per-app error counts and recovery signals.
 10. **Stops log collection and analyzes** — (**only if log collection enabled**) follows `eks-app-log-analysis` Steps 7-8 to kill background processes, analyze error patterns, peak rates, and recovery times.
-11. **Saves results report** — writes the experiment results to a local markdown file with **per-service impact analysis** and (if log collection enabled) **application log analysis**. Prints a brief summary to the terminal.
+11. **Saves results report** — writes the experiment results to a markdown file **in the experiment directory** with **per-service impact analysis** and (if log collection enabled) **application log analysis**. Prints a brief summary to the terminal.
 
 **Note:** This skill does **NOT** deploy infrastructure. It only verifies that the stack is already deployed and proceeds with experiment execution.
 
@@ -67,7 +67,7 @@ Step 8:  Monitor experiment (+ log insights if collecting)
           ↓ (if collecting)
 Step 9:  Stop log collection + analyze (via eks-app-log-analysis Steps 7-8)
           ↓
-Step 10: Save results report to local file (YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md)
+Step 10: Save results report to experiment directory (YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md)
 ```
 
 ## Safety Rules
