@@ -533,7 +533,7 @@ add an inline policy with only the specific permissions needed.
 FISExperimentRole:
   Type: AWS::IAM::Role
   Properties:
-    RoleName: !Sub 'FISRole-${ExperimentName}'
+    RoleName: !Sub 'fis-role-${RandomSuffix}'
     AssumeRolePolicyDocument:
       Version: '2012-10-17'
       Statement:
@@ -699,9 +699,9 @@ the experiment template ID (e.g., `2026-04-11-10-30-00-pod-net-pktloss-payment-r
 
 | Resource | Naming Pattern | Example | AWS Limit |
 |---|---|---|---|
-| IAM Role | `FISRole-{ExperimentName}` | `FISRole-pod-net-pktloss-payment-redis-a3x7k2` | 64 chars |
-| Dashboard | `FIS-{ExperimentName}` | `FIS-pod-net-pktloss-payment-redis-a3x7k2` | 256 chars |
-| Alarm | `FIS-Stop-{ExperimentName}` | `FIS-Stop-pod-net-pktloss-payment-redis-a3x7k2` | 255 chars |
+| IAM Role | `fis-role-{RandomSuffix}` | `fis-role-a3x7k2` | 64 chars |
+| Dashboard | `fis-{ExperimentName}` | `fis-pod-net-pktloss-payment-redis-a3x7k2` | 256 chars |
+| Alarm | `fis-stop-{ExperimentName}` | `fis-stop-pod-net-pktloss-payment-redis-a3x7k2` | 255 chars |
 | Lambda Role | `fis-lambda-role-{RandomSuffix}` | `fis-lambda-role-a3x7k2` | 64 chars |
 | Lambda Func | `fis-rbac-{RandomSuffix}` | `fis-rbac-a3x7k2` | 64 chars |
 
@@ -710,17 +710,15 @@ the experiment template ID (e.g., `2026-04-11-10-30-00-pod-net-pktloss-payment-r
 | Resource | Pattern | Max Length | AWS Limit | Safe? |
 |---|---|---|---|---|
 | CFN Stack | `fis-` (4) + ExperimentName (max 57) | **61** | 128 | Always safe |
-| IAM Role | `FISRole-` (8) + ExperimentName (max 57) | **65** | 64 | Truncate if needed (see below) |
-| Dashboard | `FIS-` (4) + ExperimentName (max 57) | **61** | 256 | Always safe |
-| Alarm | `FIS-Stop-` (9) + ExperimentName (max 57) | **66** | 255 | Always safe |
+| IAM Role | `fis-role-` (9) + RandomSuffix (6) | **15** | 64 | Always safe |
+| Dashboard | `fis-` (4) + ExperimentName (max 57) | **61** | 256 | Always safe |
+| Alarm | `fis-stop-` (9) + ExperimentName (max 57) | **66** | 255 | Always safe |
 | Lambda Role | `fis-lambda-role-` (16) + RandomSuffix (6) | **22** | 64 | Always safe |
 | Lambda Func | `fis-rbac-` (9) + RandomSuffix (6) | **15** | 64 | Always safe |
 
-ExperimentName max = SCENARIO_SLUG (18) + `-` + TARGET_SLUG (20) + `-` + CONTEXT_SLUG (10) + `-` + RANDOM_SUFFIX (6) = **57**.
-The only resource at risk is IAM Role (prefix 8 + 57 = 65, exceeds 64 by 1).
-In practice slug lengths are well under the max, so this fits comfortably.
-If a generated IAM Role name would exceed 64 chars, truncate `TARGET_SLUG`
-first (reduce from 20), then `CONTEXT_SLUG` (reduce from 10).
+All resources with a 64-char AWS limit (IAM Roles, Lambda Function) use `RandomSuffix`
+only, so they are always safe regardless of slug lengths. Resources with generous limits
+(128-256 chars) use `ExperimentName` for readability.
 
 #### 6c. Self-Healing Iteration Loop
 

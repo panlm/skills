@@ -79,36 +79,7 @@ output — users need the exact stack name for cleanup commands.
 
 ## How to Execute
 
-### Option 1: AWS CLI (Step by Step)
-
-```bash
-# 1. Create IAM role
-aws iam create-role --role-name FISRole-{SCENARIO}-{TARGET_SLUG} \
-  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"fis.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-
-aws iam put-role-policy --role-name FISRole-{SCENARIO}-{TARGET_SLUG} \
-  --policy-name FISExperimentPolicy \
-  --policy-document file://iam-policy.json
-
-# 2. Create CloudWatch alarms (stop conditions)
-# See alarms/stop-condition-alarms.json for definitions
-{ALARM_CLI_COMMANDS}
-
-# 3. Create experiment template
-aws fis create-experiment-template \
-  --cli-input-json file://experiment-template.json \
-  --region {REGION}
-
-# 4. Start experiment (CAUTION: this will affect real resources!)
-aws fis start-experiment \
-  --experiment-template-id {TEMPLATE_ID} \
-  --region {REGION}
-```
-
-### Option 2: CloudFormation (All-in-One)
-
-**Note:** If the CFN stack was already deployed by the prepare skill, skip the deploy
-command and use the stack outputs directly.
+**Note:** The CFN stack was already deployed by the prepare skill. Use the stack outputs directly.
 
 ```bash
 # Stack name (already deployed by prepare skill):
@@ -140,21 +111,12 @@ aws fis start-experiment \
 
 ## Cleanup
 
-### CFN cleanup (recommended):
 ```bash
 # Delete the entire stack (removes all resources including IAM role, alarms, dashboard):
 aws cloudformation delete-stack --stack-name {STACK_NAME} --region {REGION} ${CFN_ROLE_ARN:+--role-arn ${CFN_ROLE_ARN}}
 
 # Wait for deletion to complete:
 aws cloudformation wait stack-delete-complete --stack-name {STACK_NAME} --region {REGION}
-```
-
-### CLI cleanup (if resources were created manually):
-```bash
-aws fis delete-experiment-template --id {TEMPLATE_ID} --region {REGION}
-aws iam delete-role-policy --role-name FISRole-{SCENARIO}-{TARGET_SLUG} --policy-name FISExperimentPolicy
-aws iam delete-role --role-name FISRole-{SCENARIO}-{TARGET_SLUG}
-# Delete alarms...
 ```
 
 ## CFN Deployment Status
@@ -274,7 +236,7 @@ Resources:
   FISExperimentRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'FISRole-${ExperimentName}'
+      RoleName: !Sub 'fis-role-${RandomSuffix}'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -315,7 +277,7 @@ Resources:
   ExperimentDashboard:
     Type: AWS::CloudWatch::Dashboard
     Properties:
-      DashboardName: !Sub 'FIS-${ExperimentName}'
+      DashboardName: !Sub 'fis-${ExperimentName}'
       DashboardBody: !Sub |
         {
           "widgets": [
@@ -396,7 +358,7 @@ Resources:
   # StopConditionAlarm:
   #   Type: AWS::CloudWatch::Alarm
   #   Properties:
-  #     AlarmName: !Sub 'FIS-Stop-${ExperimentName}'
+  #     AlarmName: !Sub 'fis-stop-${ExperimentName}'
   #     AlarmDescription: 'Stop FIS experiment if critical threshold breached'
   #     Namespace: '{METRIC_NAMESPACE}'
   #     MetricName: '{METRIC_NAME}'
@@ -440,7 +402,7 @@ Outputs:
     Value: !Ref FISExperimentTemplate
   DashboardURL:
     Description: 'CloudWatch Dashboard URL'
-    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=FIS-${ExperimentName}'
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=fis-${ExperimentName}'
   RoleArn:
     Description: 'FIS Execution Role ARN'
     Value: !GetAtt FISExperimentRole.Arn
@@ -455,7 +417,7 @@ Array of CloudWatch alarm definitions for CLI creation:
 ```json
 [
     {
-        "AlarmName": "FIS-Stop-{EXPERIMENT_NAME}-{SERVICE}",
+        "AlarmName": "fis-stop-{EXPERIMENT_NAME}-{SERVICE}",
         "AlarmDescription": "Stop FIS experiment if {CONDITION}",
         "Namespace": "{NAMESPACE}",
         "MetricName": "{METRIC}",

@@ -384,10 +384,10 @@ in addition to existing ones:
 
 ## IAM Role Name Length
 
-The Lambda Execution Role (`FISRBACLambdaRole`) uses `fis-lambda-role-{RandomSuffix}` for
-a short, predictable name within the 64-char limit. The FIS Experiment Role
-(`FISExperimentRole`) uses `FISRole-{ExperimentName}` — see SKILL.md Step 6b for
-length budget details.
+The Lambda Execution Role (`FISRBACLambdaRole`) uses `fis-lambda-role-{RandomSuffix}` and
+the FIS Experiment Role (`FISExperimentRole`) uses `fis-role-{RandomSuffix}` — both use
+short prefixes with `RandomSuffix` to stay well within the 64-char IAM role name limit.
+See SKILL.md Step 6b for the full naming table.
 
 ## CFN Deployment Notes
 
