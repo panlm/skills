@@ -11,6 +11,8 @@ Thumbs.db
 
 # Agent state
 .claude/
+.agents/
+.kiro/
 
 # Python
 __pycache__/

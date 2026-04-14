@@ -36,20 +36,20 @@ Required tools:
 digraph test_flow {
     "Collect SSH config\n+ skill name" [shape=box];
     "Read test-prompt.md" [shape=box];
-    "SSH: update skills" [shape=box];
     "SSH: create test dir" [shape=box];
-    "SSH: opencode run" [shape=box];
-    "SCP: retrieve report" [shape=box];
+    "SSH: install skills\n(project level in test dir)" [shape=box];
+    "SSH: opencode run\n(output to log)" [shape=box];
+    "SCP: retrieve report + log" [shape=box];
     "Find previous report" [shape=diamond];
     "Compare reports\nvs SKILL.md changes" [shape=box];
     "Output analysis" [shape=box];
 
     "Collect SSH config\n+ skill name" -> "Read test-prompt.md";
-    "Read test-prompt.md" -> "SSH: update skills";
-    "SSH: update skills" -> "SSH: create test dir";
-    "SSH: create test dir" -> "SSH: opencode run";
-    "SSH: opencode run" -> "SCP: retrieve report";
-    "SCP: retrieve report" -> "Find previous report";
+    "Read test-prompt.md" -> "SSH: create test dir";
+    "SSH: create test dir" -> "SSH: install skills\n(project level in test dir)";
+    "SSH: install skills\n(project level in test dir)" -> "SSH: opencode run\n(output to log)";
+    "SSH: opencode run\n(output to log)" -> "SCP: retrieve report + log";
+    "SCP: retrieve report + log" -> "Find previous report";
     "Find previous report" -> "Compare reports\nvs SKILL.md changes" [label="Found"];
     "Find previous report" -> "Output analysis" [label="First run"];
     "Compare reports\nvs SKILL.md changes" -> "Output analysis";
@@ -104,19 +104,13 @@ Append the following suffix to the prompt (always):
 
 Store the assembled prompt as `FULL_PROMPT`.
 
-### Step 3: SSH — Update Skills on Remote Host
+### Step 3: SSH — Create Test Directory
+
+Create the timestamped test directory on the remote host **first**, before
+installing skills. All subsequent steps operate inside this directory.
 
 ```bash
-ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
-  "cd ~ && npx skills add panlm/skills"
-```
-
-Verify the command succeeds. If it fails, show the error and stop.
-
-### Step 4: SSH — Create Test Directory
-
-```bash
-TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
+TIMESTAMP=$(date -u +%Y-%m-%d-%H-%M-%S)
 TEST_DIR="~/skill-tests/${TIMESTAMP}-{SKILL_NAME}"
 
 ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
@@ -125,31 +119,66 @@ ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
 
 Store `TEST_DIR` for subsequent steps.
 
-### Step 5: SSH — Execute Skill via OpenCode
+### Step 4: SSH — Install Skills (Project Level)
 
-Run `opencode run` on the remote host inside the test directory:
+Install skills **inside the test directory** at project level (not global).
+This ensures the test uses the latest version without affecting the global
+installation.
+
+**Important:** The remote host may use `nvm` for Node.js. Use `bash -i -c`
+to load `.bashrc` environment variables (LLM provider URL, API keys, etc.)
+that the interactive guard in `.bashrc` would otherwise block.
 
 ```bash
-ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
-  "cd ${TEST_DIR} && opencode run '${FULL_PROMPT}'"
+ssh -t -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
+  "bash -i -c 'source ~/.nvm/nvm.sh 2>/dev/null; \
+   cd ${TEST_DIR} && npx skills add panlm/skills -y'"
 ```
+
+Verify the output shows "Installation complete". If it fails, show the error
+and stop.
+
+### Step 5: SSH — Execute Skill via OpenCode (Output to Log)
+
+Run `opencode run` on the remote host inside the test directory. Capture
+**all output** (stdout + stderr) to a log file for diagnostics.
+
+```bash
+ssh -t -i {SSH_KEY} -o StrictHostKeyChecking=no \
+  -o ServerAliveInterval=60 {USER}@{HOST} \
+  "bash -i -c 'source ~/.nvm/nvm.sh 2>/dev/null; \
+   cd ${TEST_DIR} && \
+   opencode run \
+     --dangerously-skip-permissions \
+     \"${FULL_PROMPT}\" \
+     2>&1 | tee ${TEST_DIR}/opencode-run.log'"
+```
+
+**Key flags:**
+- `--dangerously-skip-permissions` — auto-approve all permission prompts
+  (cross-directory reads, file writes, etc.) so the run is fully non-interactive
+- `2>&1 | tee ...log` — capture all output to `opencode-run.log` while also
+  displaying it in the terminal for real-time monitoring
+- `bash -i` — loads `.bashrc` environment variables (LLM provider config)
+- `ServerAliveInterval=60` — prevents SSH timeout for long-running skills
 
 **This step may take several minutes** depending on the skill being tested
 (e.g., FIS experiments run for minutes). Wait for the command to complete.
 
-If the command times out or fails, capture whatever output is available and
-proceed to Step 6 to retrieve any partial reports.
+If the command times out or fails, the log file may still contain partial
+output useful for diagnostics. Proceed to Step 6 to retrieve it.
 
-### Step 6: SCP — Retrieve Reports
+### Step 6: SCP — Retrieve Reports and Log
 
-List files in the remote test directory to find generated reports:
+List files in the remote test directory to find generated reports and the log:
 
 ```bash
 ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
   "ls -la ${TEST_DIR}/"
 ```
 
-Copy all report files (`.md` files, excluding README.md) back to local:
+Copy all report files (`.md` files, excluding README.md) and the execution log
+back to local:
 
 ```bash
 LOCAL_RESULTS="./test-results/{SKILL_NAME}/"
@@ -157,9 +186,14 @@ mkdir -p "${LOCAL_RESULTS}"
 
 scp -i {SSH_KEY} -o StrictHostKeyChecking=no \
   {USER}@{HOST}:"${TEST_DIR}/*.md" "${LOCAL_RESULTS}/"
+
+# Also retrieve the execution log for diagnostics
+scp -i {SSH_KEY} -o StrictHostKeyChecking=no \
+  {USER}@{HOST}:"${TEST_DIR}/opencode-run.log" "${LOCAL_RESULTS}/"
 ```
 
-Also copy the `opencode run` session output if available for debugging.
+The `opencode-run.log` contains the full `opencode run` session output —
+tool calls, agent responses, errors — useful for diagnosing failures.
 
 ### Step 7: Find Previous Report
 

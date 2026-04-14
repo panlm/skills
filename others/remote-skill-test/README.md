@@ -18,10 +18,10 @@ This is tedious and error-prone, especially during iterative skill development.
 
 1. **Collects SSH config and target skill name** from the user (no credentials stored in files).
 2. **Reads `test-prompt.md`** from the target skill's directory in the local repo.
-3. **SSHs to the remote host** and runs `npx skills add panlm/skills` to update skills.
-4. **Creates a timestamped test directory** on the remote host: `~/skill-tests/{timestamp}-{skill-name}/`.
-5. **Executes the target skill** via `opencode run` with the assembled prompt (including dependency paths and auto-confirm directives).
-6. **Retrieves the generated report** via `scp` back to `./test-results/{skill-name}/`.
+3. **Creates a timestamped test directory** on the remote host: `~/skill-tests/{timestamp}-{skill-name}/`.
+4. **Installs skills at project level** inside the test directory via `npx skills add panlm/skills -y` (not global, so each test run is isolated).
+5. **Executes the target skill** via `opencode run --dangerously-skip-permissions` with the assembled prompt. All output (stdout + stderr) is captured to `opencode-run.log` via `tee` for diagnostics.
+6. **Retrieves the generated report and execution log** via `scp` back to `./test-results/{skill-name}/`.
 7. **Finds the previous run's report** by searching `~/skill-tests/*-{skill-name}/` directories.
 8. **Compares reports** — checks structure compliance against SKILL.md template, diffs structural changes between runs, and correlates with recent SKILL.md git changes.
 9. **Outputs analysis** — compliance table, change summary, and verdict (PASS / PARTIAL / FAIL).
@@ -38,9 +38,11 @@ This is tedious and error-prone, especially during iterative skill development.
 
 5. **Structure comparison, not data comparison.** Reports from different runs will have different timestamps, resource IDs, and metrics. The comparison focuses on structural compliance (sections, fields, tables) and correlates structural changes with SKILL.md updates.
 
-6. **OpenCode `run` for non-interactive execution.** Uses `opencode run "prompt"` which runs in non-interactive mode — no TUI, no manual interaction needed. The prompt includes directives to skip all confirmations and auto-approve cross-directory operations.
+6. **OpenCode `run` for non-interactive execution.** Uses `opencode run --dangerously-skip-permissions "prompt"` which runs in non-interactive mode — no TUI, no manual interaction, no permission prompts. All output is captured to `opencode-run.log` via `tee` for diagnostics.
 
-7. **Reports stored locally for review.** Retrieved reports are saved to `./test-results/{skill-name}/` in the local repo, making them easy to review and git-track if desired.
+7. **Project-level skill installation.** Skills are installed inside the test directory (not globally) via `npx skills add panlm/skills -y`. Each test run is isolated and uses the latest version without affecting other environments.
+
+8. **Reports and logs stored locally for review.** Retrieved reports and `opencode-run.log` are saved to `./test-results/{skill-name}/` in the local repo, making them easy to review and git-track if desired.
 
 ## Workflow Overview
 
@@ -49,13 +51,13 @@ Step 1:  Collect SSH config + skill name + dependency paths
           ↓
 Step 2:  Read test-prompt.md, replace {DEPENDENCY_PATH}, append auto-confirm
           ↓
-Step 3:  SSH → npx skills add panlm/skills (update skills on remote)
+Step 3:  SSH → mkdir ~/skill-tests/{timestamp}-{skill-name}/
           ↓
-Step 4:  SSH → mkdir ~/skill-tests/{timestamp}-{skill-name}/
+Step 4:  SSH → cd test-dir && npx skills add panlm/skills -y (project level)
           ↓
-Step 5:  SSH → cd test-dir && opencode run "assembled prompt"
+Step 5:  SSH → cd test-dir && opencode run --dangerously-skip-permissions "prompt" | tee opencode-run.log
           ↓
-Step 6:  SCP → retrieve report files to local ./test-results/{skill-name}/
+Step 6:  SCP → retrieve report files + opencode-run.log to local ./test-results/{skill-name}/
           ↓
 Step 7:  SSH → find previous ~/skill-tests/*-{skill-name}/ directory
           ├── Found → SCP previous report for comparison

@@ -18,10 +18,10 @@
 
 1. **收集 SSH 配置和目标 skill 名称** — 从用户处获取（不在文件中存储凭据）。
 2. **读取 `test-prompt.md`** — 从本地 repo 中目标 skill 的目录读取。
-3. **SSH 到远程主机** — 运行 `npx skills add panlm/skills` 更新 skill。
-4. **创建带时间戳的测试目录** — 在远程主机上创建 `~/skill-tests/{时间戳}-{skill名称}/`。
-5. **执行目标 skill** — 通过 `opencode run` 加组装好的 prompt（包含依赖路径和自动确认指令）。
-6. **取回生成的报告** — 通过 `scp` 拉回到本地 `./test-results/{skill名称}/`。
+3. **创建带时间戳的测试目录** — 在远程主机上创建 `~/skill-tests/{时间戳}-{skill名称}/`。
+4. **在测试目录中安装 skill（project level）** — 通过 `npx skills add panlm/skills -y` 安装（非全局），每次测试运行相互隔离。
+5. **执行目标 skill** — 通过 `opencode run --dangerously-skip-permissions` 加组装好的 prompt。所有输出（stdout + stderr）通过 `tee` 保存到 `opencode-run.log` 便于诊断。
+6. **取回生成的报告和执行日志** — 通过 `scp` 拉回到本地 `./test-results/{skill名称}/`。
 7. **查找上一次运行的报告** — 搜索 `~/skill-tests/*-{skill名称}/` 目录。
 8. **对比报告** — 检查结构合规性（对照 SKILL.md 模板）、与上次的结构差异、关联 SKILL.md 的 git 变更。
 9. **输出分析** — 合规性表格、变化摘要、结论（通过 / 部分通过 / 未通过）。
@@ -38,9 +38,11 @@
 
 5. **结构对比，非数据对比。** 不同运行的报告会有不同的时间戳、资源 ID 和指标数据。对比聚焦于结构合规性（章节、字段、表格），并将结构变化与 SKILL.md 的更新关联。
 
-6. **OpenCode `run` 非交互执行。** 使用 `opencode run "prompt"` 非交互模式运行 — 无 TUI、无需手动操作。prompt 中包含跳过所有确认和自动批准跨目录操作的指令。
+6. **OpenCode `run` 非交互执行。** 使用 `opencode run --dangerously-skip-permissions "prompt"` 非交互模式运行 — 无 TUI、无需手动操作、无权限提示。所有输出通过 `tee` 保存到 `opencode-run.log` 便于诊断。
 
-7. **报告存储在本地供审查。** 取回的报告保存到本地 repo 的 `./test-results/{skill名称}/`，便于审查。
+7. **Project level 安装 skill。** 在测试目录内通过 `npx skills add panlm/skills -y` 安装 skill（非全局），每次测试运行相互隔离，使用最新版本且不影响其他环境。
+
+8. **报告和日志存储在本地供审查。** 取回的报告和 `opencode-run.log` 保存到本地 repo 的 `./test-results/{skill名称}/`，便于审查。
 
 ## 工作流程概览
 
@@ -49,13 +51,13 @@
           ↓
 步骤 2:  读取 test-prompt.md，替换 {DEPENDENCY_PATH}，追加自动确认指令
           ↓
-步骤 3:  SSH → npx skills add panlm/skills（更新远程 skill）
+步骤 3:  SSH → mkdir ~/skill-tests/{时间戳}-{skill名称}/
           ↓
-步骤 4:  SSH → mkdir ~/skill-tests/{时间戳}-{skill名称}/
+步骤 4:  SSH → cd 测试目录 && npx skills add panlm/skills -y（project level）
           ↓
-步骤 5:  SSH → cd 测试目录 && opencode run "组装后的 prompt"
+步骤 5:  SSH → cd 测试目录 && opencode run --dangerously-skip-permissions "prompt" | tee opencode-run.log
           ↓
-步骤 6:  SCP → 取回报告文件到本地 ./test-results/{skill名称}/
+步骤 6:  SCP → 取回报告文件 + opencode-run.log 到本地 ./test-results/{skill名称}/
           ↓
 步骤 7:  SSH → 查找上一次 ~/skill-tests/*-{skill名称}/ 目录
           ├── 找到 → SCP 上次报告用于对比
