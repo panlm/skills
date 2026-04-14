@@ -29,3 +29,5 @@ venv/
 # Generated state
 .upstream-state.json
 .skill-registry.json
+skills-lock.json
+skills/
