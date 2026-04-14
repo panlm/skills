@@ -49,7 +49,7 @@ Record whether a live assessment is requested:
 
 ### Step 2: Sequential Documentation Search
 
-Run the following 6 search queries **one at a time, sequentially** using `aws___search_documentation`.
+Run the following 5 search queries **one at a time, sequentially** using `aws___search_documentation`.
 **Do NOT run them in parallel** — the aws knowledge mcp server has rate limits and parallel
 requests will trigger "Too many requests" errors.
 
@@ -58,11 +58,11 @@ the actual service name (e.g., "ElastiCache Redis", "Amazon RDS MySQL", "Amazon 
 
 ```
 Query 1: "{SERVICE} best practices high availability disaster recovery"
-  topics: ["general", "reference_documentation"]
+  topics: ["general"]
   limit: 10
 
 Query 2: "{SERVICE} Well-Architected reliability resilience best practices"
-  topics: ["general", "reference_documentation"]
+  topics: ["general"]
   limit: 10
 
 Query 3: "{SERVICE} replication multi-AZ failover cluster mode backup"
@@ -70,15 +70,11 @@ Query 3: "{SERVICE} replication multi-AZ failover cluster mode backup"
   limit: 10
 
 Query 4: "{SERVICE} security encryption authentication access control"
-  topics: ["general", "reference_documentation"]
+  topics: ["general"]
   limit: 10
 
 Query 5: "{SERVICE} Well-Architected security best practices"
-  topics: ["general", "reference_documentation"]
-  limit: 10
-
-Query 6: "Security Hub controls for {SERVICE}"
-  topics: ["general", "reference_documentation"]
+  topics: ["general"]
   limit: 10
 ```
 
@@ -92,10 +88,9 @@ sequentially** using `aws___read_documentation`. **Do NOT read multiple pages in
 to avoid rate limiting. Prioritize these document types:
 
 1. **Well-Architected Lens** pages for the service (Reliability, Security, Performance, Operational Excellence pillars)
-2. **Security Hub controls** page for the service
-3. **Official best practices** page
-4. **Resilience / disaster recovery** page
-5. **Overall best practices** page
+2. **Official best practices** page
+3. **Resilience / disaster recovery** page
+4. **Overall best practices** page
 
 Read each with `max_length: 15000` to get comprehensive content. Typically 3-5 page reads are needed.
 

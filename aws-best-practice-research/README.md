@@ -28,7 +28,7 @@ When configuring AWS services for production, engineers need to verify their set
 ```
 Step 1: Identify target AWS service and assessment scope
          ↓
-Step 2: Search documentation (6 sequential queries)
+Step 2: Search documentation (5 sequential queries)
          ↓
 Step 3: Read key documentation pages (3-5 pages)
          ↓
@@ -142,7 +142,7 @@ aws-bestpractice-research/
 ├── SKILL.md                              # Main skill definition (agent instructions)
 ├── README.md                             # This file (PRD / user documentation)
 └── references/
-    ├── search-queries.md                 # 6 search query templates + page reading priority
+    ├── search-queries.md                 # 5 search query templates + page reading priority
     ├── output-template.md                # Checklist output format specification
     ├── assessment-workflow.md              # Per-service assessment commands and field mappings
     └── assessment-output-template.md       # Assessment report format specification
@@ -181,7 +181,7 @@ aws-bestpractice-research/
 ## Limitations
 
 - Depends on aws-knowledge-mcp-server availability; if the MCP server is not configured, the skill cannot run.
-- Rate limits on the MCP server mean documentation gathering takes ~30-60 seconds for 6 queries + 3-5 page reads.
+- Rate limits on the MCP server mean documentation gathering takes ~30-60 seconds for 5 queries + 3-5 page reads.
 - Live assessment requires read-only IAM permissions for the target service; write permissions are never needed.
 - Assessment field mappings are pre-built for a limited set of services; other services derive assessment commands dynamically.
 - Client-side configurations (connection pooling, retry logic, timeouts) can only be flagged as WARN during live assessment since they require application-level verification.

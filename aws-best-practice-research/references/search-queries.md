@@ -1,6 +1,6 @@
 # Search Query Templates
 
-Templates for the 6 sequential documentation searches. Replace `{SERVICE}` with the
+Templates for the 5 sequential documentation searches. Replace `{SERVICE}` with the
 actual AWS service name (e.g., "ElastiCache Redis", "Amazon RDS MySQL", "Amazon MSK").
 
 **IMPORTANT**: Execute all queries **one at a time, sequentially**. Do NOT run them in
@@ -11,7 +11,7 @@ before sending the next one.
 
 ```
 search_phrase: "{SERVICE} best practices high availability disaster recovery"
-topics: ["general", "reference_documentation"]
+topics: ["general"]
 limit: 10
 ```
 
@@ -22,7 +22,7 @@ and HA/DR configuration guides.
 
 ```
 search_phrase: "{SERVICE} Well-Architected reliability resilience best practices"
-topics: ["general", "reference_documentation"]
+topics: ["general"]
 limit: 10
 ```
 
@@ -44,7 +44,7 @@ replication setup, failover behavior, backup/restore procedures.
 
 ```
 search_phrase: "{SERVICE} security encryption authentication access control"
-topics: ["general", "reference_documentation"]
+topics: ["general"]
 limit: 10
 ```
 
@@ -55,35 +55,23 @@ native auth), network security (VPC, security groups, subnet groups), and compli
 
 ```
 search_phrase: "{SERVICE} Well-Architected security best practices"
-topics: ["general", "reference_documentation"]
+topics: ["general"]
 limit: 10
 ```
 
 **Why**: Finds security-specific Well-Architected recommendations, supplementing
 Query 4 with framework-level security pillar guidance.
 
-## Query 6: Security Hub Controls
-
-```
-search_phrase: "Security Hub controls for {SERVICE}"
-topics: ["general", "reference_documentation"]
-limit: 10
-```
-
-**Why**: Finds AWS Security Hub CSPM controls specific to the service. These are
-codified, auditable checks with NIST/PCI-DSS mappings.
-
 ---
 
 ## Page Reading Priority
 
-After the 6 searches complete, identify and read key pages in this priority order:
+After the 5 searches complete, identify and read key pages in this priority order:
 
 1. **Well-Architected Lens pages** (Reliability, Security, PE, OE pillars) — highest value
-2. **Security Hub controls page** — codified checks with compliance mappings
-3. **Official best practices page** — service-native recommendations
-4. **Resilience / disaster recovery page** — specific HA/DR mechanics
-5. **Replication / configuration reference** — detailed setup parameters
+2. **Official best practices page** — service-native recommendations
+3. **Resilience / disaster recovery page** — specific HA/DR mechanics
+4. **Replication / configuration reference** — detailed setup parameters
 
 Read up to 5 pages **sequentially** (one at a time) with `max_length: 15000` each.
 Wait for each page read to complete before starting the next one.

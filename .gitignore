@@ -31,3 +31,5 @@ venv/
 .skill-registry.json
 skills-lock.json
 skills/
+
+test-results/

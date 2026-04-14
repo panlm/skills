@@ -19,6 +19,8 @@
 
 ## Git 提交规则
 
+**不要主动执行 git commit 或 git push。** 只有在用户明确要求时才进行提交和推送。
+
 提交和推送时始终使用 `--no-verify` 参数：
 ```bash
 git commit --no-verify -m "commit message"

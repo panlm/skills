@@ -27,7 +27,7 @@
 ```
 步骤 1: 确定目标 AWS 服务和评估范围
          ↓
-步骤 2: 搜索文档（6 个顺序查询）
+步骤 2: 搜索文档（5 个顺序查询）
          ↓
 步骤 3: 阅读关键文档页面（3-5 页）
          ↓
@@ -142,7 +142,7 @@ aws-bestpractice-research/
 ├── README.md                             # 英文版 PRD / 用户文档
 ├── README_CN.md                          # 本文件（中文版 PRD / 用户文档）
 └── references/
-    ├── search-queries.md                 # 6 个搜索查询模板 + 页面阅读优先级
+    ├── search-queries.md                 # 5 个搜索查询模板 + 页面阅读优先级
     ├── output-template.md                # 检查清单输出格式规范
     ├── assessment-workflow.md              # 各服务评估命令和字段映射
     └── assessment-output-template.md       # 评估报告输出格式规范
@@ -181,7 +181,7 @@ aws-bestpractice-research/
 ## 已知限制
 
 - 依赖 aws-knowledge-mcp-server 的可用性；如果 MCP 服务器未配置，Skill 无法运行。
-- MCP 服务器速率限制意味着文档采集需要约 30-60 秒（6 次查询 + 3-5 次页面读取）。
+- MCP 服务器速率限制意味着文档采集需要约 30-60 秒（5 次查询 + 3-5 次页面读取）。
 - 线上评估仅需目标服务的只读 IAM 权限，不需要写入权限。
 - 评估字段映射仅为部分服务预置；其他服务的评估命令为动态推导。
 - 客户端配置（连接池、重试逻辑、超时设置）在线上评估时只能标记为 WARN，因为需要应用层面的验证。
