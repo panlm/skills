@@ -19,7 +19,7 @@
 1. **收集 SSH 配置和目标 skill 名称** — 从用户处获取（不在文件中存储凭据）。
 2. **创建带时间戳的测试目录** — 在远程主机上创建 `~/skill-tests/{时间戳}-{skill名称}/`。
 3. **在测试目录中安装目标 skill（project level）** — 通过 `npx skills add panlm/skills --skill {SKILL_NAME} -y` 仅安装目标 skill（非全局），安装更快且每次测试运行相互隔离。
-4. **自动发现并读取远程 `test-prompt.md`** — 使用 `find` 在远程测试目录下自动查找 `test-prompt.md`，因为不同 agent 将 skill 安装到不同路径（`.agents/skills/`、`.claude/skills/`、`.kiro/skills/` 等）。test-prompt.md 随 skill 一起安装。
+4. **定位并读取远程 `test-prompt.md`** — 按优先级检查已知的 agent skill 目录路径（`.agents/skills/`、`.claude/skills/`、`.kiro/skills/` 等，先检查项目级再检查全局），因为不同 agent 安装路径不同。test-prompt.md 随 skill 一起安装。
 5. **执行目标 skill** — 通过 `opencode run --dangerously-skip-permissions` 加组装好的 prompt。所有输出（stdout + stderr）通过 `tee` 保存到 `opencode-run.log` 便于诊断。
 6. **取回生成的报告和执行日志** — 通过 `scp` 拉回到本地 `./test-results/{skill名称}/{时间戳}/`，文件名保持与远程一致。
 7. **查找上一次运行的报告** — 在远程主机搜索 `~/skill-tests/*-{skill名称}/` 目录，找到后将上次报告也 SCP 到**同一个本地运行目录**中。当次报告和上次报告并排存放，原始文件名不变，方便直接对比。
@@ -32,7 +32,7 @@
 
 2. **SSH 配置运行时询问。** 任何 IP 地址、用户名、密钥路径都不存储在提交的文件中。每次运行时向用户询问（或用户可以提供 SSH config alias）。
 
-3. **test-prompt.md 随 skill 打包分发。** 每个可测试的 skill 维护自己的 `test-prompt.md`，通过 `npx skills add` 随 skill 一起安装到远程。test-prompt.md 在远程通过 `find` 自动发现（因为不同 agent 将 skill 安装到不同目录），而非从本地 repo 读取。`{DEPENDENCY_PATH}` 占位符在运行时替换为用户提供的路径。自动确认指令由本 skill 自动追加。
+3. **test-prompt.md 随 skill 打包分发。** 每个可测试的 skill 维护自己的 `test-prompt.md`，通过 `npx skills add` 随 skill 一起安装到远程。test-prompt.md 在远程按优先级检查已知 agent skill 目录路径（先项目级再全局）定位，而非从本地 repo 读取。`{DEPENDENCY_PATH}` 占位符在运行时替换为用户提供的路径。自动确认指令由本 skill 自动追加。
 
 4. **带 skill 名称的时间戳目录。** 远程测试目录使用 `{时间戳}-{skill名称}` 格式，方便找到同一 skill 的上次运行结果进行对比。
 
@@ -53,7 +53,7 @@
           ↓
 步骤 3:  SSH → cd 测试目录 && npx skills add panlm/skills --skill {skill名称} -y（project level，仅安装目标 skill）
           ↓
-步骤 4:  SSH → 在测试目录下自动发现 test-prompt.md（适配不同 agent 安装路径），替换 {DEPENDENCY_PATH}，追加自动确认指令
+步骤 4:  SSH → 在已知 agent skill 路径中定位 test-prompt.md（项目级 → 全局），替换 {DEPENDENCY_PATH}，追加自动确认指令
           ↓
 步骤 5:  SSH → cd 测试目录 && opencode run --dangerously-skip-permissions "prompt" | tee opencode-run.log
           ↓

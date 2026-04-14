@@ -37,7 +37,7 @@ digraph test_flow {
     "Collect SSH config\n+ skill name" [shape=box];
     "SSH: create test dir" [shape=box];
     "SSH: install skills\n(project level in test dir)" [shape=box];
-    "SSH: find + read test-prompt.md\nfrom installed skill" [shape=box];
+    "SSH: locate + read\ntest-prompt.md" [shape=box];
     "SSH: opencode run\n(output to log)" [shape=box];
     "SCP: retrieve report + log" [shape=box];
     "Find previous report" [shape=diamond];
@@ -46,8 +46,8 @@ digraph test_flow {
 
     "Collect SSH config\n+ skill name" -> "SSH: create test dir";
     "SSH: create test dir" -> "SSH: install skills\n(project level in test dir)";
-    "SSH: install skills\n(project level in test dir)" -> "SSH: find + read test-prompt.md\nfrom installed skill";
-    "SSH: find + read test-prompt.md\nfrom installed skill" -> "SSH: opencode run\n(output to log)";
+    "SSH: install skills\n(project level in test dir)" -> "SSH: locate + read\ntest-prompt.md";
+    "SSH: locate + read\ntest-prompt.md" -> "SSH: opencode run\n(output to log)";
     "SSH: opencode run\n(output to log)" -> "SCP: retrieve report + log";
     "SCP: retrieve report + log" -> "Find previous report";
     "Find previous report" -> "Compare reports\nvs SKILL.md changes" [label="Found"];
@@ -81,17 +81,23 @@ are provided.**
 - Git diff of SKILL.md — for comparing against report changes
 
 **Derived from remote installed skill (after Step 4):**
-- `test-prompt.md` — automatically discovered by searching for `test-prompt.md`
-  under `${TEST_DIR}` on the remote host after skill installation. Different agents
-  install skills to different directories (e.g., `.agents/skills/`, `.claude/skills/`,
-  `.kiro/skills/`), so the path is NOT hardcoded — use `find` to locate it.
+- `test-prompt.md` — located by checking known agent skill directories on the
+  remote host after installation. Different agents use different paths:
 
-**If `test-prompt.md` does not exist** anywhere under the test directory,
+  | Scope | Candidate Paths |
+  |---|---|
+  | Project level (in `${TEST_DIR}`) | `.agents/skills/{SKILL_NAME}/test-prompt.md`, `.claude/skills/{SKILL_NAME}/test-prompt.md`, `.kiro/skills/{SKILL_NAME}/test-prompt.md` |
+  | Global (user home `~`) | `~/.agents/skills/{SKILL_NAME}/test-prompt.md`, `~/.claude/skills/{SKILL_NAME}/test-prompt.md`, `~/.config/opencode/skills/{SKILL_NAME}/test-prompt.md`, `~/.kiro/skills/{SKILL_NAME}/test-prompt.md` |
+
+  Check project-level paths first (since Step 3 installs at project level),
+  then fall back to global paths. Use the first match found.
+
+**If `test-prompt.md` does not exist** in any known path,
 stop and inform the user:
 ```
-No test-prompt.md found for skill {SKILL_NAME} under ${TEST_DIR}.
+No test-prompt.md found for skill {SKILL_NAME} in any known agent skill directory.
+Checked: .agents/skills/, .claude/skills/, .kiro/skills/ (project + global).
 Please ensure test-prompt.md is included in the skill package.
-See others/remote-skill-test/README.md for format details.
 ```
 
 ### Step 2: SSH — Create Test Directory
@@ -131,24 +137,33 @@ ssh -t -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
 Verify the output shows "Installation complete" and lists **only the target
 skill**. If it fails, show the error and stop.
 
-### Step 4: SSH — Find and Read test-prompt.md
+### Step 4: SSH — Locate and Read test-prompt.md
 
 Locate `test-prompt.md` from the **remote installed skill directory** after
-installation in Step 3. Different agents install skills to different paths
-(`.agents/skills/`, `.claude/skills/`, `.kiro/skills/`, etc.), so use `find`
-to auto-discover the file:
+installation in Step 3. Check known agent skill directory paths in order —
+project-level first (since Step 3 installs at project level), then global:
 
 ```bash
-# Find test-prompt.md for the target skill under the test directory
-PROMPT_FILE=$(ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
-  "find ${TEST_DIR} -path '*/{SKILL_NAME}/test-prompt.md' -type f 2>/dev/null | head -1")
+# Check known paths in priority order (project level → global)
+PROMPT_FILE=$(ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} "
+  for p in \
+    '${TEST_DIR}/.agents/skills/{SKILL_NAME}/test-prompt.md' \
+    '${TEST_DIR}/.claude/skills/{SKILL_NAME}/test-prompt.md' \
+    '${TEST_DIR}/.kiro/skills/{SKILL_NAME}/test-prompt.md' \
+    '\${HOME}/.agents/skills/{SKILL_NAME}/test-prompt.md' \
+    '\${HOME}/.claude/skills/{SKILL_NAME}/test-prompt.md' \
+    '\${HOME}/.config/opencode/skills/{SKILL_NAME}/test-prompt.md' \
+    '\${HOME}/.kiro/skills/{SKILL_NAME}/test-prompt.md'; do
+    [ -f \"\$p\" ] && echo \"\$p\" && break
+  done
+")
 
 # Read the file content
 ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
   "cat ${PROMPT_FILE}"
 ```
 
-If the file is not found (empty `PROMPT_FILE`), stop and inform the user (see Step 1 error message).
+If no file is found (empty `PROMPT_FILE`), stop and inform the user (see Step 1 error message).
 
 Replace the `{DEPENDENCY_PATH}` placeholder (if present) with the actual
 dependency path provided by the user in Step 1.
