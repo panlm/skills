@@ -16,7 +16,7 @@ Running an AWS FIS experiment after preparation still involves manual verificati
 
 ## What This Skill Does
 
-1. **Loads and validates** the prepared experiment directory (from [aws-fis-experiment-prepare](../aws-fis-experiment-prepare/) or manually created).
+1. **Loads and validates** the prepared experiment directory (from [aws-fis-experiment-prepare](../aws-fis-experiment-prepare/) or manually created). Supports **automatic directory resolution** from an experiment template ID — if the user provides a template ID (e.g., `EXT1a2b3c4d5e6f7`), the skill searches the current directory for a matching experiment directory.
 2. **Reads README.md** to extract the CFN stack name and experiment metadata.
 3. **Verifies stack deployment** — checks that the CloudFormation stack is in `CREATE_COMPLETE` or `UPDATE_COMPLETE` status.
 4. **Extracts template ID** from stack outputs.
@@ -33,7 +33,13 @@ Running an AWS FIS experiment after preparation still involves manual verificati
 ## Workflow Overview
 
 ```
-Step 1:  Load experiment directory + validate required files
+Step 1:  Resolve experiment directory (from path or template ID)
+          ├── Full path provided → validate directly
+          ├── Template ID provided → search CWD for *-{ID} directory
+          │   ├── 1 match → use it
+          │   ├── Multiple matches → ask user to choose
+          │   └── No match → ask user for full path
+          └── Validate required files
           ↓
 Step 2:  Read README.md → extract CFN stack name + metadata
           ↓
@@ -228,29 +234,33 @@ aws cloudwatch delete-dashboards --dashboard-names "FIS-{SCENARIO}" --region {RE
 "启动 FIS 实验"
 "Check if the stack is deployed and run the experiment"
 "运行混沌实验，目录在 ./2025-03-27-rds-failover-prod-db-EXTa1b2c3d4e5f6g/"
+"执行实验 EXT1a2b3c4d5e6f7"
+"run experiment EXTabc123def456"
 ```
 
 ## Key Design Decisions
 
 1. **No deployment — only verification.** This skill assumes the CloudFormation stack has already been deployed (by `aws-fis-experiment-prepare` or manually). It verifies the stack status before proceeding.
 
-2. **Stack name from README.** The stack name is extracted from the `**CFN Stack:**` field in the experiment directory's README.md, ensuring consistency with the prepare skill's output.
+2. **Directory resolution from template ID.** When the user provides only a template ID (e.g., `EXT1a2b3c4d5e6f7`), the skill searches the current working directory for directories ending with that ID. This supports the common workflow where the user remembers the template ID from the prepare step but not the full directory name. If no match is found, the user is prompted for the full path.
 
-3. **Explicit confirmation is non-negotiable.** FIS experiments cause real impact. The skill never auto-starts — it always presents a warning with specific resource details and requires the user to type confirmation.
+3. **Stack name from README.** The stack name is extracted from the `**CFN Stack:**` field in the experiment directory's README.md, ensuring consistency with the prepare skill's output.
 
-4. **Experiment classification is explicit.** Before deciding on log collection, the skill reads `experiment-template.json`, extracts all action IDs, classifies the experiment as POD or NON-POD, and displays the classification with action IDs to the user. This transparency ensures the user can verify the classification before proceeding. Scenario Library templates with opaque actions are handled via fallback logic based on scenario name and README description.
+4. **Explicit confirmation is non-negotiable.** FIS experiments cause real impact. The skill never auto-starts — it always presents a warning with specific resource details and requires the user to type confirmation.
 
-5. **App discovery before experiment start.** When log collection is enabled, EKS application dependencies are discovered and log collection is started BEFORE the experiment begins. This prevents missing early log entries that may be rotated or overwritten during the experiment.
+5. **Experiment classification is explicit.** Before deciding on log collection, the skill reads `experiment-template.json`, extracts all action IDs, classifies the experiment as POD or NON-POD, and displays the classification with action IDs to the user. This transparency ensures the user can verify the classification before proceeding. Scenario Library templates with opaque actions are handled via fallback logic based on scenario name and README description.
 
-6. **Log collection is opt-in (auto-enabled for pod experiments).** For `aws:eks:pod-*` actions, log collection is automatically enabled — pod experiments inherently need application log analysis. For all other experiments, the skill explicitly asks the user (default No) and waits for a response. This is a mandatory interaction point — the agent cannot decide on behalf of the user. Infra teams get a fast path without kubectl; app teams and pod experiments get full log analysis via `eks-app-log-analysis`. The skill can also be used independently for post-hoc analysis.
+6. **App discovery before experiment start.** When log collection is enabled, EKS application dependencies are discovered and log collection is started BEFORE the experiment begins. This prevents missing early log entries that may be rotated or overwritten during the experiment.
 
-7. **Baseline logs are opt-in.** By default, log collection starts immediately and stops when the experiment ends. Pre-experiment (2 min) and post-experiment (2 min) baseline collection is only activated when the user explicitly requests it, keeping the default flow fast.
+7. **Log collection is opt-in (auto-enabled for pod experiments).** For `aws:eks:pod-*` actions, log collection is automatically enabled — pod experiments inherently need application log analysis. For all other experiments, the skill explicitly asks the user (default No) and waits for a response. This is a mandatory interaction point — the agent cannot decide on behalf of the user. Infra teams get a fast path without kubectl; app teams and pod experiments get full log analysis via `eks-app-log-analysis`. The skill can also be used independently for post-hoc analysis.
 
-8. **Continuous monitoring with log insights.** During the experiment, each poll cycle shows both experiment status and per-app error/warning counts from collected logs, giving operators a real-time view of application impact alongside infrastructure status.
+8. **Baseline logs are opt-in.** By default, log collection starts immediately and stops when the experiment ends. Pre-experiment (2 min) and post-experiment (2 min) baseline collection is only activated when the user explicitly requests it, keeping the default flow fast.
 
-9. **Results saved to file.** The experiment results report is written to a timestamped local markdown file, keeping terminal output concise while preserving a full record.
+9. **Continuous monitoring with log insights.** During the experiment, each poll cycle shows both experiment status and per-app error/warning counts from collected logs, giving operators a real-time view of application impact alongside infrastructure status.
 
-10. **Cleanup is offered, not forced.** After the experiment, cleanup commands are suggested but never executed without confirmation.
+10. **Results saved to file.** The experiment results report is written to a timestamped local markdown file, keeping terminal output concise while preserving a full record.
+
+11. **Cleanup is offered, not forced.** After the experiment, cleanup commands are suggested but never executed without confirmation.
 
 ## Directory Structure
 
