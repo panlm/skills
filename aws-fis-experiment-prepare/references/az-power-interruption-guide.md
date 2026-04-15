@@ -102,7 +102,6 @@ affected:
 | RDS Cluster | `parameters.writerAvailabilityZoneIdentifiers` in target |
 | ElastiCache | `parameters.availabilityZoneIdentifier` in target |
 | EBS Volume | `parameters.availabilityZoneIdentifier` in target + `filters[].path: Attachments.DeleteOnTermination` = `false` |
-| IAM Role (Pause Launches) | `parameters.availabilityZoneIdentifiers` in action |
 
 This means: if you later want to test a different AZ, **tags do not need updating** —
 only the experiment template (i.e., the CFN Stack) needs to be recreated.
@@ -147,18 +146,24 @@ when an experiment template with the AZ Power Interruption scenario is created v
 Console, CLI, or SDK. No manual creation is needed, but the CFN Service Role must have
 `iam:CreateServiceLinkedRole` permission.
 
-## IAM Role Target for Pause Instance Launches
+## Pause Instance Launches — Default: Remove
 
-The `Pause-Instance-Launches` action targets **IAM Roles** (not EC2 instances). It
-injects `InsufficientInstanceCapacity` errors on API calls (`RunInstances`,
-`CreateFleet`, `StartInstances`) made by the specified roles.
+The `Pause-Instance-Launches` action (`aws:ec2:api-insufficient-instance-capacity-error`)
+and its `IAM-role` target should be **removed from the experiment template by default**.
 
-You must provide the ARN(s) of roles that launch instances in the target AZ:
+**Why:**
+- This action targets IAM Roles that call `RunInstances`/`CreateFleet`/`StartInstances`
+- FIS does **not** accept service-linked roles (e.g., `AWSServiceRoleForAutoScaling`) as
+  targets — attempting to use one will fail
+- An empty `resourceArns` array also fails CFN validation: `"You must specify resource
+  ARNs, resource tags, or resource parameters for target IAM-role"`
+- `Pause-ASG-Scaling` (`aws:ec2:asg-insufficient-instance-capacity-error`) already
+  blocks ASG from launching instances in the target AZ at the ASG control plane level,
+  so `Pause-Instance-Launches` is redundant for ASG-managed instances
 
-- **ASG service-linked role:** `arn:aws:iam::{ACCOUNT_ID}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling`
-- **Custom launch roles:** Any IAM role used by automation to call `RunInstances`
-
-If no roles are specified (empty `resourceArns`), this action is skipped.
+**When to add it back:** Only if the user has **custom (non-service-linked) IAM Roles**
+that call `RunInstances` outside of ASG — e.g., automation scripts, CI/CD pipelines,
+Lambda functions. In that case, provide those Role ARNs in `resourceArns`.
 
 ## Limitations
 
