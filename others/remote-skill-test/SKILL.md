@@ -34,20 +34,18 @@ Required tools:
 
 ```dot
 digraph test_flow {
-    "Collect SSH config\n+ skill name" [shape=box];
+    "Collect SSH config\n+ skill name + prompt" [shape=box];
     "SSH: create test dir" [shape=box];
     "SSH: install skills\n(project level in test dir)" [shape=box];
-    "SSH: locate + read\ntest-prompt.md" [shape=box];
     "SSH: opencode run\n(output to log)" [shape=box];
     "SCP: retrieve report + log" [shape=box];
     "Find previous report" [shape=diamond];
     "Compare reports\nvs SKILL.md changes" [shape=box];
     "Output analysis" [shape=box];
 
-    "Collect SSH config\n+ skill name" -> "SSH: create test dir";
+    "Collect SSH config\n+ skill name + prompt" -> "SSH: create test dir";
     "SSH: create test dir" -> "SSH: install skills\n(project level in test dir)";
-    "SSH: install skills\n(project level in test dir)" -> "SSH: locate + read\ntest-prompt.md";
-    "SSH: locate + read\ntest-prompt.md" -> "SSH: opencode run\n(output to log)";
+    "SSH: install skills\n(project level in test dir)" -> "SSH: opencode run\n(output to log)";
     "SSH: opencode run\n(output to log)" -> "SCP: retrieve report + log";
     "SCP: retrieve report + log" -> "Find previous report";
     "Find previous report" -> "Compare reports\nvs SKILL.md changes" [label="Found"];
@@ -69,36 +67,26 @@ are provided.**
    Please provide: user@host, and the SSH key path (or SSH config alias).
    Example: participant@10.0.1.50 with key ~/.ssh/my-key.pem
    ```
-3. **Dependency info** (if the skill requires external resources) — ask the user:
+3. **Test prompt** — the prompt to run on the remote host. Ask the user to provide
+   it directly in the conversation. Example:
    ```
-   Does this skill depend on pre-existing resources on the remote host?
-   If yes, provide the path(s). Example: experiment directory at
-   ~/fis-experiments/2026-04-10-az-power-interruption-my-cluster/
+   What prompt should I run for the test?
+   Example: "使用 aws-fis-experiment-execute skill 执行 ~/fis-experiments/2026-04-10-az-power-int-my-cluster-EXTabc123/ 目录下的实验"
    ```
+   If the user doesn't provide a prompt, construct one from the conversation context
+   (e.g., the skill name + any dependency paths mentioned earlier).
 
 **Derived from local repo:**
 - `SKILL.md` — read from `{SKILL_DIR}/SKILL.md` for report structure requirements
 - Git diff of SKILL.md — for comparing against report changes
 
-**Derived from remote installed skill (after Step 4):**
-- `test-prompt.md` — located by checking known agent skill directories on the
-  remote host after installation. Different agents use different paths:
-
-  | Scope | Candidate Paths |
-  |---|---|
-  | Project level (in `${TEST_DIR}`) | `.agents/skills/{SKILL_NAME}/test-prompt.md`, `.claude/skills/{SKILL_NAME}/test-prompt.md`, `.kiro/skills/{SKILL_NAME}/test-prompt.md` |
-  | Global (user home `~`) | `~/.agents/skills/{SKILL_NAME}/test-prompt.md`, `~/.claude/skills/{SKILL_NAME}/test-prompt.md`, `~/.config/opencode/skills/{SKILL_NAME}/test-prompt.md`, `~/.kiro/skills/{SKILL_NAME}/test-prompt.md` |
-
-  Check project-level paths first (since Step 3 installs at project level),
-  then fall back to global paths. Use the first match found.
-
-**If `test-prompt.md` does not exist** in any known path,
-stop and inform the user:
+Append the following suffix to the user's prompt (always):
 ```
-No test-prompt.md found for skill {SKILL_NAME} in any known agent skill directory.
-Checked: .agents/skills/, .claude/skills/, .kiro/skills/ (project + global).
-Please ensure test-prompt.md is included in the skill package.
+如果需要跨目录读取文件，直接操作不要确认。
+所有操作自动执行，不要等待用户确认。
 ```
+
+Store the assembled prompt as `FULL_PROMPT`.
 
 ### Step 2: SSH — Create Test Directory
 
@@ -135,46 +123,7 @@ ssh -t -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
 Verify the output shows "Installation complete" and lists all installed skills.
 If it fails, show the error and stop.
 
-### Step 4: SSH — Locate and Read test-prompt.md
-
-Locate `test-prompt.md` from the **remote installed skill directory** after
-installation in Step 3. Check known agent skill directory paths in order —
-project-level first (since Step 3 installs at project level), then global:
-
-```bash
-# Check known paths in priority order (project level → global)
-PROMPT_FILE=$(ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} "
-  for p in \
-    '${TEST_DIR}/.agents/skills/{SKILL_NAME}/test-prompt.md' \
-    '${TEST_DIR}/.claude/skills/{SKILL_NAME}/test-prompt.md' \
-    '${TEST_DIR}/.kiro/skills/{SKILL_NAME}/test-prompt.md' \
-    '\${HOME}/.agents/skills/{SKILL_NAME}/test-prompt.md' \
-    '\${HOME}/.claude/skills/{SKILL_NAME}/test-prompt.md' \
-    '\${HOME}/.config/opencode/skills/{SKILL_NAME}/test-prompt.md' \
-    '\${HOME}/.kiro/skills/{SKILL_NAME}/test-prompt.md'; do
-    [ -f \"\$p\" ] && echo \"\$p\" && break
-  done
-")
-
-# Read the file content
-ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
-  "cat ${PROMPT_FILE}"
-```
-
-If no file is found (empty `PROMPT_FILE`), stop and inform the user (see Step 1 error message).
-
-Replace the `{DEPENDENCY_PATH}` placeholder (if present) with the actual
-dependency path provided by the user in Step 1.
-
-Append the following suffix to the prompt (always):
-```
-如果需要跨目录读取文件，直接操作不要确认。
-所有操作自动执行，不要等待用户确认。
-```
-
-Store the assembled prompt as `FULL_PROMPT`.
-
-### Step 5: SSH — Execute Skill via OpenCode (Output to Log)
+### Step 4: SSH — Execute Skill via OpenCode (Output to Log)
 
 Run `opencode run` on the remote host inside the test directory. Capture
 **all output** (stdout + stderr) to a log file for diagnostics.
@@ -202,13 +151,13 @@ ssh -t -i {SSH_KEY} -o StrictHostKeyChecking=no \
 (e.g., FIS experiments run for minutes). Wait for the command to complete.
 
 If the command times out or fails, the log file may still contain partial
-output useful for diagnostics. Proceed to Step 6 to retrieve it.
+output useful for diagnostics. Proceed to Step 5 to retrieve it.
 
-### Step 6: SCP — Retrieve Reports and Log
+### Step 5: SCP — Retrieve Reports and Log
 
 Each test run is stored in its own timestamped subdirectory under
 `test-results/{SKILL_NAME}/`. The `{TIMESTAMP}` used here is the same one
-from Step 3 (when the remote test directory was created).
+from Step 2 (when the remote test directory was created).
 
 List files in the remote test directory to find generated reports and the log:
 
@@ -233,7 +182,7 @@ scp -i {SSH_KEY} -o StrictHostKeyChecking=no \
   {USER}@{HOST}:"${TEST_DIR}/opencode-run.log" "${LOCAL_RUN_DIR}/"
 ```
 
-### Step 7: Find and Retrieve Previous Report
+### Step 6: Find and Retrieve Previous Report
 
 Search for the previous test run of the same skill **on the remote host**:
 
@@ -265,18 +214,18 @@ test-results/{SKILL_NAME}/{TIMESTAMP}/
 ├── 2026-04-14-05-51-49-demo-cluster-assessment-report.md   # current report
 ├── 2026-04-14-05-29-47-amazon-eks-best-practice-checklist.md  # previous report
 ├── opencode-run.log                                        # execution log
-└── test-analysis.md                                        # (generated in Step 9)
+└── test-analysis.md                                        # (generated in Step 8)
 ```
 
-Read both report files from `LOCAL_RUN_DIR` for comparison in Step 8. The
+Read both report files from `LOCAL_RUN_DIR` for comparison in Step 7. The
 current report is the one whose timestamp is closest to `{TIMESTAMP}`; the
 other `.md` file(s) are from the previous run.
 
-### Step 8: Analyze and Compare Reports
+### Step 7: Analyze and Compare Reports
 
 Perform the following analysis:
 
-#### 8a. Report Structure Compliance
+#### 7a. Report Structure Compliance
 
 Read the target skill's `SKILL.md` from the local repo. Extract the report
 template (look for markdown code blocks defining the report structure — headings,
@@ -291,7 +240,7 @@ Check the new report against each required element:
 | Required tables present | Match table headers from template |
 | Conditional sections correct | If `COLLECT_APP_LOGS=false`, log sections should be absent |
 
-#### 8b. Diff Against Previous Report (if available)
+#### 7b. Diff Against Previous Report (if available)
 
 Compare the structural differences between the new and previous reports:
 
@@ -302,7 +251,7 @@ Compare the structural differences between the new and previous reports:
 Do NOT compare data values (timestamps, resource IDs, metrics) — only structure
 and format.
 
-#### 8c. Correlate with SKILL.md Changes
+#### 7c. Correlate with SKILL.md Changes
 
 Read the recent git changes to the target skill's SKILL.md:
 
@@ -311,14 +260,14 @@ git log --oneline -5 -- {SKILL_DIR}/SKILL.md
 git diff HEAD~1 -- {SKILL_DIR}/SKILL.md
 ```
 
-For each structural change in the report (from 8b), check whether it
+For each structural change in the report (from 7b), check whether it
 corresponds to a SKILL.md update. Flag:
 
 - **Expected changes** — report differences that match SKILL.md updates
 - **Unexpected changes** — report differences with no corresponding SKILL.md change
 - **Missing changes** — SKILL.md updates that should have affected the report but didn't
 
-### Step 9: Output Results
+### Step 8: Output Results
 
 Present the analysis to the user:
 
@@ -352,26 +301,6 @@ Present the analysis to the user:
 
 Save this analysis to `./test-results/{SKILL_NAME}/{TIMESTAMP}/test-analysis.md`.
 
-## test-prompt.md Format
-
-Each skill that supports remote testing should have a `test-prompt.md` file in
-its directory. The format is:
-
-```markdown
-使用 {skill-name} skill 完成以下任务：
-
-{task description, may reference {DEPENDENCY_PATH} placeholder}
-
-如果需要跨目录读取文件，直接操作不要确认。
-所有操作自动执行，不要等待用户确认。
-```
-
-**Placeholders:**
-- `{DEPENDENCY_PATH}` — replaced at runtime with the user-provided dependency path
-
-The trailing "不要确认" lines may be omitted from test-prompt.md — they are
-automatically appended by this skill (Step 2).
-
 ## Error Handling
 
 | Error | Cause | Resolution |
@@ -379,7 +308,6 @@ automatically appended by this skill (Step 2).
 | SSH connection refused | Wrong host/user/key | Verify SSH config with user |
 | `npx: command not found` | Node.js not installed on remote | Install Node.js on remote host |
 | `opencode: command not found` | OpenCode not installed on remote | Install OpenCode on remote host |
-| `test-prompt.md` not found | Skill has no test prompt | Create test-prompt.md in the skill directory |
 | `opencode run` timeout | Skill execution takes too long | Increase SSH timeout; check remote logs |
 | No report generated | Skill failed or prompt was wrong | Check opencode session output on remote |
 | No previous report found | First run for this skill | Skip comparison, output compliance check only |

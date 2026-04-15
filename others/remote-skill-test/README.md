@@ -16,15 +16,14 @@ This is tedious and error-prone, especially during iterative skill development.
 
 ## What This Skill Does
 
-1. **Collects SSH config and target skill name** from the user (no credentials stored in files).
+1. **Collects SSH config, target skill name, and test prompt** from the user (no credentials stored in files). The test prompt can be provided directly in the conversation or constructed from context.
 2. **Creates a timestamped test directory** on the remote host: `~/skill-tests/{timestamp}-{skill-name}/`.
 3. **Installs all skills at project level** inside the test directory via `npx skills add panlm/skills -y` (not global). Skills have inter-dependencies (e.g., `aws-fis-experiment-execute` loads `app-service-log-analysis` at runtime), so all skills must be installed together.
-4. **Locates and reads `test-prompt.md`** from the remote installed skill directory — checks known agent skill paths in priority order (`.agents/skills/`, `.claude/skills/`, `.kiro/skills/`, etc., project-level first then global) since different agents install to different directories. The test prompt is bundled with the skill and installed alongside it.
-5. **Executes the target skill** via `opencode run --dangerously-skip-permissions` with the assembled prompt. All output (stdout + stderr) is captured to `opencode-run.log` via `tee` for diagnostics.
-6. **Retrieves the generated report and execution log** via `scp` into a timestamped local directory `./test-results/{skill-name}/{timestamp}/`. File names are kept identical to the remote originals.
-7. **Finds the previous run's report** on the remote host by searching `~/skill-tests/*-{skill-name}/` directories, then retrieves it into the **same local run directory**. Both reports (current + previous) live side-by-side with their original file names for easy comparison.
-8. **Compares reports** — checks structure compliance against SKILL.md template, diffs structural changes between runs, and correlates with recent SKILL.md git changes.
-9. **Outputs analysis** — compliance table, change summary, and verdict (PASS / PARTIAL / FAIL).
+4. **Executes the target skill** via `opencode run --dangerously-skip-permissions` with the user-provided prompt (auto-confirm suffix appended automatically). All output (stdout + stderr) is captured to `opencode-run.log` via `tee` for diagnostics.
+5. **Retrieves the generated report and execution log** via `scp` into a timestamped local directory `./test-results/{skill-name}/{timestamp}/`. File names are kept identical to the remote originals.
+6. **Finds the previous run's report** on the remote host by searching `~/skill-tests/*-{skill-name}/` directories, then retrieves it into the **same local run directory**. Both reports (current + previous) live side-by-side with their original file names for easy comparison.
+7. **Compares reports** — checks structure compliance against SKILL.md template, diffs structural changes between runs, and correlates with recent SKILL.md git changes.
+8. **Outputs analysis** — compliance table, change summary, and verdict (PASS / PARTIAL / FAIL).
 
 ## Design Decisions
 
@@ -32,7 +31,7 @@ This is tedious and error-prone, especially during iterative skill development.
 
 2. **SSH config asked at runtime.** No IP addresses, usernames, or key paths are stored in any committed file. The skill asks the user every time (or the user can provide an SSH config alias).
 
-3. **test-prompt.md bundled with each skill.** Each testable skill maintains its own `test-prompt.md` which is installed alongside the skill via `npx skills add`. The test prompt is located on the remote host by checking known agent skill directories in priority order (project-level first, then global), not read from the local repo. The `{DEPENDENCY_PATH}` placeholder is replaced at runtime with user-provided paths. Auto-confirm directives are appended automatically.
+3. **Test prompt provided by user.** The user provides the test prompt directly in the conversation (or it is constructed from context). Auto-confirm directives are appended automatically. No `test-prompt.md` files needed.
 
 4. **Timestamped directories with skill name.** Remote test directories use `{timestamp}-{skill-name}` format, making it trivial to find the previous run for the same skill and compare reports.
 
@@ -47,57 +46,24 @@ This is tedious and error-prone, especially during iterative skill development.
 ## Workflow Overview
 
 ```
-Step 1:  Collect SSH config + skill name + dependency paths
+Step 1:  Collect SSH config + skill name + test prompt
           ↓
 Step 2:  SSH → mkdir ~/skill-tests/{timestamp}-{skill-name}/
           ↓
 Step 3:  SSH → cd test-dir && npx skills add panlm/skills -y (project level, all skills for inter-dependencies)
           ↓
-Step 4:  SSH → locate test-prompt.md in known agent skill paths (project → global), replace {DEPENDENCY_PATH}, append auto-confirm
+Step 4:  SSH → cd test-dir && opencode run --dangerously-skip-permissions "prompt" | tee opencode-run.log
           ↓
-Step 5:  SSH → cd test-dir && opencode run --dangerously-skip-permissions "prompt" | tee opencode-run.log
-          ↓
-Step 6:  SCP → retrieve report files + opencode-run.log to local ./test-results/{skill-name}/{timestamp}/
+Step 5:  SCP → retrieve report files + opencode-run.log to local ./test-results/{skill-name}/{timestamp}/
            ↓
-Step 7:  SSH → find previous ~/skill-tests/*-{skill-name}/ directory on remote
+Step 6:  SSH → find previous ~/skill-tests/*-{skill-name}/ directory on remote
            ├── Found → SCP previous report into the same local run directory
            └── Not found → first run, skip comparison
           ↓
-Step 8:  Analyze: structure compliance + diff vs previous + correlate SKILL.md changes
+Step 7:  Analyze: structure compliance + diff vs previous + correlate SKILL.md changes
           ↓
-Step 9:  Output results + verdict (PASS / PARTIAL / FAIL)
+Step 8:  Output results + verdict (PASS / PARTIAL / FAIL)
 ```
-
-## test-prompt.md Format
-
-Each skill that supports remote testing must have a `test-prompt.md` in its directory:
-
-```markdown
-使用 {skill-name} skill 完成以下任务：
-
-{task description, referencing {DEPENDENCY_PATH} if needed}
-
-自动执行所有步骤不要确认。
-```
-
-**Placeholders:**
-- `{DEPENDENCY_PATH}` — replaced at runtime with the user-provided dependency path
-
-**Auto-confirm suffix** — The following lines are appended automatically by remote-skill-test (do not include them in test-prompt.md):
-```
-如果需要跨目录读取文件，直接操作不要确认。
-所有操作自动执行，不要等待用户确认。
-```
-
-### Sample test-prompt.md Files
-
-| Skill | test-prompt.md Summary |
-|---|---|
-| `aws-fis-experiment-execute` | Execute the FIS experiment at `{DEPENDENCY_PATH}`, skip log collection |
-| `aws-fis-experiment-prepare` | Prepare an AZ Power Interruption experiment for a given cluster |
-| `app-service-log-analysis` | Analyze app logs from `{DEPENDENCY_PATH}` report (post-hoc mode) |
-| `aws-service-chaos-research` | Research chaos scenarios for Amazon RDS Aurora PostgreSQL |
-| `eks-workload-best-practice-assessment` | Assess workloads in `{DEPENDENCY_PATH}` cluster |
 
 ## Report Comparison Dimensions
 
@@ -131,7 +97,6 @@ The comparison does **NOT** compare data values (timestamps, resource IDs, metri
 | SSH connection refused | Wrong host/user/key | Verify SSH config with user |
 | `npx: command not found` | Node.js not installed on remote | Install Node.js on remote host |
 | `opencode: command not found` | OpenCode not installed on remote | Install OpenCode on remote host |
-| `test-prompt.md` not found | Skill has no test prompt | Create test-prompt.md in the skill directory |
 | `opencode run` timeout | Skill execution takes too long | Increase SSH timeout; check remote logs |
 | No report generated | Skill failed or prompt was wrong | Check opencode session output on remote |
 | No previous report found | First run for this skill | Skip comparison, output compliance check only |

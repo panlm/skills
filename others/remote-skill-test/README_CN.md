@@ -16,15 +16,14 @@
 
 ## 核心功能
 
-1. **收集 SSH 配置和目标 skill 名称** — 从用户处获取（不在文件中存储凭据）。
+1. **收集 SSH 配置、目标 skill 名称和测试提示词** — 从用户处获取（不在文件中存储凭据）。测试提示词可在对话中直接提供，或从上下文构建。
 2. **创建带时间戳的测试目录** — 在远程主机上创建 `~/skill-tests/{时间戳}-{skill名称}/`。
 3. **在测试目录中安装所有 skill（project level）** — 通过 `npx skills add panlm/skills -y` 安装全部 skill（非全局）。skill 之间存在依赖关系（如 `aws-fis-experiment-execute` 运行时会加载 `app-service-log-analysis`），因此必须安装全部 skill 以避免依赖缺失。
-4. **定位并读取远程 `test-prompt.md`** — 按优先级检查已知的 agent skill 目录路径（`.agents/skills/`、`.claude/skills/`、`.kiro/skills/` 等，先检查项目级再检查全局），因为不同 agent 安装路径不同。test-prompt.md 随 skill 一起安装。
-5. **执行目标 skill** — 通过 `opencode run --dangerously-skip-permissions` 加组装好的 prompt。所有输出（stdout + stderr）通过 `tee` 保存到 `opencode-run.log` 便于诊断。
-6. **取回生成的报告和执行日志** — 通过 `scp` 拉回到本地 `./test-results/{skill名称}/{时间戳}/`，文件名保持与远程一致。
-7. **查找上一次运行的报告** — 在远程主机搜索 `~/skill-tests/*-{skill名称}/` 目录，找到后将上次报告也 SCP 到**同一个本地运行目录**中。当次报告和上次报告并排存放，原始文件名不变，方便直接对比。
-8. **对比报告** — 检查结构合规性（对照 SKILL.md 模板）、与上次的结构差异、关联 SKILL.md 的 git 变更。
-9. **输出分析** — 合规性表格、变化摘要、结论（通过 / 部分通过 / 未通过）。
+4. **执行目标 skill** — 通过 `opencode run --dangerously-skip-permissions` 加用户提供的 prompt（自动追加自动确认后缀）。所有输出（stdout + stderr）通过 `tee` 保存到 `opencode-run.log` 便于诊断。
+5. **取回生成的报告和执行日志** — 通过 `scp` 拉回到本地 `./test-results/{skill名称}/{时间戳}/`，文件名保持与远程一致。
+6. **查找上一次运行的报告** — 在远程主机搜索 `~/skill-tests/*-{skill名称}/` 目录，找到后将上次报告也 SCP 到**同一个本地运行目录**中。当次报告和上次报告并排存放，原始文件名不变，方便直接对比。
+7. **对比报告** — 检查结构合规性（对照 SKILL.md 模板）、与上次的结构差异、关联 SKILL.md 的 git 变更。
+8. **输出分析** — 合规性表格、变化摘要、结论（通过 / 部分通过 / 未通过）。
 
 ## 关键设计决策
 
@@ -32,7 +31,7 @@
 
 2. **SSH 配置运行时询问。** 任何 IP 地址、用户名、密钥路径都不存储在提交的文件中。每次运行时向用户询问（或用户可以提供 SSH config alias）。
 
-3. **test-prompt.md 随 skill 打包分发。** 每个可测试的 skill 维护自己的 `test-prompt.md`，通过 `npx skills add` 随 skill 一起安装到远程。test-prompt.md 在远程按优先级检查已知 agent skill 目录路径（先项目级再全局）定位，而非从本地 repo 读取。`{DEPENDENCY_PATH}` 占位符在运行时替换为用户提供的路径。自动确认指令由本 skill 自动追加。
+3. **测试提示词由用户直接提供。** 用户在对话中直接给出测试 prompt（或由上下文构建）。自动确认指令由本 skill 自动追加。不需要 `test-prompt.md` 文件。
 
 4. **带 skill 名称的时间戳目录。** 远程测试目录使用 `{时间戳}-{skill名称}` 格式，方便找到同一 skill 的上次运行结果进行对比。
 
@@ -47,57 +46,24 @@
 ## 工作流程概览
 
 ```
-步骤 1:  收集 SSH 配置 + skill 名称 + 依赖路径
+步骤 1:  收集 SSH 配置 + skill 名称 + 测试提示词
           ↓
 步骤 2:  SSH → mkdir ~/skill-tests/{时间戳}-{skill名称}/
           ↓
 步骤 3:  SSH → cd 测试目录 && npx skills add panlm/skills -y（project level，安装全部 skill 以满足依赖）
           ↓
-步骤 4:  SSH → 在已知 agent skill 路径中定位 test-prompt.md（项目级 → 全局），替换 {DEPENDENCY_PATH}，追加自动确认指令
+步骤 4:  SSH → cd 测试目录 && opencode run --dangerously-skip-permissions "prompt" | tee opencode-run.log
           ↓
-步骤 5:  SSH → cd 测试目录 && opencode run --dangerously-skip-permissions "prompt" | tee opencode-run.log
+步骤 5:  SCP → 取回报告文件 + opencode-run.log 到本地 ./test-results/{skill名称}/{时间戳}/
           ↓
-步骤 6:  SCP → 取回报告文件 + opencode-run.log 到本地 ./test-results/{skill名称}/{时间戳}/
-          ↓
-步骤 7:  SSH → 在远程查找上一次 ~/skill-tests/*-{skill名称}/ 目录
+步骤 6:  SSH → 在远程查找上一次 ~/skill-tests/*-{skill名称}/ 目录
           ├── 找到 → SCP 上次报告到同一个本地运行目录
           └── 未找到 → 首次运行，跳过对比
           ↓
-步骤 8:  分析：结构合规性 + 与上次差异 + 关联 SKILL.md 变更
+步骤 7:  分析：结构合规性 + 与上次差异 + 关联 SKILL.md 变更
           ↓
-步骤 9:  输出结果 + 结论（通过 / 部分通过 / 未通过）
+步骤 8:  输出结果 + 结论（通过 / 部分通过 / 未通过）
 ```
-
-## test-prompt.md 格式
-
-每个支持远程测试的 skill 需要在其目录下有一个 `test-prompt.md` 文件：
-
-```markdown
-使用 {skill名称} skill 完成以下任务：
-
-{任务描述，可引用 {DEPENDENCY_PATH} 占位符}
-
-自动执行所有步骤不要确认。
-```
-
-**占位符：**
-- `{DEPENDENCY_PATH}` — 运行时替换为用户提供的依赖路径
-
-**自动确认后缀** — 以下内容由 remote-skill-test 自动追加（test-prompt.md 中无需包含）：
-```
-如果需要跨目录读取文件，直接操作不要确认。
-所有操作自动执行，不要等待用户确认。
-```
-
-### 现有 skill 的 sample test-prompt.md
-
-| Skill | test-prompt.md 摘要 |
-|---|---|
-| `aws-fis-experiment-execute` | 执行 `{DEPENDENCY_PATH}` 下的 FIS 实验，跳过日志收集 |
-| `aws-fis-experiment-prepare` | 为指定集群准备 AZ Power Interruption 实验 |
-| `app-service-log-analysis` | 分析 `{DEPENDENCY_PATH}` 报告中的应用日志（事后模式） |
-| `aws-service-chaos-research` | 研究 Amazon RDS Aurora PostgreSQL 的混沌测试场景 |
-| `eks-workload-best-practice-assessment` | 评估 `{DEPENDENCY_PATH}` 集群中的工作负载配置 |
 
 ## 报告对比维度
 
@@ -131,7 +97,6 @@
 | SSH 连接被拒绝 | 错误的 host/user/key | 与用户确认 SSH 配置 |
 | `npx: command not found` | 远程未安装 Node.js | 在远程主机安装 Node.js |
 | `opencode: command not found` | 远程未安装 OpenCode | 在远程主机安装 OpenCode |
-| `test-prompt.md` 未找到 | Skill 没有测试提示词 | 在 skill 目录下创建 test-prompt.md |
 | `opencode run` 超时 | Skill 执行时间太长 | 增加 SSH 超时；检查远程日志 |
 | 未生成报告 | Skill 执行失败或 prompt 有误 | 检查远程 opencode session 输出 |
 | 未找到上次报告 | 该 skill 首次运行 | 跳过对比，仅检查结构合规性 |
