@@ -245,16 +245,30 @@ If `MANAGED_LOG_GROUPS` is non-empty (from Step 3.5), query CloudWatch Logs Insi
 for each recorded log group using the experiment time window:
 
 ```bash
-aws logs start-query \
+# 1. Start the query
+QUERY_ID=$(aws logs start-query \
   --log-group-name "{LOG_GROUP}" \
   --start-time {EPOCH_START} \
   --end-time {EPOCH_END} \
-  --query-string 'fields @timestamp, @message | sort @timestamp asc | limit 500'
+  --query-string 'fields @timestamp, @message | sort @timestamp asc | limit 500' \
+  --query 'queryId' --output text)
+
+# 2. Poll until complete
+while true; do
+  STATUS=$(aws logs get-query-results --query-id "$QUERY_ID" \
+    --query 'status' --output text)
+  if [ "$STATUS" = "Complete" ]; then break; fi
+  sleep 2
+done
+
+# 3. Save results to local file
+mkdir -p "{LOG_DIR}/{service-name}"
+aws logs get-query-results --query-id "$QUERY_ID" \
+  --query 'results[].[*].join(`\t`, [value])' --output text \
+  > "{LOG_DIR}/{service-name}/managed-service-logs.log"
 ```
 
-Then retrieve results with `aws logs get-query-results --query-id {QUERY_ID}`.
-Poll until status is `Complete`. Save results to
-`{LOG_DIR}/{service-name}/managed-service-logs.log`.
+Repeat for each log group in `MANAGED_LOG_GROUPS`.
 
 This step only collects and saves logs — analysis is done in Step 7b together with
 application logs.
@@ -264,16 +278,17 @@ Interruption), also collect ASG scaling activities. This is always available (no
 enablement needed):
 
 ```bash
+mkdir -p "{LOG_DIR}/asg-{asg-name}"
 aws autoscaling describe-scaling-activities \
   --auto-scaling-group-name "{ASG_NAME}" \
   --start-time {ISO_START} \
   --max-items 100 \
-  --query 'Activities[?StatusCode!=`Cancelled`]'
+  --query 'Activities[?StatusCode!=`Cancelled`]' \
+  > "{LOG_DIR}/asg-{asg-name}/scaling-activities.log"
 ```
 
-Save results to `{LOG_DIR}/asg-{asg-name}/scaling-activities.log`. Key events to
-extract: instance launch/terminate, `InsufficientInstanceCapacity` errors, health
-check failures, and capacity rebalancing across AZs.
+Key events to extract: instance launch/terminate, `InsufficientInstanceCapacity` errors,
+health check failures, and capacity rebalancing across AZs.
 
 #### Step 7b: Analyze All Logs and Generate Report
 
