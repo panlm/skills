@@ -269,7 +269,10 @@ experiment begins risks missing early log entries that get rotated or overwritte
 Execute from `eks-app-log-analysis` skill:
 1. **Its Step 3 (Collect Application Dependencies)** — auto-discover EKS apps depending on
    affected AWS services (from README's "Affected Resources" table), then confirm with user
-2. **Its Step 4 (Log Collection — Real-time Mode)** — start background `kubectl logs -f`
+2. **Its Step 3.5 (Detect and Collect Managed Service Logs)** — check if affected managed
+   services (EKS control plane, RDS/Aurora, ElastiCache, MSK, OpenSearch) have CloudWatch
+   logging enabled; if enabled, query logs for the experiment time window
+3. **Its Step 4 (Log Collection — Real-time Mode)** — start background `kubectl logs -f`
    for all confirmed applications
 
 #### Optional: Baseline Log Collection (User Opt-In)

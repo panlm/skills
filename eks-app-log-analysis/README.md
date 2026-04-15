@@ -17,9 +17,10 @@ During BCP (Business Continuity Plan) drills with AWS FIS:
 
 1. **Dual-mode operation** — Real-time monitoring during experiments OR post-hoc analysis after experiments
 2. **Smart dependency discovery** — Reads experiment context and guides user to specify app-to-service dependencies
-3. **Parallel log collection** — Background `kubectl logs -f` processes for multiple applications simultaneously, collecting only regular containers (excluding FIS-injected ephemeral containers)
-4. **Live insight display** — Every 30 seconds: actual error logs (5 lines) + analysis insights per service group
-5. **Comprehensive analysis report** — Error timelines, patterns, cross-service correlation, recovery analysis
+3. **Managed service log collection** — Automatically detects CloudWatch logging for EKS control plane, RDS/Aurora, ElastiCache, MSK, and OpenSearch; queries logs for the experiment time window to correlate with application-level impact
+4. **Parallel log collection** — Background `kubectl logs -f` processes for multiple applications simultaneously, collecting only regular containers (excluding FIS-injected ephemeral containers)
+5. **Live insight display** — Every 30 seconds: actual error logs (5 lines) + analysis insights per service group
+6. **Comprehensive analysis report** — Error timelines, patterns, cross-service correlation, managed service log insights, recovery analysis
 
 ## Workflow Overview
 
@@ -36,9 +37,10 @@ Mode Detection
 Common Steps
 ├── Read service list from expected-behavior.md or report
 ├── Ask user for dependent applications per service
-├── Collect logs (background streaming or batch)
+├── Detect and collect managed service logs (EKS/RDS/ElastiCache/MSK/OpenSearch)
+├── Collect application logs (background streaming or batch)
 ├── Display insights (real-time) or analyze (post-hoc)
-└── Generate analysis report
+└── Generate analysis report (includes managed service log correlation)
 ```
 
 ## Real-time Display Format

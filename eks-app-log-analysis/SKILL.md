@@ -37,6 +37,7 @@ digraph log_analysis_flow {
     "Post-hoc mode" [shape=box];
     "Read service list" [shape=box];
     "Auto-discover + confirm app dependencies" [shape=box];
+    "Detect + collect managed service logs" [shape=box];
     "Start background log collection" [shape=box];
     "Batch fetch historical logs" [shape=box];
     "Frontend polling + insight display" [shape=box];
@@ -49,8 +50,9 @@ digraph log_analysis_flow {
     "Real-time mode" -> "Read service list";
     "Post-hoc mode" -> "Read service list";
     "Read service list" -> "Auto-discover + confirm app dependencies";
-    "Auto-discover + confirm app dependencies" -> "Start background log collection" [label="real-time"];
-    "Auto-discover + confirm app dependencies" -> "Batch fetch historical logs" [label="post-hoc"];
+    "Auto-discover + confirm app dependencies" -> "Detect + collect managed service logs";
+    "Detect + collect managed service logs" -> "Start background log collection" [label="real-time"];
+    "Detect + collect managed service logs" -> "Batch fetch historical logs" [label="post-hoc"];
     "Start background log collection" -> "Frontend polling + insight display";
     "Frontend polling + insight display" -> "Experiment complete?";
     "Experiment complete?" -> "Frontend polling + insight display" [label="No, continue"];
@@ -100,6 +102,57 @@ depend on it:
 Ask the user to confirm the auto-discovered dependencies and add any that were
 missed. Store the final mapping as `SERVICE_APP_MAP` (service → list of
 namespace/deployment pairs).
+
+### Step 3.5: Detect and Collect Managed Service Logs
+
+For each affected AWS service identified in Step 2, check whether it has CloudWatch
+logging enabled. If enabled, query logs for the experiment time window. If not enabled,
+skip and note in the final report as a recommendation.
+
+**Supported managed services:**
+
+| Service | How to Check Logging | Log Group Format |
+|---|---|---|
+| EKS Control Plane | `aws eks describe-cluster --name {CLUSTER} --query 'cluster.logging.clusterLogging'` — check for enabled log types (`api`, `audit`, `scheduler`, `controllerManager`, `authenticator`) | `/aws/eks/{cluster-name}/cluster` |
+| RDS/Aurora | `aws rds describe-db-clusters --db-cluster-identifier {CLUSTER_ID} --query 'DBClusters[0].EnabledCloudwatchLogsExports'` — returns list like `["error","slowquery"]` | `/aws/rds/cluster/{cluster-id}/{log-type}` |
+| ElastiCache | `aws elasticache describe-replication-groups --replication-group-id {RG_ID} --query 'ReplicationGroups[0].LogDeliveryConfigurations'` — check for `cloudwatch-logs` destination type | Log group from `LogDeliveryConfigurations[].DestinationDetails.CloudWatchLogsDetails.LogGroup` |
+| MSK (Kafka) | `aws kafka describe-cluster --cluster-arn {ARN} --query 'ClusterInfo.LoggingInfo.BrokerLogs'` — check `CloudWatchLogs.Enabled` | Log group from `CloudWatchLogs.LogGroup` |
+| OpenSearch | `aws opensearch describe-domain --domain-name {DOMAIN} --query 'DomainStatus.LogPublishingOptions'` — check for keys like `INDEX_SLOW_LOGS`, `SEARCH_SLOW_LOGS`, `ES_APPLICATION_LOGS` | Log group from each option's `CloudWatchLogsLogGroupArn` |
+
+**Workflow:**
+
+1. For each service in the affected service list, extract the resource identifier from
+   the experiment template or README (cluster name, cluster ID, replication group ID, etc.)
+2. Run the check command. If logging is not enabled or the service is not present
+   in the experiment, skip it
+3. For enabled services, query CloudWatch Logs Insights for the experiment time window:
+   ```bash
+   aws logs start-query \
+     --log-group-name "{LOG_GROUP}" \
+     --start-time {EPOCH_START} \
+     --end-time {EPOCH_END} \
+     --query-string 'fields @timestamp, @message | sort @timestamp asc | limit 500'
+   ```
+   Then retrieve results with `aws logs get-query-results --query-id {QUERY_ID}`.
+   Poll until status is `Complete`.
+4. Save results to `{LOG_DIR}/{service-name}/managed-service-logs.log`
+
+**Key events to look for per service:**
+
+| Service | Key Events |
+|---|---|
+| EKS Control Plane | `NodeNotReady`, pod eviction, rescheduling decisions, API server errors |
+| RDS/Aurora | Failover start/complete timestamps, connection errors, slow queries during transition |
+| ElastiCache | Node failover, cluster rebalancing, connection drops |
+| MSK | Broker offline/online, partition reassignment, under-replicated partitions |
+| OpenSearch | Shard relocation, node departure/join, cluster yellow/red status |
+
+**If logging is not enabled for a service**, record this in the report's Recommendations
+section:
+```
+**{Service}:** CloudWatch logging is not enabled. Enable {log-types} for better
+fault injection analysis. Without these logs, only application-side impact is visible.
+```
 
 ### Step 4: Log Collection
 
@@ -247,6 +300,27 @@ Report structure:
 | {time} | {service} failover | Connection errors | - | Retrying... |
 | {time} | Recovery | Connections restored | - | Normal operation |
 
+## Managed Service Log Insights
+
+(Include this section ONLY if Step 3.5 collected managed service logs.)
+
+### {Service Name} ({resource_id})
+
+**Logging status:** Enabled ({log-types})
+**Log group:** {log-group-name}
+
+**Key Events:**
+
+| Time (UTC) | Event |
+|------------|-------|
+| {HH:MM:SS} | {event description, e.g., "Failover started", "Node marked NotReady"} |
+
+**Correlation with Application Logs:**
+- {insight}: {service} failover at {time} correlates with application connection errors at {time}
+- {insight}: Application recovery at {time} is {N} seconds after {service} recovery at {time}
+
+(If logging was NOT enabled for a service, list it here with a recommendation to enable.)
+
 ## Recommendations
 
 1. **{Issue}:** {description}
@@ -290,9 +364,17 @@ Remove the PID file after cleanup.
 /tmp/{timestamp}-fis-app-logs/                    # Temp directory for raw logs
 ├── rds-cluster-xxx/
 │   ├── app-backend.log
-│   └── api-server.log
+│   ├── api-server.log
+│   └── managed-service-logs.log                  # RDS CloudWatch logs (if enabled)
 ├── elasticache-redis-xxx/
-│   └── cache-layer.log
+│   ├── cache-layer.log
+│   └── managed-service-logs.log                  # ElastiCache CloudWatch logs (if enabled)
+├── eks-control-plane/
+│   └── managed-service-logs.log                  # EKS control plane logs (if enabled)
+├── msk-xxx/
+│   └── managed-service-logs.log                  # MSK broker logs (if enabled)
+├── opensearch-xxx/
+│   └── managed-service-logs.log                  # OpenSearch logs (if enabled)
 └── .pids (temporary, cleaned up)
 ```
 
