@@ -53,12 +53,13 @@ Step 5:  Display experiment actions
           ├── Read experiment-template.json, extract and display actionIds
           └── Log collection always enabled → proceed to Step 6
           ↓
-Step 6:  Discover EKS apps across all clusters + start log collection [BEFORE experiment]
+Step 6:  Discover EKS apps + start log collection [BEFORE experiment]
           ├── Check kubectl availability
-          ├── kubectl available → discover all EKS clusters in region
-          │   ├── Generate isolated kubeconfig per cluster (never overwrites ~/.kube/config)
-          │   ├── Deep-scan all accessible clusters in parallel (env vars, ConfigMaps, Secrets, ExternalName, etc.)
-          │   └── Load app-service-log-analysis skill (real-time mode) Steps 3-4
+          ├── kubectl available → load app-service-log-analysis skill, execute its:
+          │   ├── Multi-Cluster EKS Discovery and Kubeconfig Isolation
+          │   ├── Step 3 (Deep Scan for application dependencies)
+          │   ├── Step 3.5 (Managed service log detection)
+          │   └── Step 4 (Real-time log collection)
           └── kubectl NOT available → skip app logs, still collect managed service logs
           ↓
 Step 7:  Start experiment [CRITICAL — requires explicit user confirmation]

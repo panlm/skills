@@ -53,12 +53,13 @@
           ├── 读取 experiment-template.json，提取并展示 actionId
           └── 日志收集始终启用 → 继续步骤 6
           ↓
-步骤 6:  跨集群发现 EKS 应用 + 启动日志收集 [实验启动前完成]
+步骤 6:  发现 EKS 应用 + 启动日志收集 [实验启动前完成]
           ├── 检查 kubectl 是否可用
-          ├── kubectl 可用 → 发现 Region 内所有 EKS 集群
-          │   ├── 为每个集群生成独立 kubeconfig（绝不覆盖 ~/.kube/config）
-          │   ├── 并行深度扫描所有可访问集群（env vars、ConfigMap、Secrets、ExternalName 等）
-          │   └── 加载 app-service-log-analysis skill（实时模式）步骤 3-4
+          ├── kubectl 可用 → 加载 app-service-log-analysis skill，执行其：
+          │   ├── Multi-Cluster EKS Discovery and Kubeconfig Isolation
+          │   ├── Step 3（深度扫描应用依赖）
+          │   ├── Step 3.5（托管服务日志检测）
+          │   └── Step 4（实时日志收集）
           └── kubectl 不可用 → 跳过应用日志，仍收集托管服务日志
           ↓
 步骤 7:  启动实验 [关键 — 需要用户明确确认]

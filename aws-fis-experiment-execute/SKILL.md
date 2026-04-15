@@ -156,8 +156,9 @@ Proceed directly to Step 6 (log collection is always enabled).
 ### Step 6: Discover EKS Applications and Start Log Collection
 
 **REQUIRED:** You MUST load the `app-service-log-analysis` skill at this point. It contains
-the detailed procedures for application discovery and log collection. Load it now and
-execute its real-time mode steps as described below.
+the detailed procedures for multi-cluster discovery, kubeconfig isolation, application
+dependency deep-scan, and log collection. Load it now and execute its steps as described
+below.
 
 This step runs **BEFORE** the experiment starts — discovering applications after the
 experiment begins risks missing early log entries that get rotated or overwritten.
@@ -171,9 +172,9 @@ kubectl version --client --short 2>/dev/null
 ```
 
 **If kubectl is NOT available:**
-- Skip app discovery and app log collection (Steps 3 and 4 of `app-service-log-analysis`)
-- **Still execute Step 3.5 (Detect and Collect Managed Service Logs)** — this only
-  requires AWS CLI, not kubectl
+- Skip app discovery and app log collection
+- **Still execute `app-service-log-analysis` Step 3.5 (Detect and Collect Managed
+  Service Logs)** — this only requires AWS CLI, not kubectl
 - Inform the user:
   ```
   kubectl not available — skipping application log collection.
@@ -182,34 +183,16 @@ kubectl version --client --short 2>/dev/null
 
 **If kubectl IS available**, execute from `app-service-log-analysis` skill:
 
-1. **Multi-Cluster Discovery** — The `app-service-log-analysis` skill will:
-   - List ALL EKS clusters in the target region via `aws eks list-clusters`
-   - Generate an **isolated kubeconfig** per cluster in the log directory (never
-     overwrites `~/.kube/config`) using:
-     ```bash
-     aws eks update-kubeconfig --name {CLUSTER} --region ${TARGET_REGION} \
-       --kubeconfig "${LOG_DIR}/kubeconfigs/${CLUSTER}.kubeconfig"
-     ```
-   - Verify kubectl access for each cluster and report accessibility status
-   - Scan all accessible clusters in parallel for application dependencies
-
-2. **Its Step 3 (Collect Application Dependencies — Deep Scan)** — For each affected
-   AWS service (from README's "Affected Resources" table), resolve service endpoints
-   then deep-scan across all accessible EKS clusters:
-   - Pod environment variables
-   - ConfigMaps
-   - Secret key names (metadata only, never decode values)
-   - EnvFrom references
-   - Service ExternalName entries
-   - Volume mounts (projected/CSI)
-   Then confirm discovered dependencies with user.
-
-3. **Its Step 3.5 (Detect and Collect Managed Service Logs)** — check if affected managed
-   services (EKS control plane, RDS/Aurora, ElastiCache, MSK, OpenSearch) have CloudWatch
-   logging enabled; if enabled, query logs for the experiment time window
-
-4. **Its Step 4 (Log Collection — Real-time Mode)** — start background `kubectl logs -f`
-   for all confirmed applications across all clusters (using per-cluster kubeconfig)
+1. **Its "Multi-Cluster EKS Discovery and Kubeconfig Isolation" section** — discovers
+   all EKS clusters in the target region, generates isolated kubeconfig per cluster
+   (never overwrites `~/.kube/config`), verifies access to each cluster
+2. **Its Step 3 (Collect Application Dependencies — Deep Scan)** — resolves service
+   endpoints, deep-scans all accessible clusters in parallel, confirms discovered
+   dependencies with user
+3. **Its Step 3.5 (Detect and Collect Managed Service Logs)** — checks managed service
+   CloudWatch logging status, records log groups for later analysis
+4. **Its Step 4 (Log Collection — Real-time Mode)** — starts background `kubectl logs -f`
+   for all confirmed applications across all clusters
 
 ### Step 7: Start Experiment (CRITICAL CONFIRMATION)
 
