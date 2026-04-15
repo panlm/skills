@@ -125,17 +125,19 @@ skip and note in the final report as a recommendation.
    the experiment template or README (cluster name, cluster ID, replication group ID, etc.)
 2. Run the check command. If logging is not enabled or the service is not present
    in the experiment, skip it
-3. For enabled services, query CloudWatch Logs Insights for the experiment time window:
-   ```bash
-   aws logs start-query \
-     --log-group-name "{LOG_GROUP}" \
-     --start-time {EPOCH_START} \
-     --end-time {EPOCH_END} \
-     --query-string 'fields @timestamp, @message | sort @timestamp asc | limit 500'
+3. For enabled services, record the log group name(s) in `MANAGED_LOG_GROUPS` map
+   (service → list of log group names) for later use in Step 7
+4. Present detection results to the user:
    ```
-   Then retrieve results with `aws logs get-query-results --query-id {QUERY_ID}`.
-   Poll until status is `Complete`.
-4. Save results to `{LOG_DIR}/{service-name}/managed-service-logs.log`
+   Managed service log detection:
+     ✅ EKS Control Plane: enabled (api, audit, scheduler) → /aws/eks/{cluster}/cluster
+     ✅ RDS Aurora: enabled (error, slowquery) → /aws/rds/cluster/{id}/error, .../slowquery
+     ❌ ElastiCache: logging not enabled (recommend enabling slow-log, engine-log)
+     ⬚ MSK: not involved in this experiment
+   ```
+
+**If logging is not enabled for a service**, record this in `MANAGED_LOG_RECOMMENDATIONS`
+for inclusion in the report's Recommendations section.
 
 **Key events to look for per service:**
 
@@ -235,7 +237,31 @@ found), proceed to report generation.
 
 ### Step 7: Generate Analysis Report
 
-After experiment completes (or immediately in post-hoc mode), generate the report:
+After experiment completes (or immediately in post-hoc mode):
+
+#### Step 7a: Collect Managed Service Logs
+
+If `MANAGED_LOG_GROUPS` is non-empty (from Step 3.5), query CloudWatch Logs Insights
+for each recorded log group using the experiment time window:
+
+```bash
+aws logs start-query \
+  --log-group-name "{LOG_GROUP}" \
+  --start-time {EPOCH_START} \
+  --end-time {EPOCH_END} \
+  --query-string 'fields @timestamp, @message | sort @timestamp asc | limit 500'
+```
+
+Then retrieve results with `aws logs get-query-results --query-id {QUERY_ID}`.
+Poll until status is `Complete`. Save results to
+`{LOG_DIR}/{service-name}/managed-service-logs.log`.
+
+Extract key events per service (refer to the Key Events table in Step 3.5) for
+inclusion in the report.
+
+#### Step 7b: Generate Report
+
+Generate the report:
 
 ```bash
 TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
