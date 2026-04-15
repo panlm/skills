@@ -196,6 +196,8 @@ Step 7: Rename output directory (append experiment template ID for easy identifi
 
 9. **Naming convention prevents collisions.** `ExperimentName` includes a 6-character random suffix, making all CFN physical resource names (IAM Role, Dashboard, Alarm) globally unique. An optional `context-slug` in directory and resource names distinguishes experiments with the same scenario and target but different downstream services (e.g., `payment-redis` vs `payment-msk` for network fault injection).
 
+10. **AZ Power Interruption: one Stack per AZ, shared tags.** The target AZ is hardcoded in multiple locations within the experiment template (filters, action parameters). To test a different AZ, delete the Stack and deploy a new one. Resource tags (`AzImpairmentPower`) do NOT distinguish AZ — the experiment template's internal AZ filters handle that. Tags are applied by a Lambda-backed Custom Resource within the same CFN Stack, requiring zero extra permissions on the EC2 Instance Profile. See `references/az-power-interruption-guide.md` for full details.
+
 ## Directory Structure
 
 ```
@@ -206,7 +208,8 @@ aws-fis-experiment-prepare/
 └── references/
     ├── output-structure.md               # File format specifications for all 6 output files
     ├── scenario-templates.md             # FIS Scenario Library JSON template examples
-    └── eks-pod-action-prerequisites.md   # EKS Pod action prerequisites (Lambda + Custom Resource for K8s RBAC)
+    ├── eks-pod-action-prerequisites.md   # EKS Pod action prerequisites (Lambda + Custom Resource for K8s RBAC)
+    └── az-power-interruption-guide.md    # AZ Power Interruption scenario guide (tagging, permissions, design decisions)
 ```
 
 ## Limitations

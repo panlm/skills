@@ -191,6 +191,8 @@ aws cloudformation deploy \
 
 8. **EKS RBAC 通过 CFN Custom Resource 管理。** EKS Pod Action 所需的 K8s RBAC 资源（ServiceAccount、Role、RoleBinding）由 Lambda-backed CFN Custom Resource 自动管理。使用固定标准化名称（`fis-sa`、`fis-experiment-role`、`fis-experiment-role-binding`），同一 namespace 下所有实验共享。Lambda 执行幂等创建（已存在则跳过），删除 Stack 时不会删除 RBAC 资源，因为其他实验可能仍在使用。Lambda 使用 `botocore.signers.RequestSigner` 并携带 `x-k8s-aws-id` header 生成 EKS bearer token，这是 EKS API server 正确认证所必需的。
 
+9. **AZ 电力中断：每个 AZ 一个 Stack，标签共享。** 目标 AZ 在实验模板的多个位置写死（filter、action 参数）。要测试不同 AZ 需删除 Stack 重建。资源标签（`AzImpairmentPower`）不区分 AZ — 由实验模板内部的 AZ filter 处理。标签通过同一 CFN Stack 中的 Lambda-backed Custom Resource 打上，EC2 Instance Profile 无需额外权限。详见 `references/az-power-interruption-guide.md`。
+
 ## 目录结构
 
 ```
@@ -201,7 +203,8 @@ aws-fis-experiment-prepare/
 └── references/
     ├── output-structure.md               # 6 个输出文件的格式规范
     ├── scenario-templates.md             # FIS Scenario Library JSON 模板示例
-    └── eks-pod-action-prerequisites.md   # EKS Pod Action 前置条件（Lambda + Custom Resource 管理 K8s RBAC）
+    ├── eks-pod-action-prerequisites.md   # EKS Pod Action 前置条件（Lambda + Custom Resource 管理 K8s RBAC）
+    └── az-power-interruption-guide.md    # AZ 电力中断场景指南（标签策略、权限、设计决策）
 ```
 
 ## 已知限制
