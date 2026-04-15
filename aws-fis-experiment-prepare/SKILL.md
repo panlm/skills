@@ -485,6 +485,19 @@ Review the required/optional properties and their types. Pay special attention t
 
 Use the documented property names and structures verbatim when generating the CFN template.
 
+**ALSO REQUIRED:** Search for CloudFormation examples and templates related to the
+resources in this experiment using the `cloudformation` topic:
+
+```
+aws___search_documentation:
+  search_phrase: "<list of CFN resource types in this experiment, e.g. AWS::FIS::ExperimentTemplate AWS::IAM::Role AWS::Lambda::Function Custom Resource>"
+  topics: ["cloudformation"]
+```
+
+This helps catch CFN-specific gotchas (e.g., Custom Resource response handling,
+DependsOn requirements, property format differences between API and CFN) that are
+not covered by reading the FIS resource documentation alone.
+
 Generate files following the templates in `references/output-structure.md`:
 
 1. **experiment-template.json** — FIS experiment template for CLI creation
