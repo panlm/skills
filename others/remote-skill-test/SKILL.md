@@ -119,7 +119,7 @@ Store `TEST_DIR` for subsequent steps.
 
 Install **all skills from the repository** inside the test directory at project
 level (not global). Skills have inter-dependencies (e.g., `aws-fis-experiment-execute`
-loads `eks-app-log-analysis` at runtime), so installing only the target skill
+loads `app-service-log-analysis` at runtime), so installing only the target skill
 would cause missing-dependency failures.
 
 **Important:** The remote host may use `nvm` for Node.js. Use `bash -i -c`

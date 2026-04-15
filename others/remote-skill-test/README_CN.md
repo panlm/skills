@@ -18,7 +18,7 @@
 
 1. **收集 SSH 配置和目标 skill 名称** — 从用户处获取（不在文件中存储凭据）。
 2. **创建带时间戳的测试目录** — 在远程主机上创建 `~/skill-tests/{时间戳}-{skill名称}/`。
-3. **在测试目录中安装所有 skill（project level）** — 通过 `npx skills add panlm/skills -y` 安装全部 skill（非全局）。skill 之间存在依赖关系（如 `aws-fis-experiment-execute` 运行时会加载 `eks-app-log-analysis`），因此必须安装全部 skill 以避免依赖缺失。
+3. **在测试目录中安装所有 skill（project level）** — 通过 `npx skills add panlm/skills -y` 安装全部 skill（非全局）。skill 之间存在依赖关系（如 `aws-fis-experiment-execute` 运行时会加载 `app-service-log-analysis`），因此必须安装全部 skill 以避免依赖缺失。
 4. **定位并读取远程 `test-prompt.md`** — 按优先级检查已知的 agent skill 目录路径（`.agents/skills/`、`.claude/skills/`、`.kiro/skills/` 等，先检查项目级再检查全局），因为不同 agent 安装路径不同。test-prompt.md 随 skill 一起安装。
 5. **执行目标 skill** — 通过 `opencode run --dangerously-skip-permissions` 加组装好的 prompt。所有输出（stdout + stderr）通过 `tee` 保存到 `opencode-run.log` 便于诊断。
 6. **取回生成的报告和执行日志** — 通过 `scp` 拉回到本地 `./test-results/{skill名称}/{时间戳}/`，文件名保持与远程一致。
@@ -40,7 +40,7 @@
 
 6. **OpenCode `run` 非交互执行。** 使用 `opencode run --dangerously-skip-permissions "prompt"` 非交互模式运行 — 无 TUI、无需手动操作、无权限提示。所有输出通过 `tee` 保存到 `opencode-run.log` 便于诊断。
 
-7. **Project level 安装全部 skill。** 在测试目录内通过 `npx skills add panlm/skills -y` 安装全部 skill（非全局）。skill 之间存在依赖关系（如 `aws-fis-experiment-execute` 会加载 `eks-app-log-analysis`），必须安装全部 skill 以避免依赖缺失。每次测试运行在 project level 隔离，不影响其他环境。
+7. **Project level 安装全部 skill。** 在测试目录内通过 `npx skills add panlm/skills -y` 安装全部 skill（非全局）。skill 之间存在依赖关系（如 `aws-fis-experiment-execute` 会加载 `app-service-log-analysis`），必须安装全部 skill 以避免依赖缺失。每次测试运行在 project level 隔离，不影响其他环境。
 
 8. **报告和日志按次运行存储在本地。** 每次测试运行保存到 `./test-results/{skill名称}/{时间戳}/`，当次报告、上次报告、执行日志和测试分析全部存放在同一目录中，文件名与远程一致，每次运行自包含，方便审查。
 
@@ -95,7 +95,7 @@
 |---|---|
 | `aws-fis-experiment-execute` | 执行 `{DEPENDENCY_PATH}` 下的 FIS 实验，跳过日志收集 |
 | `aws-fis-experiment-prepare` | 为指定集群准备 AZ Power Interruption 实验 |
-| `eks-app-log-analysis` | 分析 `{DEPENDENCY_PATH}` 报告中的应用日志（事后模式） |
+| `app-service-log-analysis` | 分析 `{DEPENDENCY_PATH}` 报告中的应用日志（事后模式） |
 | `aws-service-chaos-research` | 研究 Amazon RDS Aurora PostgreSQL 的混沌测试场景 |
 | `eks-workload-best-practice-assessment` | 评估 `{DEPENDENCY_PATH}` 集群中的工作负载配置 |
 

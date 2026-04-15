@@ -25,7 +25,7 @@
 ### aws-fis-experiment-execute
 - **新增**: Pod 实验自动日志收集、CFN 权限模拟验证、根据 template ID 自动解析目录
 - **变更**: 应用日志收集改为 opt-in；移除独立 summary report 合并到 README；资源命名规范统一（可读资源用 ExperimentName，Lambda 资源用 RandomSuffix）
-- **重构**: 引用 eks-app-log-analysis skill 替代重复日志逻辑
+- **重构**: 引用 app-service-log-analysis skill 替代重复日志逻辑
 - **修复**: 流程图导致 agent 跳过步骤、Lambda 函数名超 64 字符限制、EKS token 认证
 
 ### aws-fis-experiment-prepare
@@ -44,8 +44,8 @@
 
 ## [2026-03-31 ~ 2026-04-06] — 第 14 周
 
-### eks-app-log-analysis（新 Skill）
-- **新增**: 创建 eks-app-log-analysis skill，用于 BCP 演练的应用日志分析
+### app-service-log-analysis（新 Skill）
+- **新增**: 创建 app-service-log-analysis skill，用于 BCP 演练的应用日志分析
 
 ### aws-fis-experiment-execute
 - **重构**: 移除部署步骤，新增 CFN Stack 验证；移除重复 CLI 命令和状态表

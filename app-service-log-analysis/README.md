@@ -17,7 +17,7 @@ During BCP (Business Continuity Plan) drills with AWS FIS:
 
 1. **Dual-mode operation** — Real-time monitoring during experiments OR post-hoc analysis after experiments
 2. **Smart dependency discovery** — Reads experiment context and guides user to specify app-to-service dependencies
-3. **Managed service log collection** — Automatically detects CloudWatch logging for EKS control plane, RDS/Aurora, ElastiCache, MSK, and OpenSearch; queries logs for the experiment time window to correlate with application-level impact
+3. **Managed service log collection** — Automatically detects CloudWatch logging for EKS control plane, RDS/Aurora, ElastiCache, MSK, and OpenSearch; queries logs for the experiment time window (extended by 3 minutes past experiment end to capture recovery baseline) to correlate with application-level impact
 4. **Parallel log collection** — Background `kubectl logs -f` processes for multiple applications simultaneously, collecting only regular containers (excluding FIS-injected ephemeral containers)
 5. **Live insight display** — Every 30 seconds: actual error logs (5 lines) + analysis insights per service group
 6. **Comprehensive analysis report** — Error timelines, patterns, cross-service correlation, managed service log insights, recovery analysis
@@ -66,14 +66,14 @@ Common Steps
 
 The generated report includes:
 
-- Experiment metadata (ID, time range, duration)
+- Experiment metadata (ID, time range with 3-min post-experiment baseline, duration)
 - Summary table: errors per application, peak error rate, recovery time
 - Per-service application analysis:
   - Error timeline table
   - Key error patterns with counts
   - Actual log samples (5-10 lines)
   - Insights and correlation with fault injection events
-- Cross-service correlation timeline
+- Cross-service correlation timeline (includes post-baseline window annotations showing experiment end and baseline collection period)
 - Recommendations for improvement
 
 ## Prerequisites
@@ -121,10 +121,13 @@ The generated report includes:
 ## Directory Structure
 
 ```
-eks-app-log-analysis/
+app-service-log-analysis/
 ├── SKILL.md          # Main skill definition
 ├── README.md         # This file (English)
-└── README_CN.md      # Chinese documentation
+├── README_CN.md      # Chinese documentation
+└── references/
+    ├── managed-service-log-commands.md   # Managed service log collection commands
+    └── report-template.md               # Log analysis report template
 ```
 
 ## Known Limitations

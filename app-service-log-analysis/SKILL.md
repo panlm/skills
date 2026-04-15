@@ -1,16 +1,16 @@
 ---
-name: eks-app-log-analysis
+name: app-service-log-analysis
 description: >
-  Use when the user wants to analyze EKS application logs during or after a FIS experiment.
+  Use when the user wants to analyze application and managed service logs during or after a FIS experiment.
   Triggers on "analyze app logs", "application log analysis", "check application behavior",
   "分析应用日志", "查看应用表现", "应用日志分析". Supports two modes: real-time monitoring
   (during experiment) and post-hoc analysis (after experiment). Reads experiment context
   from aws-fis-experiment-prepare/execute outputs.
 ---
 
-# EKS App Log Analysis
+# App & Service Log Analysis
 
-Analyze EKS application logs during FIS fault injection experiments to understand how
+Analyze application and managed service logs during FIS fault injection experiments to understand how
 applications respond to infrastructure failures. Supports real-time monitoring and
 post-hoc analysis modes.
 
@@ -109,15 +109,12 @@ For each affected AWS service identified in Step 2, check whether it has CloudWa
 logging enabled. If enabled, query logs for the experiment time window. If not enabled,
 skip and note in the final report as a recommendation.
 
-**Supported managed services:**
+**Time window note:** When called from `aws-fis-experiment-execute`, the end time
+includes a 3-minute post-experiment baseline window. Use `EXPERIMENT_END_TIME + 3 minutes`
+as the query end time to capture recovery behavior in managed service logs.
 
-| Service | How to Check Logging | Log Group Format |
-|---|---|---|
-| EKS Control Plane | `aws eks describe-cluster --name {CLUSTER} --query 'cluster.logging.clusterLogging'` — check for enabled log types (`api`, `audit`, `scheduler`, `controllerManager`, `authenticator`) | `/aws/eks/{cluster-name}/cluster` |
-| RDS/Aurora | `aws rds describe-db-clusters --db-cluster-identifier {CLUSTER_ID} --query 'DBClusters[0].EnabledCloudwatchLogsExports'` — returns list like `["error","slowquery"]` | `/aws/rds/cluster/{cluster-id}/{log-type}` |
-| ElastiCache | `aws elasticache describe-replication-groups --replication-group-id {RG_ID} --query 'ReplicationGroups[0].LogDeliveryConfigurations'` — check for `cloudwatch-logs` destination type | Log group from `LogDeliveryConfigurations[].DestinationDetails.CloudWatchLogsDetails.LogGroup` |
-| MSK (Kafka) | `aws kafka describe-cluster --cluster-arn {ARN} --query 'ClusterInfo.LoggingInfo.BrokerLogs'` — check `CloudWatchLogs.Enabled` | Log group from `CloudWatchLogs.LogGroup` |
-| OpenSearch | `aws opensearch describe-domain --domain-name {DOMAIN} --query 'DomainStatus.LogPublishingOptions'` — check for keys like `INDEX_SLOW_LOGS`, `SEARCH_SLOW_LOGS`, `ES_APPLICATION_LOGS` | Log group from each option's `CloudWatchLogsLogGroupArn` |
+**Supported managed services:** EKS Control Plane, RDS/Aurora, ElastiCache, MSK, OpenSearch.
+See `references/managed-service-log-commands.md` for check commands and log group formats.
 
 **Workflow:**
 
@@ -136,21 +133,8 @@ skip and note in the final report as a recommendation.
      ⬚ MSK: not involved in this experiment
    ```
 
-**If logging is not enabled for a service**, record this in `MANAGED_LOG_RECOMMENDATIONS`
-for inclusion in the report's Recommendations section.
-
-**Key events to look for per service:**
-
-| Service | Key Events |
-|---|---|
-| EKS Control Plane | `NodeNotReady`, pod eviction, rescheduling decisions, API server errors |
-| RDS/Aurora | Failover start/complete timestamps, connection errors, slow queries during transition |
-| ElastiCache | Node failover, cluster rebalancing, connection drops |
-| MSK | Broker offline/online, partition reassignment, under-replicated partitions |
-| OpenSearch | Shard relocation, node departure/join, cluster yellow/red status |
-
-**If logging is not enabled for a service**, record this in the report's Recommendations
-section:
+**If logging is not enabled for a service**, record in `MANAGED_LOG_RECOMMENDATIONS`
+for the report's Recommendations section:
 ```
 **{Service}:** CloudWatch logging is not enabled. Enable {log-types} for better
 fault injection analysis. Without these logs, only application-side impact is visible.
@@ -242,53 +226,12 @@ After experiment completes (or immediately in post-hoc mode):
 #### Step 7a: Collect Managed Service Logs
 
 If `MANAGED_LOG_GROUPS` is non-empty (from Step 3.5), query CloudWatch Logs Insights
-for each recorded log group using the experiment time window:
-
-```bash
-# 1. Start the query
-QUERY_ID=$(aws logs start-query \
-  --log-group-name "{LOG_GROUP}" \
-  --start-time {EPOCH_START} \
-  --end-time {EPOCH_END} \
-  --query-string 'fields @timestamp, @message | sort @timestamp asc | limit 500' \
-  --query 'queryId' --output text)
-
-# 2. Poll until complete
-while true; do
-  STATUS=$(aws logs get-query-results --query-id "$QUERY_ID" \
-    --query 'status' --output text)
-  if [ "$STATUS" = "Complete" ]; then break; fi
-  sleep 2
-done
-
-# 3. Save results to local file
-mkdir -p "{LOG_DIR}/{service-name}"
-aws logs get-query-results --query-id "$QUERY_ID" \
-  --query 'results[].[*].join(`\t`, [value])' --output text \
-  > "{LOG_DIR}/{service-name}/managed-service-logs.log"
-```
-
-Repeat for each log group in `MANAGED_LOG_GROUPS`.
+for each recorded log group using the experiment time window. See
+`references/managed-service-log-commands.md` for the query script and ASG activity
+collection commands.
 
 This step only collects and saves logs — analysis is done in Step 7b together with
 application logs.
-
-**ASG Activity History:** If the experiment involves Auto Scaling Groups (e.g., AZ Power
-Interruption), also collect ASG scaling activities. This is always available (no logging
-enablement needed):
-
-```bash
-mkdir -p "{LOG_DIR}/asg-{asg-name}"
-aws autoscaling describe-scaling-activities \
-  --auto-scaling-group-name "{ASG_NAME}" \
-  --start-time {ISO_START} \
-  --max-items 100 \
-  --query 'Activities[?StatusCode!=`Cancelled`]' \
-  > "{LOG_DIR}/asg-{asg-name}/scaling-activities.log"
-```
-
-Key events to extract: instance launch/terminate, `InsufficientInstanceCapacity` errors,
-health check failures, and capacity rebalancing across AZs.
 
 #### Step 7b: Analyze All Logs and Generate Report
 
@@ -297,109 +240,7 @@ managed service logs (`managed-service-logs.log`). Analyze them together to prod
 a unified report with cross-correlation between application-level errors and
 infrastructure-level events.
 
-Generate the report:
-
-```bash
-TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
-# Save the report in the experiment directory (EXPERIMENT_DIR)
-REPORT_FILE="${EXPERIMENT_DIR}/${TIMESTAMP}-app-log-analysis.md"
-```
-
-Report structure:
-
-```markdown
-# Application Log Analysis Report
-
-**Experiment ID:** {EXPERIMENT_ID}
-**Analysis Time:** {TIMESTAMP}
-**Time Range:** {START_TIME} - {END_TIME}
-**Duration:** {DURATION}
-
-## Summary
-
-| Service | Application | Total Errors | Peak Error Rate | Recovery Time |
-|---------|-------------|--------------|-----------------|---------------|
-| {service} | {app} | {count} | {rate}/min | {time} |
-
-## Per-Service Application Analysis
-
-### {Service Name} ({resource_id})
-
-#### {Application Name} ({namespace}/{deployment})
-
-**Error Timeline:**
-
-| Time (UTC) | Level | Message |
-|------------|-------|---------|
-| {HH:MM:SS} | ERROR | {truncated message} |
-| ... | ... | ... |
-
-**Key Error Patterns:**
-
-| Pattern | Count | First Occurrence | Last Occurrence |
-|---------|-------|------------------|-----------------|
-| Connection refused | {n} | {time} | {time} |
-| Timeout | {n} | {time} | {time} |
-
-**Log Sample (Critical Errors):**
-
-```
-{5-10 lines of actual error logs}
-```
-
-**Insights:**
-- {insight_1}: Error spike at {time}, correlates with {service} failover
-- {insight_2}: Recovery detected at {time}, {duration} after fault injection ended
-- {insight_3}: Application retry mechanism worked/failed because...
-
-(Repeat for each application)
-
-## Cross-Service Correlation
-
-| Time | Event | RDS Impact | ElastiCache Impact | Application Response |
-|------|-------|------------|--------------------|--------------------|
-| {time} | Fault injection start | - | - | First errors appear |
-| {time} | {service} failover | Connection errors | - | Retrying... |
-| {time} | Recovery | Connections restored | - | Normal operation |
-
-## Managed Service Log Insights
-
-(Include this section ONLY if Step 3.5 collected managed service logs.)
-
-### {Service Name} ({resource_id})
-
-**Logging status:** Enabled ({log-types})
-**Log group:** {log-group-name}
-
-**Key Events:**
-
-| Time (UTC) | Event |
-|------------|-------|
-| {HH:MM:SS} | {event description, e.g., "Failover started", "Node marked NotReady"} |
-
-**Correlation with Application Logs:**
-- {insight}: {service} failover at {time} correlates with application connection errors at {time}
-- {insight}: Application recovery at {time} is {N} seconds after {service} recovery at {time}
-
-(If logging was NOT enabled for a service, list it here with a recommendation to enable.)
-
-## Recommendations
-
-1. **{Issue}:** {description}
-   - **Impact:** {what happened}
-   - **Recommendation:** {what to improve}
-
-## Appendix: Log File Locations
-
-**Raw log directory:** `{LOG_DIR}`
-
-To view raw logs after the analysis, navigate to the temp directory shown above.
-These files will persist until the system clears `/tmp`.
-
-| Application | Log File |
-|-------------|----------|
-| {app} | `{LOG_DIR}/{service}/{app}.log` |
-```
+See `references/report-template.md` for the complete report structure and file naming.
 
 ### Step 8: Cleanup (Real-time Mode)
 
@@ -419,26 +260,10 @@ Remove the PID file after cleanup.
 
 ## Output Files
 
-```
-{EXPERIMENT_DIR}/                                 # Experiment directory
-└── {timestamp}-app-log-analysis.md               # Analysis report
-
-/tmp/{timestamp}-fis-app-logs/                    # Temp directory for raw logs
-├── rds-cluster-xxx/
-│   ├── app-backend.log
-│   ├── api-server.log
-│   └── managed-service-logs.log                  # RDS CloudWatch logs (if enabled)
-├── elasticache-redis-xxx/
-│   ├── cache-layer.log
-│   └── managed-service-logs.log                  # ElastiCache CloudWatch logs (if enabled)
-├── eks-control-plane/
-│   └── managed-service-logs.log                  # EKS control plane logs (if enabled)
-├── msk-xxx/
-│   └── managed-service-logs.log                  # MSK broker logs (if enabled)
-├── opensearch-xxx/
-│   └── managed-service-logs.log                  # OpenSearch logs (if enabled)
-└── .pids (temporary, cleaned up)
-```
+- `{EXPERIMENT_DIR}/{timestamp}-app-log-analysis.md` — Analysis report
+- `/tmp/{timestamp}-fis-app-logs/` — Raw logs organized by service subdirectories
+  (app logs + managed service logs). See `references/report-template.md` appendix for
+  full directory layout.
 
 ## Usage Examples
 
