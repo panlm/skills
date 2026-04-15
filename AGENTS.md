@@ -17,12 +17,17 @@
 
 **更新完 SKILL.md 或 references/ 下的文件后，必须同步更新对应的 README.md 和 README_CN.md。** 不要遗漏。
 
+## commit 内容更新到 repo 根下面的 CHANGELOG 文件
+
+将提交内容用中文写入 CHANGELOG，CHANGELOG中按照周分类，按照不同SKILL进行子分类
+
+
 ## Git 提交规则
 
 **不要主动执行 git commit 或 git push。** 只有在用户明确要求时才进行提交和推送。
 
 提交和推送时始终使用 `--no-verify` 参数：
 ```bash
-git commit --no-verify -m "commit message"
+git commit -m "commit message"
 git push --no-verify
 ```
