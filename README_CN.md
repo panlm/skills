@@ -24,9 +24,9 @@ npx skills add panlm/skills --list
 | [aws-best-practice-research](./aws-best-practice-research/) | 为任意 AWS 服务研究并整理全面的最佳实践清单。生成分类的 HA/DR/安全检查表（含来源标注），可选对线上 AWS 资源进行合规审计。 |
 | [eks-workload-best-practice-assessment](./eks-workload-best-practice-assessment/) | 评估运行在 Amazon EKS 上的 Kubernetes 工作负载的最佳实践合规性，包括 Pod 配置、安全态势、可观测性、网络、存储、镜像安全和 CI/CD 实践。 |
 | [aws-service-chaos-research](./aws-service-chaos-research/) | 为特定 AWS 服务（RDS、EKS、MSK、ElastiCache 等）研究混沌工程、故障注入和韧性测试场景。识别可用的 FIS Action 及 HA 验证方法。 |
-| [aws-fis-experiment-prepare](./aws-fis-experiment-prepare/) | 生成运行 AWS FIS 实验所需的所有配置文件（实验模板、IAM 策略、CFN 模板、告警、Dashboard、预期行为文档），然后通过 CloudFormation 自愈迭代部署。支持 Scenario Library 预置场景和自定义单个 FIS Action。**注意：** Scenario Library 模板（AZ Power Interruption、AZ Application Slowdown、Cross-AZ Traffic Slowdown、Cross-Region Connectivity）无法通过 API 生成 — Skill 会读取 AWS 文档提取 JSON 模板。 |
-| [aws-fis-experiment-execute](./aws-fis-experiment-execute/) | 部署并运行已准备好的 AWS FIS 实验。需要一个已准备好的实验目录（来自 aws-fis-experiment-prepare），处理部署、实验启动、实时监控和清理。 |
-| [app-service-log-analysis](./app-service-log-analysis/) | 在 FIS 故障注入实验期间或之后分析 EKS 应用日志。支持实时监控（后台日志收集 + 实时洞察）和事后分析。生成按受影响服务分组的综合报告，包含错误时间线、模式识别和恢复分析。 |
+| [aws-fis-experiment-prepare](./aws-fis-experiment-prepare/) | 生成运行 AWS FIS 实验所需的配置文件（包含实验模板、IAM 角色、Dashboard 的 CFN 模板），然后通过 CloudFormation 自愈迭代部署。支持 Scenario Library 预置场景和自定义单个 FIS Action。AZ 电力中断场景支持**按服务范围裁剪子动作** — 仅包含用户指定服务的子动作，避免影响范围过大。默认实验持续时间 10 分钟。 |
+| [aws-fis-experiment-execute](./aws-fis-experiment-execute/) | 运行已准备好的 AWS FIS 实验。从实验目录名提取模板 ID，通过 FIS API 查询 Actions，发现受影响的应用，经用户明确确认后启动实验，实时监控进度并展示日志洞察，生成结果报告。 |
+| [app-service-log-analysis](./app-service-log-analysis/) | 在 FIS 故障注入实验期间或之后分析 EKS 应用日志。**多集群深度依赖发现** — 自动发现目标 Region 中所有 EKS 集群，为每个集群生成独立 kubeconfig 文件（绝不覆盖 `~/.kube/config`），并行深度扫描所有可访问集群（环境变量、ConfigMap、Secret、ExternalName 等）查找依赖故障注入目标服务的应用。支持实时监控和事后分析，生成综合报告。 |
 
 ## 其他 Skills
 

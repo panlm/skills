@@ -16,17 +16,15 @@
 
 ## 核心功能
 
-1. **加载并验证** 已准备好的实验目录（来自 [aws-fis-experiment-prepare](../aws-fis-experiment-prepare/) 或手动创建）。支持**通过实验模板 ID 自动查找目录** — 如果用户提供模板 ID（如 `EXT1a2b3c4d5e6f7`），skill 会在当前目录下搜索匹配的实验目录。
-2. **读取 README.md** 提取 CFN Stack 名称和实验元数据。
-3. **验证 Stack 部署** — 检查 CloudFormation Stack 是否处于 `CREATE_COMPLETE` 或 `UPDATE_COMPLETE` 状态。
-4. **提取模板 ID** — 从 Stack 输出中获取。
-5. **展示实验操作** — 通过 AWS CLI 查询已部署的 FIS 实验模板，提取并展示所有 action ID。日志收集始终启用。
-6. **跨集群发现 EKS 应用并启动日志收集** — 加载 `app-service-log-analysis` skill，发现目标 Region 中所有 EKS 集群，为每个集群生成独立的 kubeconfig 文件（绝不覆盖 `~/.kube/config`），并行深度扫描所有可访问集群的应用依赖（环境变量、ConfigMap、Secret、ExternalName 等），在**实验启动前**启动后台 `kubectl logs -f`。如果 kubectl 不可用，跳过应用日志但仍通过 AWS CLI 收集托管服务日志。
-7. **强制安全确认** — 展示清晰的影响警告（受影响资源、监控应用列表、托管服务日志状态、实验后基线时长），要求用户明确确认后才启动。
-8. **启动实验** — 仅在用户明确确认后执行。
-9. **监控进度** — 每 30-60 秒轮询实验状态，记录每次状态变更和各服务事件的时间戳。每次轮询同时显示各应用错误/警告计数和恢复信号。
-10. **收集实验后基线并分析** — 实验结束后等待 3 分钟以捕获恢复行为，然后遵循 `app-service-log-analysis` 步骤 7-8 分析错误模式、峰值速率和恢复时间。
-11. **保存结果报告** — 将实验结果写入**实验目录**中的 Markdown 文件，包含**按服务拆分的影响分析**和**应用日志分析**。终端仅打印简要摘要。
+1. **加载并验证** 已准备好的实验目录（来自 [aws-fis-experiment-prepare](../aws-fis-experiment-prepare/) 或手动创建）。支持**通过实验模板 ID 自动查找目录** — 如果用户提供模板 ID（如 `EXT1a2b3c4d5e6f7`），skill 会在当前目录下搜索匹配的实验目录。**从目录名提取模板 ID**（目录名以模板 ID 结尾）。
+2. **读取 README.md** 提取实验元数据（场景、Region、AZ、时长、受影响资源、Stack 名称）。
+3. **展示实验操作** — 通过 AWS CLI 查询已部署的 FIS 实验模板，提取并展示所有 action ID。日志收集始终启用。
+4. **跨集群发现 EKS 应用并启动日志收集** — 加载 `app-service-log-analysis` skill，发现目标 Region 中所有 EKS 集群，为每个集群生成独立的 kubeconfig 文件（绝不覆盖 `~/.kube/config`），并行深度扫描所有可访问集群的应用依赖（环境变量、ConfigMap、Secret、ExternalName 等），在**实验启动前**启动后台 `kubectl logs -f`。如果 kubectl 不可用，跳过应用日志但仍通过 AWS CLI 收集托管服务日志。
+5. **强制安全确认** — 展示清晰的影响警告（受影响资源、监控应用列表、托管服务日志状态、实验后基线时长），要求用户明确确认后才启动。
+6. **启动实验** — 仅在用户明确确认后执行。
+7. **监控进度** — 每 30-60 秒轮询实验状态，记录每次状态变更和各服务事件的时间戳。每次轮询同时显示各应用错误/警告计数和恢复信号。
+8. **收集实验后基线并分析** — 实验结束后等待 3 分钟以捕获恢复行为，然后遵循 `app-service-log-analysis` 步骤 7-8 分析错误模式、峰值速率和恢复时间。
+9. **保存结果报告** — 将实验结果写入**实验目录**中的 Markdown 文件，包含**按服务拆分的影响分析**和**应用日志分析**。终端仅打印简要摘要。
 
 **注意：** 本 Skill **不会**部署基础设施。它仅验证 Stack 已部署，然后执行实验。
 
@@ -39,21 +37,14 @@
           │   ├── 找到 1 个匹配 → 使用该目录
           │   ├── 找到多个匹配 → 让用户选择
           │   └── 未找到匹配 → 让用户提供完整路径
+          ├── 从目录名提取模板 ID
           └── 验证必需文件
           ↓
-步骤 2:  读取 README.md → 提取 CFN Stack 名称 + 元数据
+步骤 2:  读取 README.md → 提取实验元数据
           ↓
-步骤 3:  检查 CloudFormation Stack 状态
-          ├── CREATE_COMPLETE 或 UPDATE_COMPLETE → 继续
-          └── 未就绪 / 失败 / 未找到 → 中止并提供指导
+步骤 3:  展示实验操作（用目录名中的模板 ID 查询 FIS API）
           ↓
-步骤 4:  从 Stack 输出提取实验模板 ID
-          ↓
-步骤 5:  展示实验操作
-          ├── 通过 AWS CLI 查询 FIS 实验模板，提取并展示 actionId
-          └── 日志收集始终启用 → 继续步骤 6
-          ↓
-步骤 6:  发现 EKS 应用 + 启动日志收集 [实验启动前完成]
+步骤 4:  发现 EKS 应用 + 启动日志收集 [实验启动前完成]
           ├── 检查 kubectl 是否可用
           ├── kubectl 可用 → 加载 app-service-log-analysis skill，执行其：
           │   ├── Multi-Cluster EKS Discovery and Kubeconfig Isolation
@@ -62,22 +53,22 @@
           │   └── Step 4（实时日志收集）
           └── kubectl 不可用 → 跳过应用日志，仍收集托管服务日志
           ↓
-步骤 7:  启动实验 [关键 — 需要用户明确确认]
+步骤 5:  启动实验 [关键 — 需要用户明确确认]
           ├── 展示影响警告（资源、时长、Stop Condition、监控应用）
           ├── 用户确认 → 启动实验
           └── 用户拒绝 → 中止（清理日志）
           ↓
-步骤 8:  监控实验 + 日志洞察
+步骤 6:  监控实验 + 日志洞察
           ├── 前 5 分钟每 30 秒轮询，之后每 60 秒
           ├── 记录每次状态变更和 Action 转换的时间戳
           ├── 显示各应用错误/警告计数（无 kubectl 时仅显示托管服务日志）
           └── 提醒用户：查看 Dashboard
           ↓
-步骤 9:  实验后基线（3 分钟）+ 停止日志收集 + 分析
+步骤 7:  实验后基线（3 分钟）+ 停止日志收集 + 分析
           ├── 等待 3 分钟以捕获恢复行为
           └── 通过 app-service-log-analysis 步骤 7-8 分析
           ↓
-步骤 10: 保存结果报告到实验目录 (YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md)
+步骤 8:  保存结果报告到实验目录 (YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md)
 ```
 
 ## 安全规则

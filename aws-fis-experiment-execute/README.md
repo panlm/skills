@@ -16,17 +16,15 @@ Running an AWS FIS experiment after preparation still involves manual verificati
 
 ## What This Skill Does
 
-1. **Loads and validates** the prepared experiment directory (from [aws-fis-experiment-prepare](../aws-fis-experiment-prepare/) or manually created). Supports **automatic directory resolution** from an experiment template ID — if the user provides a template ID (e.g., `EXT1a2b3c4d5e6f7`), the skill searches the current directory for a matching experiment directory.
-2. **Reads README.md** to extract the CFN stack name and experiment metadata.
-3. **Verifies stack deployment** — checks that the CloudFormation stack is in `CREATE_COMPLETE` or `UPDATE_COMPLETE` status.
-4. **Extracts template ID** from stack outputs.
-5. **Displays experiment actions** — queries the deployed FIS experiment template via AWS CLI to extract and display all action IDs. Log collection is always enabled.
-6. **Discovers EKS apps across all clusters and starts log collection** — loads `app-service-log-analysis` skill to discover ALL EKS clusters in the target region, generates isolated kubeconfig files (never overwrites `~/.kube/config`), deep-scans all accessible clusters in parallel for application dependencies (env vars, ConfigMaps, Secrets, ExternalName, etc.), and starts background `kubectl logs -f` **before the experiment starts**. If kubectl is not available, skips app logs but still collects managed service logs via AWS CLI.
-7. **Enforces safety** — presents a clear impact warning with affected resources, monitored applications, managed service log status, and post-baseline duration, requires explicit user confirmation before starting.
-8. **Starts the experiment** only after explicit user confirmation.
-9. **Monitors progress** — polls experiment status every 30-60 seconds, records timestamps for each status change and per-service events. Displays per-app error counts and recovery signals during each poll cycle.
-10. **Collects post-experiment baseline and analyzes** — waits 3 minutes after experiment ends to capture recovery behavior, then follows `app-service-log-analysis` Steps 7-8 to analyze error patterns, peak rates, and recovery times.
-11. **Saves results report** — writes the experiment results to a markdown file **in the experiment directory** with **per-service impact analysis** and **application log analysis**. Prints a brief summary to the terminal.
+1. **Loads and validates** the prepared experiment directory (from [aws-fis-experiment-prepare](../aws-fis-experiment-prepare/) or manually created). Supports **automatic directory resolution** from an experiment template ID — if the user provides a template ID (e.g., `EXT1a2b3c4d5e6f7`), the skill searches the current directory for a matching experiment directory. **Extracts the template ID from the directory name** (the directory name ends with the template ID).
+2. **Reads README.md** to extract experiment metadata (scenario, region, AZ, duration, affected resources, stack name).
+3. **Displays experiment actions** — queries the deployed FIS experiment template via AWS CLI to extract and display all action IDs. Log collection is always enabled.
+4. **Discovers EKS apps across all clusters and starts log collection** — loads `app-service-log-analysis` skill to discover ALL EKS clusters in the target region, generates isolated kubeconfig files (never overwrites `~/.kube/config`), deep-scans all accessible clusters in parallel for application dependencies (env vars, ConfigMaps, Secrets, ExternalName, etc.), and starts background `kubectl logs -f` **before the experiment starts**. If kubectl is not available, skips app logs but still collects managed service logs via AWS CLI.
+5. **Enforces safety** — presents a clear impact warning with affected resources, monitored applications, managed service log status, and post-baseline duration, requires explicit user confirmation before starting.
+6. **Starts the experiment** only after explicit user confirmation.
+7. **Monitors progress** — polls experiment status every 30-60 seconds, records timestamps for each status change and per-service events. Displays per-app error counts and recovery signals during each poll cycle.
+8. **Collects post-experiment baseline and analyzes** — waits 3 minutes after experiment ends to capture recovery behavior, then follows `app-service-log-analysis` Steps 7-8 to analyze error patterns, peak rates, and recovery times.
+9. **Saves results report** — writes the experiment results to a markdown file **in the experiment directory** with **per-service impact analysis** and **application log analysis**. Prints a brief summary to the terminal.
 
 **Note:** This skill does **NOT** deploy infrastructure. It only verifies that the stack is already deployed and proceeds with experiment execution.
 
@@ -39,21 +37,14 @@ Step 1:  Resolve experiment directory (from path or template ID)
           │   ├── 1 match → use it
           │   ├── Multiple matches → ask user to choose
           │   └── No match → ask user for full path
+          ├── Extract template ID from directory name
           └── Validate required files
           ↓
-Step 2:  Read README.md → extract CFN stack name + metadata
+Step 2:  Read README.md → extract experiment metadata
           ↓
-Step 3:  Check CloudFormation stack status
-          ├── CREATE_COMPLETE or UPDATE_COMPLETE → proceed
-          └── Not ready / failed / not found → abort with guidance
+Step 3:  Display experiment actions (query FIS API with template ID from directory name)
           ↓
-Step 4:  Extract experiment template ID from stack outputs
-          ↓
-Step 5:  Display experiment actions
-          ├── Query FIS experiment template via AWS CLI, extract and display actionIds
-          └── Log collection always enabled → proceed to Step 6
-          ↓
-Step 6:  Discover EKS apps + start log collection [BEFORE experiment]
+Step 4:  Discover EKS apps + start log collection [BEFORE experiment]
           ├── Check kubectl availability
           ├── kubectl available → load app-service-log-analysis skill, execute its:
           │   ├── Multi-Cluster EKS Discovery and Kubeconfig Isolation
@@ -62,22 +53,22 @@ Step 6:  Discover EKS apps + start log collection [BEFORE experiment]
           │   └── Step 4 (Real-time log collection)
           └── kubectl NOT available → skip app logs, still collect managed service logs
           ↓
-Step 7:  Start experiment [CRITICAL — requires explicit user confirmation]
+Step 5:  Start experiment [CRITICAL — requires explicit user confirmation]
           ├── Display impact warning (resources, duration, stop conditions, monitored apps)
           ├── User confirms → start experiment
           └── User declines → abort (cleanup logs)
           ↓
-Step 8:  Monitor experiment + log insights
+Step 6:  Monitor experiment + log insights
           ├── Poll status every 30s (first 5 min) then 60s
           ├── Record timestamps for each status change and action transition
           ├── Show per-app error/warning counts (or managed-service-only if no kubectl)
           └── Remind user: check dashboard
           ↓
-Step 9:  Post-experiment baseline (3 min) + stop logs + analyze
+Step 7:  Post-experiment baseline (3 min) + stop logs + analyze
           ├── Wait 3 minutes to capture recovery behavior
           └── Analyze via app-service-log-analysis Steps 7-8
           ↓
-Step 10: Save results report to experiment directory (YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md)
+Step 8:  Save results report to experiment directory (YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md)
 ```
 
 ## Safety Rules

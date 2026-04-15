@@ -95,52 +95,38 @@ find . -maxdepth 1 -type d -name "*${TEMPLATE_ID_INPUT}" 2>/dev/null
 - **Multiple matches** → list and ask user to choose
 - **No match** → ask user for full path. Do NOT proceed without a valid path.
 
-#### Step 1b: Validate required files
+#### Step 1b: Extract template ID from directory name
+
+The experiment directory name ends with the template ID (e.g.,
+`2026-04-11-az-power-int-my-cluster-EXT1a2b3c4d5e6f7`). Extract it:
+
+```bash
+TEMPLATE_ID=$(basename "${EXPERIMENT_DIR}" | grep -oE 'EXT[a-zA-Z0-9]+$')
+```
+
+Store as `TEMPLATE_ID`. This is used in all subsequent steps.
+
+#### Step 1c: Validate required files
 
 Verify `EXPERIMENT_DIR` contains: `cfn-template.yaml`, `README.md`.
 
-### Step 2: Read README and Extract Stack Information
+### Step 2: Read README and Extract Experiment Metadata
 
 Read `README.md` from the experiment directory to extract:
 
-1. **CFN Stack Name** — look for the line `**CFN Stack:** {STACK_NAME}` in the
-   README header block (near the top, after the H1 heading). This is the stack
-   name assigned by `aws-fis-experiment-prepare` during deployment.
-2. **Scenario name** — from the H1 heading (e.g., `# FIS Experiment: AZ Power Interruption`)
-3. **Target region** — from `**Region:** {REGION}`
-4. **Target AZ** — from `**Target AZ:** {AZ_ID}` (if applicable)
-5. **Estimated duration** — from `**Estimated Duration:** {DURATION}`
-6. **Affected resources** — from the "Affected Resources" table
+1. **Scenario name** — from the H1 heading (e.g., `# FIS Experiment: AZ Power Interruption`)
+2. **Target region** — from `**Region:** {REGION}`
+3. **Target AZ** — from `**Target AZ:** {AZ_ID}` (if applicable)
+4. **Estimated duration** — from `**Estimated Duration:** {DURATION}`
+5. **Affected resources** — from the "Affected Resources" table
+6. **CFN Stack Name** — from `**CFN Stack:** {STACK_NAME}` (for cleanup reference only)
 
 Present a summary to the user with all extracted information.
 
-**If the CFN Stack Name cannot be found in the README**, stop and inform the
-user that the stack name is missing. The experiment cannot proceed without it.
+### Step 3: Display Experiment Actions
 
-### Step 3: Check CloudFormation Stack Status
-
-Using the stack name and region extracted from the README, verify the stack is deployed.
-See `references/cli-commands.md` for CLI commands and stack status reference.
-
-Only proceed if the stack is in a ready state (`CREATE_COMPLETE` or `UPDATE_COMPLETE`).
-
-**If the stack is not ready**, inform the user clearly:
-- Show the current stack status and failure reason (if applicable)
-- Suggest running `aws-fis-experiment-prepare` to deploy the stack
-- Do NOT attempt to deploy the stack — this skill only checks and executes
-
-### Step 4: Extract Experiment Template ID from Stack Outputs
-
-Extract `ExperimentTemplateId` from stack outputs. See `references/cli-commands.md` for CLI commands.
-
-**If `ExperimentTemplateId` is not found**, list all outputs and ask the user which one contains the template ID. Common alternatives: `FISExperimentTemplateId`, `TemplateId`.
-
-Also extract dashboard URL and alarm ARNs if available.
-
-### Step 5: Display Experiment Actions
-
-Use the template ID extracted in Step 4 to query the experiment template via AWS CLI
-and display all action IDs:
+Use `TEMPLATE_ID` (extracted from directory name in Step 1b) to query the experiment
+template via AWS CLI and display all action IDs:
 
 ```bash
 aws fis get-experiment-template \
@@ -158,9 +144,9 @@ Actions found:
   ...
 ```
 
-Proceed directly to Step 6 (log collection is always enabled).
+Proceed directly to Step 4 (log collection is always enabled).
 
-### Step 6: Discover EKS Applications and Start Log Collection
+### Step 4: Discover EKS Applications and Start Log Collection
 
 **REQUIRED:** You MUST load the `app-service-log-analysis` skill at this point. It contains
 the detailed procedures for multi-cluster discovery, kubeconfig isolation, application
@@ -201,7 +187,7 @@ kubectl version --client -o yaml 2>/dev/null
 4. **Its Step 4 (Log Collection — Real-time Mode)** — starts background `kubectl logs -f`
    for all confirmed applications across all clusters
 
-### Step 7: Start Experiment (CRITICAL CONFIRMATION)
+### Step 5: Start Experiment (CRITICAL CONFIRMATION)
 
 **This is the most dangerous step. The experiment WILL affect real resources.**
 
@@ -235,12 +221,12 @@ Post-experiment baseline: 3 minutes (automatic)
 Type "Yes, start experiment" to proceed, or "No" to abort.
 ```
 
-**Only proceed if the user explicitly confirms.** If user aborts, proceed to Step 9
+**Only proceed if the user explicitly confirms.** If user aborts, proceed to Step 7
 to stop log collection and clean up first.
 
 Save the returned `experiment.id`.
 
-### Step 8: Monitor Experiment
+### Step 6: Monitor Experiment
 
 Poll the experiment status and display progress. See `references/cli-commands.md` for
 polling commands and experiment status reference.
@@ -260,13 +246,13 @@ polling commands and experiment status reference.
 (Real-time Monitoring Display) — read recent logs, count errors/warnings, display
 per-app summary, detect recovery signals. If app log collection was skipped (kubectl
 not available), show only managed service log status. The skill must already be loaded
-from Step 6.
+from Step 4.
 
 **During monitoring, remind the user:**
 - Check the CloudWatch dashboard for real-time metrics
 - The experiment can be stopped at any time (see `references/cli-commands.md` for stop command)
 
-### Step 9: Post-Experiment Baseline, Stop Log Collection and Analyze
+### Step 7: Post-Experiment Baseline, Stop Log Collection and Analyze
 
 After the experiment completes (any terminal state):
 
@@ -285,7 +271,7 @@ After the 3-minute baseline window ends, proceed to analysis.
 
 #### Generate Application Log Analysis
 
-Execute `app-service-log-analysis` Steps 7-8 (skill already loaded from Step 6):
+Execute `app-service-log-analysis` Steps 7-8 (skill already loaded from Step 4):
 - **Its Step 7 (Generate Analysis Report)** — analyze error patterns, peak rates, recovery
   times, and generate the "Application Log Analysis" section of the report. The analysis
   time window extends 3 minutes past the experiment end time to cover the baseline period.
