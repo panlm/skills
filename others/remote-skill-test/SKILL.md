@@ -115,11 +115,12 @@ ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
 
 Store `TEST_DIR` for subsequent steps.
 
-### Step 3: SSH — Install Target Skill (Project Level)
+### Step 3: SSH — Install All Skills (Project Level)
 
-Install **only the target skill** inside the test directory at project level
-(not global). Use the `--skill {SKILL_NAME}` flag to avoid installing all
-skills from the repository, which saves time and reduces noise.
+Install **all skills from the repository** inside the test directory at project
+level (not global). Skills have inter-dependencies (e.g., `aws-fis-experiment-execute`
+loads `eks-app-log-analysis` at runtime), so installing only the target skill
+would cause missing-dependency failures.
 
 **Important:** The remote host may use `nvm` for Node.js. Use `bash -i -c`
 to load `.bashrc` environment variables (LLM provider URL, API keys, etc.)
@@ -128,14 +129,11 @@ that the interactive guard in `.bashrc` would otherwise block.
 ```bash
 ssh -t -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
   "bash -i -c 'source ~/.nvm/nvm.sh 2>/dev/null; \
-   cd ${TEST_DIR} && npx skills add panlm/skills --skill {SKILL_NAME} -y'"
+   cd ${TEST_DIR} && npx skills add panlm/skills -y'"
 ```
 
-`{SKILL_NAME}` is the target skill name collected in Step 1 (e.g.,
-`aws-best-practice-research`, `aws-fis-experiment-execute`).
-
-Verify the output shows "Installation complete" and lists **only the target
-skill**. If it fails, show the error and stop.
+Verify the output shows "Installation complete" and lists all installed skills.
+If it fails, show the error and stop.
 
 ### Step 4: SSH — Locate and Read test-prompt.md
 

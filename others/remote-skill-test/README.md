@@ -18,7 +18,7 @@ This is tedious and error-prone, especially during iterative skill development.
 
 1. **Collects SSH config and target skill name** from the user (no credentials stored in files).
 2. **Creates a timestamped test directory** on the remote host: `~/skill-tests/{timestamp}-{skill-name}/`.
-3. **Installs the target skill at project level** inside the test directory via `npx skills add panlm/skills --skill {SKILL_NAME} -y` (not global, only the target skill is installed for faster setup and isolation).
+3. **Installs all skills at project level** inside the test directory via `npx skills add panlm/skills -y` (not global). Skills have inter-dependencies (e.g., `aws-fis-experiment-execute` loads `eks-app-log-analysis` at runtime), so all skills must be installed together.
 4. **Locates and reads `test-prompt.md`** from the remote installed skill directory — checks known agent skill paths in priority order (`.agents/skills/`, `.claude/skills/`, `.kiro/skills/`, etc., project-level first then global) since different agents install to different directories. The test prompt is bundled with the skill and installed alongside it.
 5. **Executes the target skill** via `opencode run --dangerously-skip-permissions` with the assembled prompt. All output (stdout + stderr) is captured to `opencode-run.log` via `tee` for diagnostics.
 6. **Retrieves the generated report and execution log** via `scp` into a timestamped local directory `./test-results/{skill-name}/{timestamp}/`. File names are kept identical to the remote originals.
@@ -40,7 +40,7 @@ This is tedious and error-prone, especially during iterative skill development.
 
 6. **OpenCode `run` for non-interactive execution.** Uses `opencode run --dangerously-skip-permissions "prompt"` which runs in non-interactive mode — no TUI, no manual interaction, no permission prompts. All output is captured to `opencode-run.log` via `tee` for diagnostics.
 
-7. **Project-level single-skill installation.** Only the target skill is installed inside the test directory via `npx skills add panlm/skills --skill {SKILL_NAME} -y`. This is faster than installing all skills, keeps the test environment minimal, and each test run is isolated without affecting other environments.
+7. **Project-level full-repo installation.** All skills are installed inside the test directory via `npx skills add panlm/skills -y`. Skills have inter-dependencies (e.g., `aws-fis-experiment-execute` loads `eks-app-log-analysis`), so the full repo must be installed to avoid missing-dependency failures. Each test run is isolated at project level without affecting other environments.
 
 8. **Reports and logs stored locally in timestamped directories.** Each test run is saved to `./test-results/{skill-name}/{timestamp}/`. The current report, previous report, execution log, and test analysis are all co-located in a single directory with their original file names, making each run self-contained and easy to review.
 
@@ -51,7 +51,7 @@ Step 1:  Collect SSH config + skill name + dependency paths
           ↓
 Step 2:  SSH → mkdir ~/skill-tests/{timestamp}-{skill-name}/
           ↓
-Step 3:  SSH → cd test-dir && npx skills add panlm/skills --skill {skill-name} -y (project level, target skill only)
+Step 3:  SSH → cd test-dir && npx skills add panlm/skills -y (project level, all skills for inter-dependencies)
           ↓
 Step 4:  SSH → locate test-prompt.md in known agent skill paths (project → global), replace {DEPENDENCY_PATH}, append auto-confirm
           ↓
