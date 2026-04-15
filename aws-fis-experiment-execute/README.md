@@ -21,7 +21,7 @@ Running an AWS FIS experiment after preparation still involves manual verificati
 3. **Verifies stack deployment** — checks that the CloudFormation stack is in `CREATE_COMPLETE` or `UPDATE_COMPLETE` status.
 4. **Extracts template ID** from stack outputs.
 5. **Displays experiment actions** — reads `experiment-template.json` to extract and display all action IDs. Log collection is always enabled.
-6. **Discovers EKS apps and starts log collection** — loads `app-service-log-analysis` skill to discover EKS apps and start background `kubectl logs -f` **before the experiment starts**. If kubectl is not available, skips app logs but still collects managed service logs via AWS CLI.
+6. **Discovers EKS apps across all clusters and starts log collection** — loads `app-service-log-analysis` skill to discover ALL EKS clusters in the target region, generates isolated kubeconfig files (never overwrites `~/.kube/config`), deep-scans all accessible clusters in parallel for application dependencies (env vars, ConfigMaps, Secrets, ExternalName, etc.), and starts background `kubectl logs -f` **before the experiment starts**. If kubectl is not available, skips app logs but still collects managed service logs via AWS CLI.
 7. **Enforces safety** — presents a clear impact warning with affected resources, monitored applications, managed service log status, and post-baseline duration, requires explicit user confirmation before starting.
 8. **Starts the experiment** only after explicit user confirmation.
 9. **Monitors progress** — polls experiment status every 30-60 seconds, records timestamps for each status change and per-service events. Displays per-app error counts and recovery signals during each poll cycle.
@@ -53,9 +53,12 @@ Step 5:  Display experiment actions
           ├── Read experiment-template.json, extract and display actionIds
           └── Log collection always enabled → proceed to Step 6
           ↓
-Step 6:  Discover EKS apps + start log collection [BEFORE experiment]
+Step 6:  Discover EKS apps across all clusters + start log collection [BEFORE experiment]
           ├── Check kubectl availability
-          ├── kubectl available → load app-service-log-analysis skill (real-time mode) Steps 3-4
+          ├── kubectl available → discover all EKS clusters in region
+          │   ├── Generate isolated kubeconfig per cluster (never overwrites ~/.kube/config)
+          │   ├── Deep-scan all accessible clusters in parallel (env vars, ConfigMaps, Secrets, ExternalName, etc.)
+          │   └── Load app-service-log-analysis skill (real-time mode) Steps 3-4
           └── kubectl NOT available → skip app logs, still collect managed service logs
           ↓
 Step 7:  Start experiment [CRITICAL — requires explicit user confirmation]

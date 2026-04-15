@@ -21,7 +21,7 @@
 3. **验证 Stack 部署** — 检查 CloudFormation Stack 是否处于 `CREATE_COMPLETE` 或 `UPDATE_COMPLETE` 状态。
 4. **提取模板 ID** — 从 Stack 输出中获取。
 5. **展示实验操作** — 读取 `experiment-template.json` 提取并展示所有 action ID。日志收集始终启用。
-6. **发现 EKS 应用并启动日志收集** — 加载 `app-service-log-analysis` skill，在**实验启动前**发现 EKS 应用并启动后台 `kubectl logs -f`。如果 kubectl 不可用，跳过应用日志但仍通过 AWS CLI 收集托管服务日志。
+6. **跨集群发现 EKS 应用并启动日志收集** — 加载 `app-service-log-analysis` skill，发现目标 Region 中所有 EKS 集群，为每个集群生成独立的 kubeconfig 文件（绝不覆盖 `~/.kube/config`），并行深度扫描所有可访问集群的应用依赖（环境变量、ConfigMap、Secret、ExternalName 等），在**实验启动前**启动后台 `kubectl logs -f`。如果 kubectl 不可用，跳过应用日志但仍通过 AWS CLI 收集托管服务日志。
 7. **强制安全确认** — 展示清晰的影响警告（受影响资源、监控应用列表、托管服务日志状态、实验后基线时长），要求用户明确确认后才启动。
 8. **启动实验** — 仅在用户明确确认后执行。
 9. **监控进度** — 每 30-60 秒轮询实验状态，记录每次状态变更和各服务事件的时间戳。每次轮询同时显示各应用错误/警告计数和恢复信号。
@@ -53,9 +53,12 @@
           ├── 读取 experiment-template.json，提取并展示 actionId
           └── 日志收集始终启用 → 继续步骤 6
           ↓
-步骤 6:  发现 EKS 应用 + 启动日志收集 [实验启动前完成]
+步骤 6:  跨集群发现 EKS 应用 + 启动日志收集 [实验启动前完成]
           ├── 检查 kubectl 是否可用
-          ├── kubectl 可用 → 加载 app-service-log-analysis skill（实时模式）步骤 3-4
+          ├── kubectl 可用 → 发现 Region 内所有 EKS 集群
+          │   ├── 为每个集群生成独立 kubeconfig（绝不覆盖 ~/.kube/config）
+          │   ├── 并行深度扫描所有可访问集群（env vars、ConfigMap、Secrets、ExternalName 等）
+          │   └── 加载 app-service-log-analysis skill（实时模式）步骤 3-4
           └── kubectl 不可用 → 跳过应用日志，仍收集托管服务日志
           ↓
 步骤 7:  启动实验 [关键 — 需要用户明确确认]

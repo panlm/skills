@@ -23,9 +23,69 @@ Detect the language of the user's conversation and use the **same language** for
 ## Prerequisites
 
 Required tools:
-- **kubectl** — configured with access to target EKS cluster
-- **AWS CLI** — for querying FIS experiment status
+- **kubectl** — configured with access to target EKS cluster(s)
+- **AWS CLI** — for querying FIS experiment status and EKS cluster discovery
 - A prepared/executed FIS experiment directory (from aws-fis-experiment-prepare or aws-fis-experiment-execute)
+
+## Multi-Cluster EKS Discovery and Kubeconfig Isolation
+
+When the environment contains multiple EKS clusters, the skill discovers ALL clusters
+in the target region and scans each one for applications depending on the affected
+services. Each cluster gets its own kubeconfig file to avoid overwriting the user's
+existing `~/.kube/config`.
+
+### Kubeconfig Isolation
+
+**CRITICAL: Never overwrite `~/.kube/config`.** Generate a dedicated kubeconfig file
+per cluster in the log directory:
+
+```bash
+KUBECONFIG_DIR="${LOG_DIR}/kubeconfigs"
+mkdir -p "${KUBECONFIG_DIR}"
+
+# For each EKS cluster, generate an isolated kubeconfig file
+aws eks update-kubeconfig \
+  --name "{CLUSTER_NAME}" \
+  --region ${TARGET_REGION} \
+  --kubeconfig "${KUBECONFIG_DIR}/${CLUSTER_NAME}.kubeconfig"
+```
+
+All subsequent `kubectl` commands for that cluster MUST use the `--kubeconfig` flag:
+```bash
+kubectl --kubeconfig "${KUBECONFIG_DIR}/${CLUSTER_NAME}.kubeconfig" get pods -A
+```
+
+Or set `KUBECONFIG` env var per-command (preferred for background log processes):
+```bash
+KUBECONFIG="${KUBECONFIG_DIR}/${CLUSTER_NAME}.kubeconfig" kubectl logs -f ...
+```
+
+### Cluster Discovery
+
+1. **List all EKS clusters** in the target region:
+   ```bash
+   aws eks list-clusters --region ${TARGET_REGION} --query 'clusters[]' --output json
+   ```
+
+2. **Filter relevant clusters** — If the experiment already targets a specific EKS
+   cluster (e.g., from the experiment README), start with that cluster. Then check
+   remaining clusters in the region, as applications on other clusters may also
+   depend on the affected service (e.g., a Redis cluster shared by apps across
+   multiple EKS clusters).
+
+3. **Generate isolated kubeconfig** for each cluster (see above).
+
+4. **Verify access** before scanning — if `kubectl get nodes` fails for a cluster,
+   skip it and inform the user:
+   ```
+   Cluster discovery:
+     ✅ eks-cluster-prod: accessible (12 nodes)
+     ✅ eks-cluster-staging: accessible (4 nodes)
+     ❌ eks-cluster-private: not accessible (check VPC/IAM config)
+   ```
+
+5. **Parallel scanning** — scan all accessible clusters concurrently (one agent per
+   cluster) for dependency discovery in Step 3a.
 
 ## Workflow
 
@@ -84,24 +144,92 @@ Present the detected service list to the user.
 
 ### Step 3: Collect Application Dependencies
 
-#### 3a. Auto-Discover Potential Dependencies
+#### 3a. Auto-Discover Potential Dependencies (Deep Scan)
 
 For each affected AWS service, automatically discover EKS applications that may
-depend on it:
+depend on it. **Scan ALL accessible EKS clusters** (from Multi-Cluster Discovery
+above) in parallel.
 
-1. Get the service's endpoint (e.g., RDS cluster endpoint, ElastiCache primary
-   endpoint, EC2 private IP/DNS) via AWS CLI
-2. Search all pod environment variables across namespaces for references to that
-   endpoint
-3. Search ConfigMaps across namespaces for references to that endpoint
-4. Present discovered `namespace/deployment` candidates to the user, noting where
-   the match was found (env var name, ConfigMap name)
+**Step 3a-1: Resolve service endpoints**
+
+Get the service's endpoint(s) and identifiers for matching:
+
+| Service | CLI Command | Match Targets |
+|---|---|---|
+| RDS/Aurora | `aws rds describe-db-clusters --db-cluster-identifier {ID} --query 'DBClusters[0].{Endpoint:Endpoint,ReaderEndpoint:ReaderEndpoint,Port:Port}'` | Endpoint hostname, reader endpoint, port |
+| ElastiCache (Redis) | `aws elasticache describe-replication-groups --replication-group-id {ID} --query 'ReplicationGroups[0].{Primary:NodeGroups[0].PrimaryEndpoint,Reader:NodeGroups[0].ReaderEndpoint}'` | Primary endpoint, reader endpoint, port (6379) |
+| MSK (Kafka) | `aws kafka get-bootstrap-brokers --cluster-arn {ARN}` | Bootstrap broker endpoints, port (9092/9094) |
+| OpenSearch | `aws opensearch describe-domain --domain-name {DOMAIN} --query 'DomainStatus.Endpoints'` | Domain endpoint, VPC endpoint |
+| EC2 instance | `aws ec2 describe-instances --instance-ids {ID} --query 'Reservations[0].Instances[0].{PrivateIp:PrivateIpAddress,PrivateDns:PrivateDnsName}'` | Private IP, private DNS |
+
+Build a `SERVICE_ENDPOINTS` map (service → list of endpoint strings to search for).
+Include both the full hostname and partial matches (e.g., cluster identifier without
+domain suffix) to catch applications that construct endpoints dynamically.
+
+**Step 3a-2: Deep scan across all clusters**
+
+For each accessible EKS cluster, search the following sources (ordered by reliability):
+
+| Priority | Source | Command | What It Catches |
+|---|---|---|---|
+| 1 | **Pod environment variables** | `kubectl get pods -A -o json \| jq '.items[].spec.containers[].env[]?'` | Direct endpoint references in env vars (e.g., `DB_HOST`, `REDIS_URL`, `KAFKA_BROKERS`) |
+| 2 | **ConfigMaps** | `kubectl get configmaps -A -o json \| jq '.items[].data'` | Endpoint references in configuration files (application.yml, .env, etc.) |
+| 3 | **Secrets** (metadata only) | `kubectl get secrets -A -o json \| jq '.items[] \| {name: .metadata.name, namespace: .metadata.namespace, keys: (.data \| keys)}'` | Secret key names hinting at service connections (e.g., `db-password`, `redis-auth`, `kafka-credentials`). Do NOT decode secret values — only match key names. |
+| 4 | **EnvFrom references** | `kubectl get pods -A -o json \| jq '.items[].spec.containers[].envFrom[]?'` | Pods referencing ConfigMaps/Secrets that contain endpoints (follow the reference to check contents) |
+| 5 | **Service ExternalName** | `kubectl get services -A -o json \| jq '.items[] \| select(.spec.type=="ExternalName") \| {name: .metadata.name, ns: .metadata.namespace, externalName: .spec.externalName}'` | K8s Services that point to external AWS endpoints (e.g., `mydb.cluster-xxx.region.rds.amazonaws.com`) |
+| 6 | **Pod volume mounts** (projected/CSI) | `kubectl get pods -A -o json \| jq '.items[].spec.volumes[]? \| select(.projected or .csi)'` | IRSA-based or CSI-based service connections (e.g., Secrets Store CSI for RDS credentials) |
+
+**Matching logic:**
+- For each source, search for ANY string from `SERVICE_ENDPOINTS` (case-insensitive)
+- Also match common service identifier patterns:
+  - RDS: `rds`, cluster identifier, `aurora`, `mysql`, `postgres` + port 3306/5432
+  - ElastiCache: `redis`, `elasticache`, replication group ID + port 6379
+  - MSK: `kafka`, `msk`, broker endpoints + port 9092/9094
+  - OpenSearch: `opensearch`, `elasticsearch`, domain name + port 443/9200
+- When a match is found, trace back to the owning **Deployment/StatefulSet/DaemonSet**
+  via the pod's `ownerReferences`
+
+**Step 3a-3: Aggregate and deduplicate results**
+
+Merge results from all clusters into a single table:
+
+```
+Dependency discovery results (scanned 3 clusters):
+
+EKS Cluster: eks-cluster-prod
+  RDS (cluster-xxx):
+    ✅ payments/payment-api     — env: DB_HOST=cluster-xxx.abc.us-east-1.rds.amazonaws.com
+    ✅ orders/order-service     — configmap: orders/app-config (key: spring.datasource.url)
+    ⚠️  users/user-service      — secret key: users/db-credentials (key: DB_HOST) — may reference this service
+
+  ElastiCache (my-redis):
+    ✅ payments/payment-api     — env: REDIS_HOST=my-redis.abc.use1.cache.amazonaws.com
+    ✅ sessions/session-mgr     — service: sessions/redis-svc (ExternalName → my-redis.abc...)
+
+EKS Cluster: eks-cluster-staging
+    ⬚ No dependencies found on affected services
+```
+
+**Note on Secrets:** For Priority 3 (Secrets), only inspect key names, never decode
+values. Mark matches as "⚠️ may reference" (uncertain) since key names alone cannot
+confirm the actual endpoint. The user must confirm these.
 
 #### 3b. User Confirmation and Manual Supplement
 
 Ask the user to confirm the auto-discovered dependencies and add any that were
 missed. Store the final mapping as `SERVICE_APP_MAP` (service → list of
-namespace/deployment pairs).
+`{cluster}/{namespace}/{deployment}` tuples).
+
+For multi-cluster setups, the map includes the cluster name:
+```
+SERVICE_APP_MAP:
+  RDS (cluster-xxx):
+    - eks-cluster-prod/payments/payment-api
+    - eks-cluster-prod/orders/order-service
+  ElastiCache (my-redis):
+    - eks-cluster-prod/payments/payment-api
+    - eks-cluster-prod/sessions/session-mgr
+```
 
 ### Step 3.5: Detect and Collect Managed Service Logs
 
@@ -151,7 +279,13 @@ organized by service name subdirectories.
 #### Real-time Mode: Background Collection
 
 For each application in `SERVICE_APP_MAP`, start background `kubectl logs -f` processes
-for **regular containers only** (excluding FIS-injected ephemeral containers):
+for **regular containers only** (excluding FIS-injected ephemeral containers).
+
+**Multi-cluster note:** For each application, use the kubeconfig for its cluster:
+```bash
+KUBECONFIG="${KUBECONFIG_DIR}/${CLUSTER_NAME}.kubeconfig" kubectl ...
+```
+All `kubectl` commands below implicitly use the correct cluster's kubeconfig.
 
 1. Resolve the deployment's pod label selector from `.spec.selector.matchLabels`
 2. Get the list of **regular container names** from the deployment spec:
@@ -253,10 +387,12 @@ Remove the PID file after cleanup.
 |-------|-------|------------|
 | `/.pids: Permission denied` | `LOG_DIR` variable empty due to `&&` chain — path resolves to `/.pids` | Use `export LOG_DIR=...` with multi-line script, NOT `&&` chains. See Step 4 notes. |
 | `kubectl: command not found` | kubectl not installed | Install kubectl and configure kubeconfig |
-| `error: You must be logged in` | kubeconfig not configured | Run `aws eks update-kubeconfig --name {cluster}` |
+| `error: You must be logged in` | kubeconfig not configured or expired | The skill auto-generates per-cluster kubeconfig via `aws eks update-kubeconfig --kubeconfig {path}`. Check IAM permissions for EKS. |
 | `No resources found` | Deployment/pod doesn't exist | Verify deployment name and namespace |
 | `Unable to retrieve logs` | Pod not running or restarted | Check pod status, may need to fetch from CloudWatch Logs |
 | Template ID not found | README format changed | Manually provide template ID |
+| `AccessDeniedException` on `eks:DescribeCluster` | IAM does not allow EKS access | Ensure caller has `eks:ListClusters` and `eks:DescribeCluster` permissions |
+| Cluster not accessible via kubectl | VPC private endpoint or security group restriction | Skip the cluster and note in output; user may need VPN or bastion access |
 
 ## Output Files
 
