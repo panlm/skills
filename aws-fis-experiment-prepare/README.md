@@ -167,8 +167,10 @@ Step 7: Rename output directory (append experiment template ID for easy identifi
 "Prepare an AZ Power Interruption experiment for us-east-1a"
 "Create FIS experiment for aws:rds:failover-db-cluster targeting my Aurora cluster"
 "准备 FIS 实验，测试 AZ 断电对 EKS 和 RDS 的影响"
+"测试 AZ 断电对 RDS 的影响"
 "Generate chaos experiment config for EC2 CPU stress"
 "Set up fault injection test for ElastiCache failover in ap-southeast-1"
+"test AZ failure impact on EC2 and ElastiCache only"
 ```
 
 ## Key Design Decisions
@@ -192,6 +194,10 @@ Step 7: Rename output directory (append experiment template ID for easy identifi
 9. **Naming convention prevents collisions.** `ExperimentName` includes a 6-character random suffix, making all CFN physical resource names (IAM Role, Dashboard, Alarm) globally unique. An optional `context-slug` in directory and resource names distinguishes experiments with the same scenario and target but different downstream services (e.g., `payment-redis` vs `payment-msk` for network fault injection).
 
 10. **AZ Power Interruption: one Stack per AZ, shared tags.** The target AZ is hardcoded in multiple locations within the experiment template (filters, action parameters). To test a different AZ, delete the Stack and deploy a new one. Resource tags (`AzImpairmentPower`) do NOT distinguish AZ — the experiment template's internal AZ filters handle that. Tags are applied by a Lambda-backed Custom Resource within the same CFN Stack, requiring zero extra permissions on the EC2 Instance Profile. See `references/az-power-interruption-guide.md` for full details.
+
+11. **Service-scoped sub-action pruning for AZ Power Interruption.** When the user mentions specific services (e.g., "test AZ failure for RDS"), only the relevant sub-actions are included in the experiment template — not the full 10 sub-actions. This prevents unintended impact on other business applications in the same AZ. Mandatory infrastructure sub-actions (Network Connectivity, ARC Zonal Autoshift) are always included unless explicitly excluded by the user. The agent confirms the final sub-action list with the user before generating files.
+
+12. **Default experiment duration is 10 minutes.** All experiment scenarios and sub-actions default to `PT10M` unless the user specifies otherwise. This is shorter than the AWS documentation default of `PT30M` but sufficient for most validation scenarios, and reduces the blast radius window. Time-dependent parameters (e.g., ARC Zonal Autoshift timing) scale proportionally.
 
 ## Directory Structure
 

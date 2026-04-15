@@ -82,6 +82,22 @@ Same as aws-service-chaos-research — use this order:
 
 Store as `TARGET_REGION`.
 
+#### Default Experiment Duration
+
+**Default duration: `PT10M` (10 minutes)** for all experiment scenarios and sub-actions,
+unless the user explicitly specifies a different duration.
+
+The original AWS documentation templates for Scenario Library scenarios use `PT30M`
+(30 minutes), but 10 minutes is sufficient for most validation scenarios and reduces
+the blast radius window. When using `PT10M`:
+- Apply `PT10M` to all sub-actions' `parameters.duration` fields
+- For AZ Power Interruption, scale the ARC Zonal Autoshift timing proportionally:
+  at `PT10M`, ARC starts at minute 2 (`startAfter` the initial actions) and runs for
+  8 minutes (instead of starting at minute 5 and running for 25 minutes at `PT30M`)
+
+If the user provides a custom duration, apply it consistently to all sub-actions and
+adjust any time-dependent parameters proportionally.
+
 ### Step 2: Discover Target Resources
 
 #### For Scenario Library Scenarios
@@ -132,10 +148,24 @@ either:
 - Use `resourceArns` with only the specific ARNs in the target AZ (preferred), or
 - Use `resourceTags` + `filters` together (fallback)
 4. **If scenario is AZ Power Interruption**, you MUST also follow
-   `references/az-power-interruption-guide.md` — it covers tagging strategy (Custom
-   Resource Lambda), FIS Experiment Role permissions (managed policies + inline), CFN
-   Service Role prerequisites (`logs:*`, `iam:CreateServiceLinkedRole`), IAM Role target
-   for Pause Instance Launches, and the design decision of one Stack per AZ.
+   `references/az-power-interruption-guide.md` — it covers **service-scoped sub-action
+   pruning** (blast radius control), default experiment duration, tagging strategy
+   (Custom Resource Lambda), FIS Experiment Role permissions (managed policies + inline),
+   CFN Service Role prerequisites (`logs:*`, `iam:CreateServiceLinkedRole`), IAM Role
+   target for Pause Instance Launches, and the design decision of one Stack per AZ.
+
+   **Service-Scoped Sub-Action Pruning (CRITICAL):**
+   - When the user mentions **specific services** (e.g., "test AZ failure for RDS",
+     "AZ 断电对 ElastiCache 的影响"), include ONLY the sub-actions relevant to those
+     services plus mandatory infrastructure sub-actions (Network Connectivity, ARC
+     Zonal Autoshift). **Remove all other sub-actions** to prevent unintended impact
+     on other business applications.
+   - When the user says "all services" or does not specify services, include all
+     sub-actions (full AZ power interruption).
+   - **Always confirm the final sub-action list with the user** before generating files.
+   - See `references/az-power-interruption-guide.md` → "Service-Scoped Sub-Action
+     Pruning" section for the complete mapping table, dependency rules, and examples.
+
 5. Proceed to resource discovery and compatibility validation as normal
 
 From the documentation, extract:
@@ -145,12 +175,20 @@ From the documentation, extract:
 
 **Ask the user:**
 1. Which AZ to target (for AZ-level scenarios)
-2. Target resource identifiers:
+2. **Which services to include in the experiment** (for AZ Power Interruption):
+   - If the user mentions specific services (e.g., "RDS", "EC2 and ElastiCache"),
+     include ONLY those services' sub-actions + mandatory infrastructure sub-actions
+   - If the user does not specify services, ask: "Do you want to test all services
+     (full AZ power interruption) or only specific services? Including all services
+     will affect EC2, ASG, RDS, ElastiCache, EBS, S3 Express, and network connectivity
+     in the target AZ."
+   - Present the final sub-action list and ask for confirmation before proceeding
+3. Target resource identifiers:
    - For RDS/Aurora: cluster identifiers or instance identifiers
    - For EC2: instance IDs or ASG names
    - For ElastiCache: replication group IDs
    - For EKS: cluster name, namespace, pod labels
-3. Use the identifiers to discover the actual resource ARNs via AWS CLI, then populate
+4. Use the identifiers to discover the actual resource ARNs via AWS CLI, then populate
    `resourceArns` in the experiment template targets
 
 #### For Custom FIS Actions
@@ -332,11 +370,14 @@ digraph compat_check {
 
 #### 3d. For Scenario Library Scenarios
 
-For composite scenarios (e.g., AZ Power Interruption), validate EACH sub-action
-against its respective target resources. For example:
+For composite scenarios (e.g., AZ Power Interruption), validate EACH **included**
+sub-action against its respective target resources. For example:
 - RDS sub-action: verify the user's RDS resource is actually an Aurora cluster
 - ElastiCache sub-action: verify the user's cache is a replication group
 - EC2 sub-action: verify instances exist in the target AZ
+
+**Only validate sub-actions that are included after service-scoped pruning.** If the
+user only requested RDS impact, do not validate EC2 or ElastiCache resources.
 
 Sub-actions with no matching resources are automatically skipped by FIS (this is
 fine), but if the user's **primary** resource fails validation, stop and report.

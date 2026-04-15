@@ -164,8 +164,10 @@ aws cloudformation deploy \
 "Prepare an AZ Power Interruption experiment for us-east-1a"
 "Create FIS experiment for aws:rds:failover-db-cluster targeting my Aurora cluster"
 "准备 FIS 实验，测试 AZ 断电对 EKS 和 RDS 的影响"
+"测试 AZ 断电对 RDS 的影响"
 "生成 EC2 CPU 压力测试的混沌实验配置"
 "为 ap-southeast-1 的 ElastiCache 故障转移配置故障注入测试"
+"只测试 AZ 断电对 EC2 和 ElastiCache 的影响"
 ```
 
 ## 关键设计决策
@@ -187,6 +189,10 @@ aws cloudformation deploy \
 8. **EKS RBAC 通过 CFN Custom Resource 管理。** EKS Pod Action 所需的 K8s RBAC 资源（ServiceAccount、Role、RoleBinding）由 Lambda-backed CFN Custom Resource 自动管理。使用固定标准化名称（`fis-sa`、`fis-experiment-role`、`fis-experiment-role-binding`），同一 namespace 下所有实验共享。Lambda 执行幂等创建（已存在则跳过），删除 Stack 时不会删除 RBAC 资源，因为其他实验可能仍在使用。Lambda 使用 `botocore.signers.RequestSigner` 并携带 `x-k8s-aws-id` header 生成 EKS bearer token，这是 EKS API server 正确认证所必需的。
 
 9. **AZ 电力中断：每个 AZ 一个 Stack，标签共享。** 目标 AZ 在实验模板的多个位置写死（filter、action 参数）。要测试不同 AZ 需删除 Stack 重建。资源标签（`AzImpairmentPower`）不区分 AZ — 由实验模板内部的 AZ filter 处理。标签通过同一 CFN Stack 中的 Lambda-backed Custom Resource 打上，EC2 Instance Profile 无需额外权限。详见 `references/az-power-interruption-guide.md`。
+
+10. **AZ 电力中断：按服务范围裁剪子动作。** 当用户提到特定服务（如"测试 AZ 断电对 RDS 的影响"），实验模板仅包含与该服务相关的子动作，而非全部 10 个子动作。这可以防止对同一 AZ 中其他业务应用的意外影响。强制性基础设施子动作（网络中断、ARC Zonal Autoshift）始终包含，除非用户明确排除。Agent 在生成文件前会与用户确认最终的子动作列表。
+
+11. **默认实验持续时间为 10 分钟。** 所有实验场景和子动作的默认持续时间为 `PT10M`，除非用户另行指定。这比 AWS 文档默认的 `PT30M` 更短，但对大多数验证场景已经足够，同时缩短了影响范围窗口。时间相关参数（如 ARC Zonal Autoshift 时间）按比例调整。
 
 ## 目录结构
 

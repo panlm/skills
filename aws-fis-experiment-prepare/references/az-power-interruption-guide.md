@@ -14,6 +14,103 @@ and Disrupt-S3-Express-One-Zone.
 **MANDATORY:** Complete all steps in this guide before generating configuration files
 for this scenario.
 
+## Service-Scoped Sub-Action Pruning (Blast Radius Control)
+
+**CRITICAL: When the user mentions specific services, include ONLY the sub-actions
+relevant to those services. Do NOT include the full 10 sub-actions by default.**
+
+This prevents unintended impact on other business applications running in the same AZ.
+
+### Pruning Rules
+
+1. **User mentions specific services** → include ONLY sub-actions for those services
+   plus the mandatory infrastructure sub-actions (Network Connectivity, ARC Zonal
+   Autoshift). Remove all others.
+2. **User says "all services" or does not specify** → include all 10 sub-actions
+   (full AZ power interruption simulation).
+3. **Always ask the user to confirm the final sub-action list** before generating files.
+
+### Sub-Action to Service Mapping
+
+| Sub-Action | Service Keyword(s) | Action ID |
+|---|---|---|
+| Stop-Instances | EC2, instance | `aws:ec2:stop-instances` |
+| Stop-ASG-Instances | EC2, ASG, Auto Scaling | `aws:ec2:stop-instances` (ASG target) |
+| Pause-ASG-Scaling | ASG, Auto Scaling | `aws:ec2:asg-insufficient-instance-capacity-error` |
+| Pause-Network-Connectivity | Network, Subnet, VPC | `aws:network:disrupt-connectivity` |
+| Failover-RDS | RDS, Aurora, database | `aws:rds:failover-db-cluster` |
+| Pause-ElastiCache | ElastiCache, Redis, cache | `aws:elasticache:replicationgroup-interrupt-az-power` |
+| Pause-EBS-IO | EBS, volume, disk | `aws:ebs:pause-volume-io` |
+| Disrupt-S3-Express-One-Zone | S3, S3 Express | `aws:network:disrupt-connectivity` (S3 Express target) |
+| Start-ARC-Zonal-Autoshift | ARC, Zonal Autoshift | `aws:arc:start-zonal-autoshift` |
+| Pause-Instance-Launches | *(removed by default — see "Pause Instance Launches" section)* | `aws:ec2:api-insufficient-instance-capacity-error` |
+
+### Dependency Rules Between Sub-Actions
+
+Some sub-actions have implicit dependencies. When including a service, also include
+its dependent sub-actions:
+
+| If User Mentions | Must Also Include | Reason |
+|---|---|---|
+| EC2 instances (standalone) | Stop-Instances | Direct EC2 impact |
+| EC2 instances (ASG-managed) | Stop-ASG-Instances + Pause-ASG-Scaling | Stop instances AND prevent ASG from replacing them in the impaired AZ |
+| ASG / Auto Scaling | Stop-ASG-Instances + Pause-ASG-Scaling | Both are needed: stop existing + prevent new launches |
+| RDS / Aurora | Failover-RDS | Direct RDS impact |
+| ElastiCache / Redis | Pause-ElastiCache | Direct ElastiCache impact |
+| EBS / volume | Pause-EBS-IO | Direct EBS impact |
+| S3 Express | Disrupt-S3-Express-One-Zone + Pause-Network-Connectivity | S3 Express disruption requires subnet network disruption |
+| Network / Subnet | Pause-Network-Connectivity | Direct network impact |
+
+**Mandatory infrastructure sub-actions** (always included unless user explicitly
+excludes them):
+- **Pause-Network-Connectivity** — simulates AZ-level network isolation; without it,
+  resources in the impaired AZ can still communicate, which is unrealistic
+- **Start-ARC-Zonal-Autoshift** — simulates AWS's automatic traffic shift response;
+  provides a realistic recovery signal
+
+**Exception:** If the user explicitly says they only want to test a single service
+(e.g., "only test RDS failover") and does NOT want network disruption, respect their
+request and omit the infrastructure sub-actions. Confirm this with the user.
+
+### Examples
+
+| User Request | Included Sub-Actions | Excluded |
+|---|---|---|
+| "测试 AZ 断电对 RDS 的影响" | Failover-RDS, Pause-Network-Connectivity, Start-ARC-Zonal-Autoshift | EC2, ASG, ElastiCache, EBS, S3 Express |
+| "test AZ failure for EC2 and RDS" | Stop-Instances, Stop-ASG-Instances, Pause-ASG-Scaling, Failover-RDS, Pause-Network-Connectivity, Start-ARC-Zonal-Autoshift | ElastiCache, EBS, S3 Express |
+| "AZ 断电对 ElastiCache 的影响" | Pause-ElastiCache, Pause-Network-Connectivity, Start-ARC-Zonal-Autoshift | EC2, ASG, RDS, EBS, S3 Express |
+| "full AZ power interruption" | All 10 sub-actions (minus Pause-Instance-Launches per default) | None |
+| "只测试 RDS 故障转移，不需要网络中断" | Failover-RDS | All others including network |
+
+### Impact on Tagging, Permissions, and Dashboard
+
+When sub-actions are pruned:
+- **Tagging Lambda:** Only tag resources for the included sub-actions. Remove unused
+  tag values from the Lambda parameters.
+- **FIS Experiment Role:** Only attach managed policies for the included services.
+  Remove inline permissions for excluded services.
+- **CloudWatch Dashboard:** Only include metric widgets for the included services.
+- **CFN template size:** Significantly smaller with fewer sub-actions.
+
+## Default Experiment Duration
+
+**Default duration: `PT10M` (10 minutes) for all sub-actions.**
+
+Unless the user explicitly specifies a different duration, use `PT10M` as the default
+for the overall experiment and all sub-actions. The original AWS documentation template
+uses `PT30M` (30 minutes), but 10 minutes is sufficient for most validation scenarios
+and reduces the blast radius window.
+
+**Duration parameter locations:**
+- Each sub-action's `parameters.duration` field
+- ARC Zonal Autoshift's `startAfter` timing should scale proportionally:
+  - At PT30M default: ARC starts at minute 5, runs for 25 minutes
+  - At PT10M default: ARC starts at minute 2, runs for 8 minutes
+  - Formula: `startAfter = duration × (5/30)`, rounded to nearest minute
+
+If the user specifies a custom duration, apply it consistently to all sub-actions
+and adjust ARC timing proportionally.
+
 ## Official Documentation (Required Reading)
 
 Before generating any configuration files, you **MUST** call `aws___read_documentation`
