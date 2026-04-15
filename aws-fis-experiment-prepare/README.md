@@ -207,7 +207,6 @@ aws-fis-experiment-prepare/
 ├── README_CN.md                          # Chinese version
 └── references/
     ├── output-structure.md               # File format specifications for all 6 output files
-    ├── scenario-templates.md             # FIS Scenario Library JSON template examples
     ├── eks-pod-action-prerequisites.md   # EKS Pod action prerequisites (Lambda + Custom Resource for K8s RBAC)
     └── az-power-interruption-guide.md    # AZ Power Interruption scenario guide (tagging, permissions, design decisions)
 ```

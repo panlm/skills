@@ -138,7 +138,7 @@ To start the experiment:
 
 ## experiment-template.json
 
-See `references/scenario-templates.md` for scenario-specific templates.
+See `references/az-power-interruption-guide.md` for AZ Power Interruption specific details.
 
 **Key requirements:**
 - Must be valid input for `aws fis create-experiment-template --cli-input-json`

@@ -131,7 +131,8 @@ do NOT add `filters` (e.g., AZ filter) to the same target — FIS will reject it
 either:
 - Use `resourceArns` with only the specific ARNs in the target AZ (preferred), or
 - Use `resourceTags` + `filters` together (fallback)
-4. Cross-reference with `references/scenario-templates.md` for additional skeleton context
+4. Cross-reference with `references/az-power-interruption-guide.md` if scenario is
+   AZ Power Interruption
 5. **If scenario is AZ Power Interruption**, you MUST also follow
    `references/az-power-interruption-guide.md` — it covers tagging strategy (Custom
    Resource Lambda), FIS Experiment Role permissions (managed policies + inline), CFN
@@ -582,7 +583,6 @@ FISExperimentRole:
 6. **README.md** — Experiment overview and execution instructions
 
 See `references/output-structure.md` for exact file formats.
-See `references/scenario-templates.md` for Scenario Library JSON templates.
 
 ### Step 5.5: CloudFormation Permission Pre-Check
 

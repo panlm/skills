@@ -6,8 +6,29 @@ This guide applies when the user requests an **AZ Availability: Power Interrupti
 scenario from the FIS Scenario Library. It covers the unique requirements of this
 scenario that differ from custom single-action FIS experiments.
 
+**This scenario includes 10 sub-actions:** Stop-Instances, Stop-ASG-Instances,
+Pause-Instance-Launches, Pause-ASG-Scaling, Pause-Network-Connectivity, Failover-RDS,
+Pause-ElastiCache, Start-ARC-Zonal-Autoshift, Pause-EBS-IO (`aws:ebs:pause-volume-io`),
+and Disrupt-S3-Express-One-Zone.
+
 **MANDATORY:** Complete all steps in this guide before generating configuration files
 for this scenario.
+
+## Official Documentation (Required Reading)
+
+Before generating any configuration files, you **MUST** call `aws___read_documentation`
+to read the AZ Power Interruption scenario page and extract the JSON experiment template:
+
+```
+aws___read_documentation:
+  url: https://docs.aws.amazon.com/en_us/fis/latest/userguide/az-availability-scenario.html
+  max_length: 30000
+```
+
+This page is the **authoritative source** for the correct multi-action template structure,
+including all sub-actions, target definitions, parameter values, and action ordering.
+Do NOT attempt to construct the experiment template from memory or from
+`aws fis list-actions` alone.
 
 ## Design Decision: One Stack Per AZ
 
@@ -55,8 +76,8 @@ sub-action targets the resource:
 | Auto Scaling Group | `IceAsg` | ASGs with instances in target AZ |
 | Subnet | `DisruptSubnet` | Subnets in target AZ |
 | RDS Cluster | `DisruptRds` | Aurora clusters with writer in target AZ |
-| ElastiCache Replication Group | `DisruptElasticache` | Replication groups with nodes in target AZ |
-| EBS Volume | `ApiPauseVolume` | Volumes attached to instances in target AZ |
+| ElastiCache Replication Group | `ElasticacheImpact` | Replication groups with nodes in target AZ |
+| EBS Volume | `ApiPauseVolume` | Volumes attached to instances in target AZ (only volumes with `DeleteOnTermination: false`) |
 | ARC Autoshift Resources | `RecoverAutoshiftResources` | Resources with zonal autoshift enabled |
 
 ### AZ Filtering Is Not Done by Tags
@@ -74,7 +95,7 @@ affected:
 | ASG | `parameters.availabilityZoneIdentifiers` in action |
 | RDS Cluster | `parameters.writerAvailabilityZoneIdentifiers` in target |
 | ElastiCache | `parameters.availabilityZoneIdentifier` in target |
-| EBS Volume | `parameters.availabilityZoneIdentifier` in target |
+| EBS Volume | `parameters.availabilityZoneIdentifier` in target + `filters[].path: Attachments.DeleteOnTermination` = `false` |
 | IAM Role (Pause Launches) | `parameters.availabilityZoneIdentifiers` in action |
 
 This means: if you later want to test a different AZ, **tags do not need updating** —
@@ -94,7 +115,7 @@ in healthy AZs will carry the tag but will **not** be affected by the experiment
 
 ## FIS Experiment Role — Required Permissions
 
-The FIS Experiment Role needs permissions for all 9 sub-actions. Use **AWS managed
+The FIS Experiment Role needs permissions for all 10 sub-actions. Use **AWS managed
 policies as the base**, supplemented by an inline policy for actions not covered.
 
 ### Managed Policies to Attach
@@ -216,6 +237,24 @@ If no roles are specified (empty `resourceArns`), this action is skipped.
 | Fargate not supported | EKS Pods on Fargate and ECS Tasks on Fargate are not affected |
 | RDS Multi-AZ with 2 readable standby not supported | Instances terminate but capacity re-provisions immediately in affected AZ |
 | S3 Express One Zone | Only affects directory buckets co-located in the target AZ |
+| EBS volume filter | Only targets volumes with `DeleteOnTermination: false` by default; selection mode is `COUNT(1)` (one volume) |
+
+## Additional Sub-Action Details
+
+### Disrupt S3 Express One Zone
+
+This is a separate action using `aws:network:disrupt-connectivity` (same action ID as
+Pause Network Connectivity but with different scope). It disrupts connectivity between
+subnets and S3 Express One Zone directory buckets in the affected AZ. It reuses the
+Subnet target with tag `AzImpairmentPower: DisruptSubnet` — no additional tagging is
+needed beyond what Pause Network Connectivity requires.
+
+### ARC Zonal Autoshift Timing
+
+The `aws:arc:start-zonal-autoshift` action starts **5 minutes after** the power
+interruption begins and runs for the remaining 25 minutes of the 30-minute interruption
+window. This simulates real-world ARC behavior where AWS detects the impairment and
+shifts traffic approximately 5 minutes after the event.
 
 ## Custom Resource Lambda — Tagging Logic
 
