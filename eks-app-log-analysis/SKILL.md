@@ -259,6 +259,22 @@ Poll until status is `Complete`. Save results to
 This step only collects and saves logs — analysis is done in Step 7b together with
 application logs.
 
+**ASG Activity History:** If the experiment involves Auto Scaling Groups (e.g., AZ Power
+Interruption), also collect ASG scaling activities. This is always available (no logging
+enablement needed):
+
+```bash
+aws autoscaling describe-scaling-activities \
+  --auto-scaling-group-name "{ASG_NAME}" \
+  --start-time {ISO_START} \
+  --max-items 100 \
+  --query 'Activities[?StatusCode!=`Cancelled`]'
+```
+
+Save results to `{LOG_DIR}/asg-{asg-name}/scaling-activities.log`. Key events to
+extract: instance launch/terminate, `InsufficientInstanceCapacity` errors, health
+check failures, and capacity rebalancing across AZs.
+
 #### Step 7b: Analyze All Logs and Generate Report
 
 Read **all** log files from `{LOG_DIR}/` — both application logs (`{app}.log`) and
