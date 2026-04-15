@@ -131,14 +131,12 @@ do NOT add `filters` (e.g., AZ filter) to the same target — FIS will reject it
 either:
 - Use `resourceArns` with only the specific ARNs in the target AZ (preferred), or
 - Use `resourceTags` + `filters` together (fallback)
-4. Cross-reference with `references/az-power-interruption-guide.md` if scenario is
-   AZ Power Interruption
-5. **If scenario is AZ Power Interruption**, you MUST also follow
+4. **If scenario is AZ Power Interruption**, you MUST also follow
    `references/az-power-interruption-guide.md` — it covers tagging strategy (Custom
    Resource Lambda), FIS Experiment Role permissions (managed policies + inline), CFN
    Service Role prerequisites (`logs:*`, `iam:CreateServiceLinkedRole`), IAM Role target
    for Pause Instance Launches, and the design decision of one Stack per AZ.
-6. Proceed to resource discovery and compatibility validation as normal
+5. Proceed to resource discovery and compatibility validation as normal
 
 From the documentation, extract:
 - **Target resource types** (EC2 instances, RDS clusters, subnets, etc.)
