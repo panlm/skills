@@ -853,8 +853,9 @@ After:  2026-04-11-10-30-00-pod-net-pktloss-payment-redis-EXT1a2b3c4d5e6f7/
 **Note:** The template ID is already extracted in Step 6d. Reuse the same value here.
 If the CFN deployment failed (Step 6c exceeded max retries), skip this rename step.
 
-After renaming, **update `README.md`** to set the `**Directory:**` field to the final
-directory name (with template ID), e.g., `2026-04-11-10-30-00-pod-net-pktloss-payment-redis-EXT1a2b3c4d5e6f7`.
+After renaming, **update `README.md`** to set the `**Directory:**` field to the full
+absolute path of the final directory (with template ID), e.g.,
+`/home/user/experiments/2026-04-11-10-30-00-pod-net-pktloss-payment-redis-EXT1a2b3c4d5e6f7`.
 
 After renaming, print a brief summary to the terminal listing only:
 - The experiment output directory path (with template ID)
