@@ -256,10 +256,15 @@ Then retrieve results with `aws logs get-query-results --query-id {QUERY_ID}`.
 Poll until status is `Complete`. Save results to
 `{LOG_DIR}/{service-name}/managed-service-logs.log`.
 
-Extract key events per service (refer to the Key Events table in Step 3.5) for
-inclusion in the report.
+This step only collects and saves logs — analysis is done in Step 7b together with
+application logs.
 
-#### Step 7b: Generate Report
+#### Step 7b: Analyze All Logs and Generate Report
+
+Read **all** log files from `{LOG_DIR}/` — both application logs (`{app}.log`) and
+managed service logs (`managed-service-logs.log`). Analyze them together to produce
+a unified report with cross-correlation between application-level errors and
+infrastructure-level events.
 
 Generate the report:
 
