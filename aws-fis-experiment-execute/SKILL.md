@@ -175,7 +175,7 @@ experiment begins risks missing early log entries that get rotated or overwritte
 Before starting app log collection, verify that `kubectl` is available:
 
 ```bash
-kubectl version --client --short 2>/dev/null
+kubectl version --client -o yaml 2>/dev/null
 ```
 
 **If kubectl is NOT available:**
