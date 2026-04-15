@@ -26,7 +26,7 @@
 3. **验证兼容性** — 通过 AWS CLI 检查实际资源（如 `describe-db-instances`、`describe-db-clusters`），与 FIS Action 的 `resourceType` 要求交叉校验，在生成任何文件之前完成。
 4. **确定监控配置** — 默认使用 `source: "none"`（不绑定 Stop Condition 告警）。仅在用户明确提供告警时才创建 CloudWatch Alarm。生成包含各服务可用性、性能和错误/延迟指标的综合 CloudWatch Dashboard。
 5. **读取 CFN 资源文档** — 在生成 CFN 模板之前，读取 `AWS::FIS::ExperimentTemplate` CloudFormation 文档，确保模板使用当前的属性 schema。
-6. **生成配置文件** — 生成包含 6 个文件的自包含目录：实验模板、IAM 策略、CFN 模板、告警、Dashboard 和 README。
+6. **生成配置文件** — 生成包含 2 个文件的自包含目录：CFN 模板和 README。
 7. **自动修复部署** — 部署 CFN 模板，若部署失败则自动分析错误、修复模板、删除失败 Stack、重试（最多 5 次）。
 8. **目录重命名追加模版 ID** — 部署成功后，将实验模版 ID 追加到输出目录名（如 `2026-04-11-pod-net-pktloss-payment-redis-EXT1a2b3c4d5e6f7/`），方便用户查找。
 
@@ -57,12 +57,7 @@
 ```
 ./{yyyy-mm-dd-HH-MM-SS}-{scenario-slug}-{target-slug}[-{context-slug}]-{TEMPLATE_ID}/
 ├── README.md                          # 实验概览和执行说明
-├── experiment-template.json           # FIS 实验模板（CLI 创建用）
-├── iam-policy.json                    # 最小权限 IAM 策略
-├── cfn-template.yaml                  # 全包 CloudFormation 模板
-└── alarms/
-    ├── stop-condition-alarms.json     # CloudWatch 告警定义
-    └── dashboard.json                 # CloudWatch Dashboard 定义
+└── cfn-template.yaml                  # 全包 CloudFormation 模板
 ```
 
 可选的 `{context-slug}` 用于区分相同场景和 target 但不同下游服务的实验

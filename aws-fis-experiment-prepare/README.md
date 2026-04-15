@@ -26,7 +26,7 @@ Preparing an AWS FIS experiment manually involves several error-prone, tedious s
 3. **Validates compatibility** — Inspects actual resources via AWS CLI (e.g., `describe-db-instances`, `describe-db-clusters`) and cross-checks against FIS action `resourceType` requirements before generating any files.
 4. **Determines monitoring configuration** — Defaults to `source: "none"` (no stop condition alarm). Only creates CloudWatch alarms if the user explicitly provides one. Generates a comprehensive CloudWatch dashboard with per-service availability, performance, and error/latency metrics.
 5. **Reads CFN resource documentation** — Before generating the CFN template, reads the `AWS::FIS::ExperimentTemplate` CloudFormation documentation to ensure the template uses the current property schema.
-6. **Generates configuration files** — Produces a self-contained directory with 6 files: experiment template, IAM policy, CFN template, alarms, dashboard, and README.
+6. **Generates configuration files** — Produces a self-contained directory with 2 files: CFN template and README.
 7. **Deploys with self-healing** — Deploys the CFN template, and if deployment fails, automatically analyzes errors, fixes the template, deletes the failed stack, and retries (up to 5 times).
 8. **Renames directory with template ID** — After successful deployment, appends the experiment template ID to the output directory name (e.g., `2026-04-11-pod-net-pktloss-payment-redis-EXT1a2b3c4d5e6f7/`) for easy identification.
 
@@ -57,12 +57,7 @@ Any valid FIS action ID, e.g.:
 ```
 ./{yyyy-mm-dd-HH-MM-SS}-{scenario-slug}-{target-slug}[-{context-slug}]-{TEMPLATE_ID}/
 ├── README.md                          # Experiment overview and execution instructions
-├── experiment-template.json           # FIS experiment template for CLI creation
-├── iam-policy.json                    # Least-privilege IAM permissions
-├── cfn-template.yaml                  # All-in-one CloudFormation template
-└── alarms/
-    ├── stop-condition-alarms.json     # CloudWatch alarm definitions
-    └── dashboard.json                 # CloudWatch dashboard body
+└── cfn-template.yaml                  # All-in-one CloudFormation template
 ```
 
 The optional `{context-slug}` distinguishes experiments with the same scenario and target

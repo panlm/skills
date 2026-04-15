@@ -353,8 +353,7 @@ the experiment run to completion.
 
 If the user explicitly provides a CloudWatch Alarm ARN or asks to set up a stop
 condition alarm, then use `source: "aws:cloudwatch:alarm"` with the alarm ARN. In
-that case, also create the alarm resource in the CFN template and the
-`alarms/stop-condition-alarms.json` file.
+that case, also create the alarm resource in the CFN template.
 
 **Reference — useful alarm metrics if the user wants stop conditions:**
 
@@ -499,15 +498,11 @@ not covered by reading the FIS resource documentation alone.
 
 Generate files following the templates in `references/output-structure.md`:
 
-1. **experiment-template.json** — FIS experiment template for CLI creation
-2. **iam-policy.json** — IAM permissions needed by the FIS execution role
-3. **cfn-template.yaml** — CloudFormation template containing ALL resources:
+1. **cfn-template.yaml** — CloudFormation template containing ALL resources:
    - IAM Role with **AWS managed policies** as base + inline policy for extras
    - CloudWatch Dashboard (comprehensive per-service metrics)
    - FIS Experiment Template (default `Source: 'none'`)
    - CloudWatch Alarm — **only if user provided a stop condition**
-4. **alarms/stop-condition-alarms.json** — Standalone alarm definitions (**only if user provided a stop condition**; otherwise skip)
-5. **alarms/dashboard.json** — CloudWatch dashboard body
 
 #### FIS Execution Role: Use AWS Managed Policies
 
@@ -791,8 +786,6 @@ digraph cfn_loop {
    | `AccessDenied` | Caller lacks permissions | Check caller's IAM permissions |
 
 3. **Fix `cfn-template.yaml`** in the output directory based on the error analysis.
-   Also update `experiment-template.json` if the fix affects the experiment template
-   structure (e.g., changed action parameters, modified targets).
 
 4. **Delete the failed stack** before retrying:
    ```bash
@@ -827,10 +820,7 @@ After the stack deploys successfully:
      --region ${TARGET_REGION} --output table
    ```
 
-2. **Update `experiment-template.json`** with real ARNs from the stack (role ARN,
-   alarm ARNs) so it stays in sync with what was actually deployed.
-
-3. **Update `README.md`** to include:
+2. **Update `README.md`** to include:
    - The actual stack name (`${STACK_NAME}` — e.g., `fis-az-power-interruption-my-cluster-a3x7k2`)
    - The experiment template ID from stack outputs
    - The CloudWatch dashboard URL from stack outputs
@@ -920,9 +910,9 @@ After renaming, print a brief summary to the terminal listing only:
 - **Sequential MCP calls.** All `aws___read_documentation` and
   `aws___search_documentation` calls must be sequential, never parallel.
   Retry up to 10 times on rate limit errors.
-- **Keep local files in sync.** After successful deployment, update local files
-  (experiment-template.json, README.md) with real ARNs and stack outputs so the
-  directory is a complete, accurate record of the deployed experiment.
+- **Keep local files in sync.** After successful deployment, update README.md
+  with real ARNs and stack outputs so the directory is a complete, accurate record
+  of the deployed experiment.
 - **Pod memory stress requires threshold calculation.** For `aws:eks:pod-memory-stress`,
   the user's percentage is the **total Pod memory target**, not the injection value.
   You MUST query current pod memory usage and subtract it from the target to get the
