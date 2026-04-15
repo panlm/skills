@@ -115,10 +115,13 @@ in healthy AZs will carry the tag but will **not** be affected by the experiment
 
 ## FIS Experiment Role — Required Permissions
 
-The FIS Experiment Role needs permissions for all 10 sub-actions. Use **AWS managed
-policies as the base**, supplemented by an inline policy for actions not covered.
+The FIS Experiment Role permissions are defined in the **Permissions** section of the
+[AZ Power Interruption documentation](https://docs.aws.amazon.com/fis/latest/userguide/az-availability-scenario.html).
+The agent MUST extract the full IAM policy JSON from that page (already required in
+the Official Documentation step above).
 
-### Managed Policies to Attach
+To reduce policy size, use **AWS managed policies** for well-covered areas and an
+**inline policy** for the remainder:
 
 | Managed Policy | Covers |
 |---|---|
@@ -126,87 +129,9 @@ policies as the base**, supplemented by an inline policy for actions not covered
 | `AWSFaultInjectionSimulatorNetworkAccess` | Network ACL creation/deletion/replacement for connectivity disruption |
 | `AWSFaultInjectionSimulatorRDSAccess` | RDS cluster failover, instance reboot, tag-based target resolution |
 
-### Inline Policy for Uncovered Actions
-
-The following permissions are **NOT covered** by any managed policy and must be added
-as an inline policy on the FIS Experiment Role:
-
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "ElastiCacheAZPower",
-            "Effect": "Allow",
-            "Action": [
-                "elasticache:DescribeReplicationGroups",
-                "elasticache:InterruptClusterAzPower"
-            ],
-            "Resource": "arn:aws:elasticache:*:*:replicationgroup:*"
-        },
-        {
-            "Sid": "EBSPauseIO",
-            "Effect": "Allow",
-            "Action": [
-                "ec2:DescribeVolumes",
-                "ec2:PauseVolumeIO"
-            ],
-            "Resource": "*"
-        },
-        {
-            "Sid": "InjectAPIError",
-            "Effect": "Allow",
-            "Action": "ec2:InjectApiError",
-            "Resource": "*",
-            "Condition": {
-                "ForAnyValue:StringEquals": {
-                    "ec2:FisActionId": [
-                        "aws:ec2:api-insufficient-instance-capacity-error",
-                        "aws:ec2:asg-insufficient-instance-capacity-error"
-                    ]
-                }
-            }
-        },
-        {
-            "Sid": "DescribeASG",
-            "Effect": "Allow",
-            "Action": "autoscaling:DescribeAutoScalingGroups",
-            "Resource": "*"
-        },
-        {
-            "Sid": "FISExperimentLogging",
-            "Effect": "Allow",
-            "Action": [
-                "logs:CreateLogDelivery",
-                "logs:PutResourcePolicy",
-                "logs:DescribeResourcePolicies",
-                "logs:DescribeLogGroups"
-            ],
-            "Resource": "*"
-        },
-        {
-            "Sid": "TagResolution",
-            "Effect": "Allow",
-            "Action": "tag:GetResources",
-            "Resource": "*"
-        }
-    ]
-}
-```
-
-**Note:** `ec2:PauseVolumeIO` resource scope is `*` because FIS selects the specific
-volume at runtime. `ec2:DescribeVolumes` also requires `*`.
-
-## CFN Service Role — Additional Permissions
-
-If using a CFN Service Role (as described in the
-[setup guide](https://panlm.github.io/others/cfn-service-role-for-fis-experiment-setup-guide/)),
-verify it has:
-
-| Permission | Why |
-|---|---|
-| `logs:*` | FIS experiment logging (`cloudwatch:*` does NOT cover `logs:` namespace) |
-| `iam:CreateServiceLinkedRole` | ARC Zonal Autoshift creates `AWSServiceRoleForZonalAutoshiftPracticeRun` automatically |
+Permissions NOT covered by managed policies (ElastiCache, EBS pause-io, InjectApiError,
+ASG describe, logs, tag resolution) must be added as an inline policy. Extract these
+directly from the documentation's Permissions JSON — do NOT hardcode from this guide.
 
 ## Service-Linked Role
 
