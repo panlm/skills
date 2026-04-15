@@ -20,7 +20,7 @@ Running an AWS FIS experiment after preparation still involves manual verificati
 2. **Reads README.md** to extract the CFN stack name and experiment metadata.
 3. **Verifies stack deployment** — checks that the CloudFormation stack is in `CREATE_COMPLETE` or `UPDATE_COMPLETE` status.
 4. **Extracts template ID** from stack outputs.
-5. **Displays experiment actions** — reads `experiment-template.json` to extract and display all action IDs. Log collection is always enabled.
+5. **Displays experiment actions** — queries the deployed FIS experiment template via AWS CLI to extract and display all action IDs. Log collection is always enabled.
 6. **Discovers EKS apps across all clusters and starts log collection** — loads `app-service-log-analysis` skill to discover ALL EKS clusters in the target region, generates isolated kubeconfig files (never overwrites `~/.kube/config`), deep-scans all accessible clusters in parallel for application dependencies (env vars, ConfigMaps, Secrets, ExternalName, etc.), and starts background `kubectl logs -f` **before the experiment starts**. If kubectl is not available, skips app logs but still collects managed service logs via AWS CLI.
 7. **Enforces safety** — presents a clear impact warning with affected resources, monitored applications, managed service log status, and post-baseline duration, requires explicit user confirmation before starting.
 8. **Starts the experiment** only after explicit user confirmation.
@@ -50,7 +50,7 @@ Step 3:  Check CloudFormation stack status
 Step 4:  Extract experiment template ID from stack outputs
           ↓
 Step 5:  Display experiment actions
-          ├── Read experiment-template.json, extract and display actionIds
+          ├── Query FIS experiment template via AWS CLI, extract and display actionIds
           └── Log collection always enabled → proceed to Step 6
           ↓
 Step 6:  Discover EKS apps + start log collection [BEFORE experiment]
@@ -150,11 +150,8 @@ The experiment directory must contain:
 
 | File | Required | Purpose |
 |---|---|---|
-| `experiment-template.json` | Yes | FIS experiment template |
-| `iam-policy.json` | Yes | IAM permissions for FIS role |
 | `cfn-template.yaml` | Yes | CloudFormation template (reference) |
 | `README.md` | Yes | Experiment overview with CFN stack name |
-| `alarms/stop-condition-alarms.json` | Optional | CloudWatch alarm definitions |
 | `alarms/dashboard.json` | Optional | CloudWatch dashboard |
 
 **Critical:** The `README.md` must contain the `**CFN Stack:** {STACK_NAME}` field populated with the actual deployed stack name. This is set by `aws-fis-experiment-prepare` after successful deployment.
@@ -252,7 +249,7 @@ aws cloudwatch delete-dashboards --dashboard-names "FIS-{SCENARIO}" --region {RE
 
 4. **Explicit confirmation is non-negotiable.** FIS experiments cause real impact. The skill never auto-starts — it always presents a warning with specific resource details and requires the user to type confirmation.
 
-5. **Action display is transparent.** Before proceeding, the skill reads `experiment-template.json`, extracts all action IDs, and displays them. This lets the user verify which fault actions will run.
+5. **Action display is transparent.** Before proceeding, the skill queries the deployed FIS experiment template via `aws fis get-experiment-template`, extracts all action IDs, and displays them. This lets the user verify which fault actions will run.
 
 6. **App discovery before experiment start.** When log collection is enabled, EKS application dependencies are discovered and log collection is started BEFORE the experiment begins. This prevents missing early log entries that may be rotated or overwritten during the experiment.
 

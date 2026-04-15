@@ -183,7 +183,7 @@ Step 7: Rename output directory (append experiment template ID for easy identifi
 
 4. **All-in-one CFN template.** The `cfn-template.yaml` contains IAM role, alarms, dashboard, and experiment template. A single `cloudformation deploy` produces everything needed.
 
-5. **Local files stay in sync.** After successful deployment, `experiment-template.json` and `README.md` are updated with real ARNs and stack outputs, so the directory is an accurate record of the deployed experiment.
+5. **Local files stay in sync.** After successful deployment, `README.md` is updated with real ARNs and stack outputs, so the directory is an accurate record of the deployed experiment.
 
 6. **Never starts the experiment.** This skill only prepares and deploys infrastructure. Starting the actual experiment is handled by [aws-fis-experiment-execute](../aws-fis-experiment-execute/) or manually by the user.
 

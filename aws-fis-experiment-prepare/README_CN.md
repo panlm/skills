@@ -180,7 +180,7 @@ aws cloudformation deploy \
 
 4. **全包 CFN 模板。** `cfn-template.yaml` 包含 IAM 角色、告警、Dashboard 和实验模板。一次 `cloudformation deploy` 即可完成所有部署。
 
-5. **本地文件保持同步。** 部署成功后，`experiment-template.json` 和 `README.md` 会用真实 ARN 和 Stack 输出更新，使目录成为已部署实验的准确记录。
+5. **本地文件保持同步。** 部署成功后，`README.md` 会用真实 ARN 和 Stack 输出更新，使目录成为已部署实验的准确记录。
 
 6. **绝不启动实验。** 本 Skill 只准备和部署基础设施。启动实际实验由 [aws-fis-experiment-execute](../aws-fis-experiment-execute/) 或用户手动完成。
 

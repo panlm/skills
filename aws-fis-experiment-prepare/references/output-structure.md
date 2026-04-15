@@ -265,9 +265,9 @@ Resources:
         Name: !Ref ExperimentName
         Scenario: '{SCENARIO_TYPE}'
       Targets:
-        # {targets definition matching experiment-template.json}
+        # {targets definition}
       Actions:
-        # {actions definition matching experiment-template.json}
+        # {actions definition}
 
   # --- (Optional) CloudWatch Alarm as Stop Condition ---
   # Include the StopConditionAlarm resource below ONLY if the user explicitly

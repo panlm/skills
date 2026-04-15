@@ -20,7 +20,7 @@
 2. **读取 README.md** 提取 CFN Stack 名称和实验元数据。
 3. **验证 Stack 部署** — 检查 CloudFormation Stack 是否处于 `CREATE_COMPLETE` 或 `UPDATE_COMPLETE` 状态。
 4. **提取模板 ID** — 从 Stack 输出中获取。
-5. **展示实验操作** — 读取 `experiment-template.json` 提取并展示所有 action ID。日志收集始终启用。
+5. **展示实验操作** — 通过 AWS CLI 查询已部署的 FIS 实验模板，提取并展示所有 action ID。日志收集始终启用。
 6. **跨集群发现 EKS 应用并启动日志收集** — 加载 `app-service-log-analysis` skill，发现目标 Region 中所有 EKS 集群，为每个集群生成独立的 kubeconfig 文件（绝不覆盖 `~/.kube/config`），并行深度扫描所有可访问集群的应用依赖（环境变量、ConfigMap、Secret、ExternalName 等），在**实验启动前**启动后台 `kubectl logs -f`。如果 kubectl 不可用，跳过应用日志但仍通过 AWS CLI 收集托管服务日志。
 7. **强制安全确认** — 展示清晰的影响警告（受影响资源、监控应用列表、托管服务日志状态、实验后基线时长），要求用户明确确认后才启动。
 8. **启动实验** — 仅在用户明确确认后执行。
@@ -50,7 +50,7 @@
 步骤 4:  从 Stack 输出提取实验模板 ID
           ↓
 步骤 5:  展示实验操作
-          ├── 读取 experiment-template.json，提取并展示 actionId
+          ├── 通过 AWS CLI 查询 FIS 实验模板，提取并展示 actionId
           └── 日志收集始终启用 → 继续步骤 6
           ↓
 步骤 6:  发现 EKS 应用 + 启动日志收集 [实验启动前完成]
@@ -149,12 +149,8 @@ YYYY-mm-dd-HH-MM-SS-{scenario}-experiment-results.md
 
 | 文件 | 必需 | 用途 |
 |---|---|---|
-| `experiment-template.json` | 是 | FIS 实验模板 |
-| `iam-policy.json` | 是 | FIS 角色 IAM 权限 |
 | `cfn-template.yaml` | 是 | CloudFormation 模板（参考） |
 | `README.md` | 是 | 实验概览，含 CFN Stack 名称 |
-| `alarms/stop-condition-alarms.json` | 可选 | CloudWatch 告警定义 |
-| `alarms/dashboard.json` | 可选 | CloudWatch Dashboard |
 
 **关键：** `README.md` 必须包含 `**CFN Stack:** {STACK_NAME}` 字段，填入实际部署的 Stack 名称。此字段由 `aws-fis-experiment-prepare` 在成功部署后设置。
 
@@ -251,7 +247,7 @@ aws cloudwatch delete-dashboards --dashboard-names "FIS-{SCENARIO}" --region {RE
 
 4. **明确确认不可妥协。** FIS 实验产生真实影响。Skill 绝不自动启动 — 始终展示具体资源细节的警告，要求用户输入确认。
 
-5. **操作展示透明化。** 在继续前，skill 读取 `experiment-template.json`，提取所有 action ID 并展示。这让用户可以验证将运行哪些故障操作。
+5. **操作展示透明化。** 在继续前，skill 通过 `aws fis get-experiment-template` 查询已部署的 FIS 实验模板，提取所有 action ID 并展示。这让用户可以验证将运行哪些故障操作。
 
 6. **应用发现在实验启动前完成。** 选择收集日志时，EKS 应用依赖在实验开始前发现，日志收集也在实验前启动。这防止实验开始后才找应用，导致早期日志被轮转或覆盖而丢失。
 

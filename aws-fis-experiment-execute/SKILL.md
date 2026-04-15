@@ -97,9 +97,7 @@ find . -maxdepth 1 -type d -name "*${TEMPLATE_ID_INPUT}" 2>/dev/null
 
 #### Step 1b: Validate required files
 
-Verify `EXPERIMENT_DIR` contains: `experiment-template.json`, `iam-policy.json`,
-`cfn-template.yaml`, `README.md`. Optional: `alarms/stop-condition-alarms.json`,
-`alarms/dashboard.json`.
+Verify `EXPERIMENT_DIR` contains: `cfn-template.yaml`, `README.md`.
 
 ### Step 2: Read README and Extract Stack Information
 
@@ -141,8 +139,17 @@ Also extract dashboard URL and alarm ARNs if available.
 
 ### Step 5: Display Experiment Actions
 
-Read `experiment-template.json` from the experiment directory. Extract all `actionId`
-values from the `actions` map and display them to the user:
+Use the template ID extracted in Step 4 to query the experiment template via AWS CLI
+and display all action IDs:
+
+```bash
+aws fis get-experiment-template \
+  --id "{TEMPLATE_ID}" \
+  --region {REGION} \
+  --query 'experimentTemplate.actions' --output json
+```
+
+Extract all `actionId` values from the actions map and display them to the user:
 
 ```
 Actions found:
