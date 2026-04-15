@@ -30,6 +30,12 @@ including all sub-actions, target definitions, parameter values, and action orde
 Do NOT attempt to construct the experiment template from memory or from
 `aws fis list-actions` alone.
 
+**IMPORTANT:** The documentation template includes a `logConfiguration` field with only
+`logSchemaVersion: 2` but no log destination. This is incomplete and will cause a CFN
+error: `"Must specify at least one log destination in logConfiguration"`. **Remove the
+entire `logConfiguration` field** from the experiment template when generating the CFN
+template.
+
 ## Design Decision: One Stack Per AZ
 
 AZ Power Interruption experiment templates have the **target AZ hardcoded** in multiple
