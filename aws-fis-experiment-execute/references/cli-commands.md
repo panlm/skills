@@ -184,18 +184,28 @@ aws fis list-experiments \
 ```bash
 EXPERIMENT_ID="{EXPERIMENT_ID}"
 REGION="{REGION}"
+MAX_POLL=120  # max 120 polls × 30s = 60 minutes
+POLL_COUNT=0
 
-while true; do
+while [ $POLL_COUNT -lt $MAX_POLL ]; do
   STATUS=$(aws fis get-experiment \
     --id "${EXPERIMENT_ID}" \
     --region ${REGION} \
-    --query 'experiment.state.status' --output text)
+    --query 'experiment.state.status' --output text 2>/dev/null)
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Status = $STATUS"
+  if [ -z "$STATUS" ] || [ "$STATUS" = "None" ]; then
+    echo "ERROR: Failed to get experiment status (invalid experiment ID or API error)"
+    break
+  fi
   case "$STATUS" in
     completed|stopped|failed) break ;;
-    *) sleep 30 ;;
+    *) POLL_COUNT=$((POLL_COUNT + 1)); sleep 30 ;;
   esac
 done
+
+if [ $POLL_COUNT -ge $MAX_POLL ]; then
+  echo "WARN: Polling timed out after $((MAX_POLL * 30 / 60)) minutes"
+fi
 ```
 
 ### Check Alarm State
