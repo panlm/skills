@@ -6,7 +6,7 @@ replaced at generation time.
 ## File Naming
 
 ```bash
-TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
+TIMESTAMP=$(TZ=Asia/Shanghai date +%Y-%m-%d-%H-%M-%S)
 REPORT_FILE="${EXPERIMENT_DIR}/${TIMESTAMP}-app-log-analysis.md"
 ```
 

@@ -333,7 +333,7 @@ including both indirect FIS actions and AWS API/Console methods.
 content to the terminal. Use the following file naming convention:
 
 ```bash
-TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
+TIMESTAMP=$(TZ=Asia/Shanghai date +%Y-%m-%d-%H-%M-%S)
 SERVICE_SLUG=$(echo "{SERVICE_NAME}" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-')
 # File name: ${TIMESTAMP}-${SERVICE_SLUG}-chaos-research.md
 ```

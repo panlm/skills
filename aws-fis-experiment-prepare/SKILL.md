@@ -446,7 +446,7 @@ TARGET_SLUG=$(echo "TARGET_RESOURCE_ID" | tr '[:upper:]' '[:lower:]' | tr ' :/' 
 #     e.g., "redis", "msk", "dynamo", "rds" (inferred from port, endpoint, or user description)
 #   - Other actions: omit unless user specifies a distinguishing purpose
 CONTEXT_SLUG=$(echo "CONTEXT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-' | cut -c1-10)
-TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
+TIMESTAMP=$(TZ=Asia/Shanghai date +%Y-%m-%d-%H-%M-%S)
 # Include CONTEXT_SLUG only when it is set (non-empty)
 if [ -n "${CONTEXT_SLUG}" ]; then
   OUTPUT_DIR="./${TIMESTAMP}-${SCENARIO_SLUG}-${TARGET_SLUG}-${CONTEXT_SLUG}"

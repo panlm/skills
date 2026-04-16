@@ -192,7 +192,7 @@ while [ $POLL_COUNT -lt $MAX_POLL ]; do
     --id "${EXPERIMENT_ID}" \
     --region ${REGION} \
     --query 'experiment.state.status' --output text 2>/dev/null)
-  echo "$(date '+%Y-%m-%d %H:%M:%S'): Status = $STATUS"
+  echo "$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S'): Status = $STATUS"
   if [ -z "$STATUS" ] || [ "$STATUS" = "None" ]; then
     echo "ERROR: Failed to get experiment status (invalid experiment ID or API error)"
     break
@@ -224,8 +224,8 @@ aws cloudwatch get-metric-statistics \
   --namespace "{NAMESPACE}" \
   --metric-name "{METRIC}" \
   --dimensions "Name={DIM_NAME},Value={DIM_VALUE}" \
-  --start-time "$(date -u -v-30M +%Y-%m-%dT%H:%M:%S)" \
-  --end-time "$(date -u +%Y-%m-%dT%H:%M:%S)" \
+  --start-time "$(TZ=UTC date -v-30M +%Y-%m-%dT%H:%M:%S)" \
+  --end-time "$(TZ=UTC date +%Y-%m-%dT%H:%M:%S)" \
   --period 60 \
   --statistics Average \
   --region {REGION} --output table

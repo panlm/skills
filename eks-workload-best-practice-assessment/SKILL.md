@@ -200,7 +200,7 @@ and **write it directly to a local markdown file**.
 Use the following file naming convention:
 
 ```bash
-TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
+TIMESTAMP=$(TZ=Asia/Shanghai date +%Y-%m-%d-%H-%M-%S)
 CLUSTER_SLUG=$(echo "{CLUSTER_NAME}" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-')
 ```
 

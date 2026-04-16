@@ -15,7 +15,7 @@ replaced at generation time.
 ## File Naming
 
 ```bash
-TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
+TIMESTAMP=$(TZ=Asia/Shanghai date +%Y-%m-%d-%H-%M-%S)
 SCENARIO_SLUG=$(echo "{SCENARIO_NAME}" | tr '[:upper:]' '[:lower:]' | tr ' :/' '-')
 # File: ${EXPERIMENT_DIR}/${TIMESTAMP}-${SCENARIO_SLUG}-experiment-results.md
 ```

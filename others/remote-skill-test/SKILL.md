@@ -94,7 +94,7 @@ Create the timestamped test directory on the remote host **first**, before
 installing skills. All subsequent steps operate inside this directory.
 
 ```bash
-TIMESTAMP=$(date -u +%Y-%m-%d-%H-%M-%S)
+TIMESTAMP=$(TZ=Asia/Shanghai date +%Y-%m-%d-%H-%M-%S)
 TEST_DIR="~/skill-tests/${TIMESTAMP}-{SKILL_NAME}"
 
 ssh -i {SSH_KEY} -o StrictHostKeyChecking=no {USER}@{HOST} \
