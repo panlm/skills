@@ -70,6 +70,17 @@ Determine whether the user wants a **Scenario Library** pre-built scenario or a
 - User specifies an action ID like `aws:rds:failover-db-cluster`
 - Or describes what they want to test and you map it to an action
 
+**SSM Automation-based fault injection** (for services without native FIS actions):
+- When the target service has **no native FIS action** (e.g., MSK, MQ, Redshift,
+  Neptune, OpenSearch), use `aws:ssm:start-automation-execution` to invoke an SSM
+  Automation runbook that calls the target service's API directly
+- The user describes what they want to test (e.g., "reboot MSK broker", "failover
+  Neptune cluster") and the skill creates both the SSM Automation document and the
+  FIS experiment template in a single CFN stack
+- **MANDATORY:** Follow `references/ssm-automation-generic-api-guide.md` for the
+  full pattern including the two-role IAM design, runbook template, and CFN
+  integration
+
 If ambiguous, ask the user to clarify.
 
 #### Region Detection
@@ -203,6 +214,32 @@ Extract from the action:
 - Required `targets` (resource types, e.g., `aws:rds:cluster`, `aws:ec2:instance`)
 - Required `parameters` (duration, percentage, etc.)
 - Ask the user for target resource identifiers, then resolve to ARNs via AWS CLI
+
+#### For Services Without Native FIS Actions (SSM Automation)
+
+If `aws fis list-actions` has no native action for the user's target service:
+
+1. **Confirm no native action exists:**
+   ```bash
+   aws fis list-actions --query "actions[?starts_with(id, 'aws:{SERVICE}:')]" \
+     --region TARGET_REGION --output table
+   ```
+
+2. **If no results, use the SSM Automation approach.** Follow
+   `references/ssm-automation-generic-api-guide.md` to:
+   - Identify the target service's API operation (e.g., `kafka:RebootBroker`)
+   - Create an SSM Automation runbook (schema 0.3) with `aws:executeAwsApi`
+   - Deploy the runbook as `AWS::SSM::Document` in the CFN template
+   - Wire it into the FIS experiment template via `aws:ssm:start-automation-execution`
+   - Create the two-role IAM pattern (FIS Experiment Role + SSM Automation Role)
+
+3. **Resource discovery:** Use the target service's CLI to discover resources:
+   - MSK: `aws kafka list-clusters`, `aws kafka list-nodes`
+   - MQ: `aws mq list-brokers`
+   - Redshift: `aws redshift describe-clusters`
+   - Neptune: `aws neptune describe-db-clusters`
+
+4. Proceed to Step 3 (compatibility validation) as normal.
 
 ### Step 2.5: EKS Pod Action Prerequisites (Mandatory Gate)
 
@@ -481,6 +518,10 @@ while remaining readable. Max 18 characters.
 | `aws:elasticache:replicationgroup-interrupt-az-power` | `ec-rg-az-power` | 14 |
 | `aws:ebs:pause-io` | `ebs-pause-io` | 12 |
 | `aws:ssm:send-command` | `ssm-cmd` | 7 |
+| `aws:ssm:start-automation-execution` (MSK reboot) | `ssm-auto-msk-reboot` | 20→18 |
+| `aws:ssm:start-automation-execution` (MQ reboot) | `ssm-auto-mq-reboot` | 18 |
+| `aws:ssm:start-automation-execution` (Redshift reboot) | `ssm-auto-rs-reboot` | 18 |
+| `aws:ssm:start-automation-execution` (Neptune failover) | `ssm-auto-np-failover` | 20→18 |
 
 **Abbreviation rules for unlisted actions:**
 - `network` → `net`, `packet-loss` → `pktloss`, `memory` → `mem`
@@ -488,6 +529,8 @@ while remaining readable. Max 18 characters.
 - `interruption` → `int`, `slowdown` → `slow`, `connectivity` → `conn`
 - `application` → `app`, `replicationgroup` → `rg`, `elasticache` → `ec`
 - EKS pod actions: keep `pod-` prefix, drop `eks-` (e.g., `pod-net-pktloss` not `eks-net-pktloss`)
+- SSM Automation actions: use `ssm-auto-` prefix + service abbrev + operation (e.g., `ssm-auto-msk-reboot`)
+  - `redshift` → `rs`, `neptune` → `np`, `opensearch` → `os`, `memorydb` → `memdb`
 - Target max 18 characters
 
 **CONTEXT_SLUG guidance:**
@@ -575,6 +618,7 @@ experiment. Map FIS actions to managed policies:
 | `aws:ecs:*` | ECSAccess |
 | `aws:eks:*` | EKSAccess |
 | `aws:ssm:*` | SSMAccess |
+| `aws:ssm:start-automation-execution` (generic API) | SSMAccess + `iam:PassRole` (see `references/ssm-automation-generic-api-guide.md`) |
 | `aws:ebs:*` | EC2Access (EBS actions are covered by EC2Access) |
 | `aws:elasticache:*` | *(no managed policy — use inline)* |
 | `aws:s3:*` | *(no managed policy — use inline)* |

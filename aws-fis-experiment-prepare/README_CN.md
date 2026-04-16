@@ -52,6 +52,20 @@
 - `aws:elasticache:replicationgroup-interrupt-az-power`
 - `aws:eks:pod-network-latency`
 
+### SSM Automation 故障注入（无原生 FIS Action 的服务）
+
+对于**没有原生 FIS Action** 的 AWS 服务（如 MSK、MQ、Redshift、Neptune、OpenSearch），
+Skill 使用 `aws:ssm:start-automation-execution` 调用 SSM Automation Runbook，
+直接调用目标服务的 API。该方法在单个 CFN Stack 中同时创建 SSM Automation 文档和 FIS 实验模板。
+
+示例：
+- **MSK** — `kafka:RebootBroker` 测试 Kafka 消费者/生产者的弹性
+- **Amazon MQ** — `mq:RebootBroker` 测试 ActiveMQ/RabbitMQ 客户端故障转移
+- **Redshift** — `redshift:RebootCluster` 测试数据仓库查询弹性
+- **Neptune** — `neptune:FailoverDBCluster` 测试图数据库客户端故障转移
+
+详见 `references/ssm-automation-generic-api-guide.md`，包含完整的 SSM Automation Runbook 模板、双角色 IAM 设计和 CFN 集成方式。
+
 ## 输出目录结构
 
 ```
@@ -168,6 +182,9 @@ aws cloudformation deploy \
 "生成 EC2 CPU 压力测试的混沌实验配置"
 "为 ap-southeast-1 的 ElastiCache 故障转移配置故障注入测试"
 "只测试 AZ 断电对 EC2 和 ElastiCache 的影响"
+"重启 MSK broker，测试 Kafka 消费者的弹性"
+"准备 MSK broker 重启的故障注入实验"
+"创建 Neptune 集群故障转移的 FIS 实验"
 ```
 
 ## 关键设计决策
@@ -194,6 +211,8 @@ aws cloudformation deploy \
 
 11. **默认实验持续时间为 10 分钟。** 所有实验场景和子动作的默认持续时间为 `PT10M`，除非用户另行指定。这比 AWS 文档默认的 `PT30M` 更短，但对大多数验证场景已经足够，同时缩短了影响范围窗口。时间相关参数（如 ARC Zonal Autoshift 时间）按比例调整。
 
+12. **SSM Automation 支持无原生 FIS Action 的服务。** 对于没有原生 FIS Action 的 AWS 服务（MSK、MQ、Redshift、Neptune、OpenSearch 等），Skill 使用 `aws:ssm:start-automation-execution` 调用 SSM Automation Runbook，直接调用目标服务的 API（如 `kafka:RebootBroker`）。这需要双角色 IAM 模式：FIS 实验角色（信任 `fis.amazonaws.com`）将 SSM Automation 角色（信任 `ssm.amazonaws.com`）传递给 SSM，后者拥有目标服务的权限。SSM 文档和 FIS 实验模板都在单个 CFN Stack 中部署。详见 `references/ssm-automation-generic-api-guide.md`。
+
 ## 目录结构
 
 ```
@@ -204,7 +223,8 @@ aws-fis-experiment-prepare/
 └── references/
     ├── output-structure.md               # 6 个输出文件的格式规范
     ├── eks-pod-action-prerequisites.md   # EKS Pod Action 前置条件（Lambda + Custom Resource 管理 K8s RBAC）
-    └── az-power-interruption-guide.md    # AZ 电力中断场景指南（标签策略、权限、设计决策）
+    ├── az-power-interruption-guide.md    # AZ 电力中断场景指南（标签策略、权限、设计决策）
+    └── ssm-automation-generic-api-guide.md  # SSM Automation 通用 API 故障注入指南（MSK、MQ、Redshift、Neptune 等无原生 FIS Action 的服务）
 ```
 
 ## 已知限制

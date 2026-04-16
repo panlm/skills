@@ -52,6 +52,18 @@ Any valid FIS action ID, e.g.:
 - `aws:elasticache:replicationgroup-interrupt-az-power`
 - `aws:eks:pod-network-latency`
 
+### SSM Automation-Based Fault Injection (Services Without Native FIS Actions)
+
+For AWS services that have **no native FIS action** (e.g., MSK, MQ, Redshift, Neptune, OpenSearch), the skill uses `aws:ssm:start-automation-execution` to invoke an SSM Automation runbook that calls the target service's API directly. This approach creates both the SSM Automation document and the FIS experiment template in a single CFN stack.
+
+Examples:
+- **MSK** — `kafka:RebootBroker` to test Kafka consumer/producer resilience
+- **Amazon MQ** — `mq:RebootBroker` to test ActiveMQ/RabbitMQ client failover
+- **Redshift** — `redshift:RebootCluster` to test data warehouse query resilience
+- **Neptune** — `neptune:FailoverDBCluster` to test graph database client failover
+
+See `references/ssm-automation-generic-api-guide.md` for the full pattern, including SSM Automation runbook templates, two-role IAM design, and CFN integration.
+
 ## Output Directory Structure
 
 ```
@@ -171,6 +183,9 @@ Step 7: Rename output directory (append experiment template ID for easy identifi
 "Generate chaos experiment config for EC2 CPU stress"
 "Set up fault injection test for ElastiCache failover in ap-southeast-1"
 "test AZ failure impact on EC2 and ElastiCache only"
+"Reboot MSK broker to test Kafka consumer resilience"
+"准备 MSK broker 重启的故障注入实验"
+"Create FIS experiment to failover Neptune cluster"
 ```
 
 ## Key Design Decisions
@@ -199,6 +214,8 @@ Step 7: Rename output directory (append experiment template ID for easy identifi
 
 12. **Default experiment duration is 10 minutes.** All experiment scenarios and sub-actions default to `PT10M` unless the user specifies otherwise. This is shorter than the AWS documentation default of `PT30M` but sufficient for most validation scenarios, and reduces the blast radius window. Time-dependent parameters (e.g., ARC Zonal Autoshift timing) scale proportionally.
 
+13. **SSM Automation for unsupported services.** For AWS services without native FIS actions (MSK, MQ, Redshift, Neptune, OpenSearch, etc.), the skill uses `aws:ssm:start-automation-execution` to invoke an SSM Automation runbook that calls the target service's API directly (e.g., `kafka:RebootBroker`). This requires a two-role IAM pattern: the FIS Experiment Role (trusts `fis.amazonaws.com`) passes an SSM Automation Role (trusts `ssm.amazonaws.com`) that has the target service permissions. Both the SSM document and the FIS experiment template are deployed in a single CFN stack. See `references/ssm-automation-generic-api-guide.md` for full details.
+
 ## Directory Structure
 
 ```
@@ -209,7 +226,8 @@ aws-fis-experiment-prepare/
 └── references/
     ├── output-structure.md               # File format specifications for all 6 output files
     ├── eks-pod-action-prerequisites.md   # EKS Pod action prerequisites (Lambda + Custom Resource for K8s RBAC)
-    └── az-power-interruption-guide.md    # AZ Power Interruption scenario guide (tagging, permissions, design decisions)
+    ├── az-power-interruption-guide.md    # AZ Power Interruption scenario guide (tagging, permissions, design decisions)
+    └── ssm-automation-generic-api-guide.md  # SSM Automation approach for services without native FIS actions (MSK, MQ, Redshift, Neptune, etc.)
 ```
 
 ## Limitations
