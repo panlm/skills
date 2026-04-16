@@ -320,7 +320,17 @@ The Lambda receives explicit resource IDs/names as CFN parameters. It does NOT
 auto-discover resources. The prepare skill's resource discovery step (Step 2 in
 SKILL.md) identifies target resources and passes them as parameters.
 
-**ASG tagging:** Uses `autoscaling:CreateOrUpdateTags` with `PropagateAtLaunch: true`.
+**ASG tagging (two-step — CRITICAL):**
+1. Tag the ASG itself via `autoscaling:CreateOrUpdateTags` with `PropagateAtLaunch: true`
+   (ensures future instances also get tagged)
+2. **Also tag existing EC2 instances in the ASG** — query instances via
+   `autoscaling:DescribeAutoScalingGroups` to get current instance IDs, then apply
+   the `AzImpairmentPower: IceAsg` tag directly via `ec2:CreateTags`. Without this
+   step, Stop-ASG-Instances will be skipped because existing instances lack the
+   required tag (`PropagateAtLaunch` only applies to newly launched instances).
+
+Similarly, on Delete event, the Lambda must remove the tag from both the ASG and
+its current instances.
 
 **Lambda Role permissions** (minimum):
 
@@ -328,6 +338,7 @@ SKILL.md) identifies target resources and passes them as parameters.
 |---|---|
 | `ec2:CreateTags` / `ec2:DeleteTags` | `arn:aws:ec2:*:*:instance/*`, `arn:aws:ec2:*:*:subnet/*`, `arn:aws:ec2:*:*:volume/*` |
 | `autoscaling:CreateOrUpdateTags` / `autoscaling:DeleteTags` | `*` |
+| `autoscaling:DescribeAutoScalingGroups` | `*` |
 | `rds:AddTagsToResource` / `rds:RemoveTagsFromResource` | `arn:aws:rds:*:*:cluster:*` |
 | `elasticache:AddTagsToResource` / `elasticache:RemoveTagsFromResource` | `arn:aws:elasticache:*:*:replicationgroup:*` |
 
