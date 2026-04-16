@@ -61,12 +61,16 @@ its dependent sub-actions:
 | S3 Express | Disrupt-S3-Express-One-Zone + Pause-Network-Connectivity | S3 Express disruption requires subnet network disruption |
 | Network / Subnet | Pause-Network-Connectivity | Direct network impact |
 
-**Mandatory infrastructure sub-actions** (always included unless user explicitly
-excludes them):
+**Mandatory infrastructure sub-action** (always included unless user explicitly
+excludes it):
 - **Pause-Network-Connectivity** — simulates AZ-level network isolation; without it,
   resources in the impaired AZ can still communicate, which is unrealistic
-- **Start-ARC-Zonal-Autoshift** — simulates AWS's automatic traffic shift response;
-  provides a realistic recovery signal
+
+**Conditional infrastructure sub-action** (include only when applicable):
+- **Start-ARC-Zonal-Autoshift** — simulates AWS's automatic traffic shift response.
+  **Only include if the user's environment has resources with zonal autoshift enabled
+  (e.g., ALB, NLB with zonal autoshift configured).** If the user does not mention
+  ARC or zonal autoshift, and the environment has no such resources, omit this action.
 
 **Exception:** If the user explicitly says they only want to test a single service
 (e.g., "only test RDS failover") and does NOT want network disruption, respect their
@@ -76,9 +80,9 @@ request and omit the infrastructure sub-actions. Confirm this with the user.
 
 | User Request | Included Sub-Actions | Excluded |
 |---|---|---|
-| "测试 AZ 断电对 RDS 的影响" | Failover-RDS, Pause-Network-Connectivity, Start-ARC-Zonal-Autoshift | EC2, ASG, ElastiCache, EBS, S3 Express |
-| "test AZ failure for EC2 and RDS" | Stop-Instances, Stop-ASG-Instances, Pause-ASG-Scaling, Failover-RDS, Pause-Network-Connectivity, Start-ARC-Zonal-Autoshift | ElastiCache, EBS, S3 Express |
-| "AZ 断电对 ElastiCache 的影响" | Pause-ElastiCache, Pause-Network-Connectivity, Start-ARC-Zonal-Autoshift | EC2, ASG, RDS, EBS, S3 Express |
+| "测试 AZ 断电对 RDS 的影响" | Failover-RDS, Pause-Network-Connectivity | EC2, ASG, ElastiCache, EBS, S3 Express, ARC Autoshift |
+| "test AZ failure for EC2 and RDS" | Stop-Instances, Stop-ASG-Instances, Pause-ASG-Scaling, Failover-RDS, Pause-Network-Connectivity | ElastiCache, EBS, S3 Express, ARC Autoshift |
+| "AZ 断电对 ElastiCache 的影响" | Pause-ElastiCache, Pause-Network-Connectivity | EC2, ASG, RDS, EBS, S3 Express, ARC Autoshift |
 | "full AZ power interruption" | All 10 sub-actions (minus Pause-Instance-Launches per default) | None |
 | "只测试 RDS 故障转移，不需要网络中断" | Failover-RDS | All others including network |
 
@@ -284,10 +288,20 @@ needed beyond what Pause Network Connectivity requires.
 
 ### ARC Zonal Autoshift Timing
 
-The `aws:arc:start-zonal-autoshift` action starts **5 minutes after** the power
-interruption begins and runs for the remaining 25 minutes of the 30-minute interruption
-window. This simulates real-world ARC behavior where AWS detects the impairment and
-shifts traffic approximately 5 minutes after the event.
+The `aws:arc:start-zonal-autoshift` action simulates real-world ARC behavior where
+AWS detects the impairment and shifts traffic after the event.
+
+**Timing scales proportionally with experiment duration:**
+
+| Experiment Duration | ARC startAfter | ARC runs for |
+|---|---|---|
+| PT10M (default) | ~2 minutes | ~8 minutes |
+| PT30M (AWS doc default) | ~5 minutes | ~25 minutes |
+| Custom | duration × (5/30), rounded to nearest minute | remaining time |
+
+**Only include this action if the user's environment has resources with zonal
+autoshift enabled.** If omitted, the experiment still tests AZ failure impact
+on the specified services — it just won't simulate the ARC traffic shift response.
 
 ## Custom Resource Lambda — Tagging Logic
 

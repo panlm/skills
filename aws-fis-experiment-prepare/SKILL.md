@@ -157,9 +157,10 @@ either:
    **Service-Scoped Sub-Action Pruning (CRITICAL):**
    - When the user mentions **specific services** (e.g., "test AZ failure for RDS",
      "AZ 断电对 ElastiCache 的影响"), include ONLY the sub-actions relevant to those
-     services plus mandatory infrastructure sub-actions (Network Connectivity, ARC
-     Zonal Autoshift). **Remove all other sub-actions** to prevent unintended impact
-     on other business applications.
+     services plus the mandatory infrastructure sub-action (Pause-Network-Connectivity).
+     ARC Zonal Autoshift is only included if the user's environment has resources with
+     zonal autoshift enabled. **Remove all other sub-actions** to prevent unintended
+     impact on other business applications.
    - When the user says "all services" or does not specify services, include all
      sub-actions (full AZ power interruption).
    - **Always confirm the final sub-action list with the user** before generating files.
