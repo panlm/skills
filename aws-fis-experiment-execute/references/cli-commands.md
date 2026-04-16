@@ -184,7 +184,7 @@ aws fis list-experiments \
 ```bash
 EXPERIMENT_ID="{EXPERIMENT_ID}"
 REGION="{REGION}"
-MAX_POLL=120  # max 120 polls × 30s = 60 minutes
+MAX_POLL=30  # max 30 polls × 30s = 15 minutes
 POLL_COUNT=0
 
 while [ $POLL_COUNT -lt $MAX_POLL ]; do
