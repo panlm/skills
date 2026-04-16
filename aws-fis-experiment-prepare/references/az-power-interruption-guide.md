@@ -321,19 +321,25 @@ failure).** If the Lambda exits without sending a response, CloudFormation will
 hang for up to 1 hour waiting for the callback, then fail with timeout.
 
 Requirements:
-1. **Use `cfn-response` module** (built into `ZipFile`-based Python Lambda via
-   `import cfnresponse`) or manually send an HTTP PUT to the `ResponseURL` from
-   the event
-2. **Wrap ALL logic in try/except** — on ANY exception, send `cfnresponse.FAILED`
-   with the error message, then return
-3. **Set Lambda Timeout to at least 60 seconds** (default 3s is too short for
+1. **Lambda code MUST be inline using `ZipFile` property** in the CFN template.
+   The `cfnresponse` module is **only available with `ZipFile` inline code** —
+   it is NOT available for Lambda code stored in S3 buckets. If the code is in S3,
+   you must manually send an HTTP PUT to the `ResponseURL`.
+2. **Python import must be exactly `import cfnresponse`** — no other variant
+   (e.g., `from cfnresponse import send`) works. CloudFormation only injects the
+   module when it sees this exact import statement.
+3. **Wrap ALL logic in try/except** — on ANY exception, send `cfnresponse.FAILED`
+   with the error message, then return. If the exception is not caught, no response
+   is sent and CFN hangs.
+4. **Set Lambda Timeout to at least 60 seconds** (default 3s is too short for
    multiple API calls). In the CFN template: `Timeout: 60`
-4. On success, send `cfnresponse.SUCCESS`
+5. On success, send `cfnresponse.SUCCESS`
 
-**Skeleton:**
+**Skeleton (Python, ZipFile inline):**
 ```python
-import cfnresponse
+import json
 import boto3
+import cfnresponse
 
 def handler(event, context):
     try:
@@ -344,12 +350,15 @@ def handler(event, context):
         cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
 ```
 
-**Common causes of CFN Custom Resource hanging:**
-- Lambda raises an unhandled exception → no cfn-response sent → CFN waits forever
-- Lambda timeout too short → function killed before cfn-response sent
-- Lambda in VPC without NAT/VPC Endpoint → cannot reach CFN callback URL
-- `cfnresponse` module not imported (only available with `ZipFile` inline code,
-  NOT with S3-based deployment packages)
+**Common causes of CFN Custom Resource hanging (1 hour timeout):**
+
+| Cause | Symptom | Fix |
+|---|---|---|
+| Unhandled exception | Lambda logs show traceback, no cfn-response sent | Wrap ALL logic in try/except, always call cfnresponse.send |
+| Lambda timeout too short | Logs show "Task timed out after 3.00 seconds" | Set `Timeout: 60` in CFN template |
+| Code not inline (`ZipFile`) | `ModuleNotFoundError: No module named 'cfnresponse'` | Use `ZipFile` property for Lambda code, not S3 |
+| Wrong import syntax | `ImportError` on `from cfnresponse import ...` | Use exactly `import cfnresponse` |
+| Lambda in VPC without NAT | Lambda runs but cannot reach CFN callback URL | Do NOT place this Lambda in a VPC, or add NAT/VPC Endpoint |
 
 ### Resource Discovery
 
