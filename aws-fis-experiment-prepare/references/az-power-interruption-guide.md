@@ -314,13 +314,51 @@ The Lambda receives target resource identifiers as input parameters and applies
 | Update | Remove tags from old resources (via `OldResourceProperties`), apply to new |
 | Delete | Remove all `AzImpairmentPower` tags from resources |
 
-**Resource discovery by the Lambda:**
+### cfn-response Callback (CRITICAL — prevents CFN hanging)
+
+**The Lambda MUST send a cfn-response callback in ALL code paths (success AND
+failure).** If the Lambda exits without sending a response, CloudFormation will
+hang for up to 1 hour waiting for the callback, then fail with timeout.
+
+Requirements:
+1. **Use `cfn-response` module** (built into `ZipFile`-based Python Lambda via
+   `import cfnresponse`) or manually send an HTTP PUT to the `ResponseURL` from
+   the event
+2. **Wrap ALL logic in try/except** — on ANY exception, send `cfnresponse.FAILED`
+   with the error message, then return
+3. **Set Lambda Timeout to at least 60 seconds** (default 3s is too short for
+   multiple API calls). In the CFN template: `Timeout: 60`
+4. On success, send `cfnresponse.SUCCESS`
+
+**Skeleton:**
+```python
+import cfnresponse
+import boto3
+
+def handler(event, context):
+    try:
+        # ... tagging logic ...
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        print(f"ERROR: {e}")
+        cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
+```
+
+**Common causes of CFN Custom Resource hanging:**
+- Lambda raises an unhandled exception → no cfn-response sent → CFN waits forever
+- Lambda timeout too short → function killed before cfn-response sent
+- Lambda in VPC without NAT/VPC Endpoint → cannot reach CFN callback URL
+- `cfnresponse` module not imported (only available with `ZipFile` inline code,
+  NOT with S3-based deployment packages)
+
+### Resource Discovery
 
 The Lambda receives explicit resource IDs/names as CFN parameters. It does NOT
 auto-discover resources. The prepare skill's resource discovery step (Step 2 in
 SKILL.md) identifies target resources and passes them as parameters.
 
-**ASG tagging (two-step — CRITICAL):**
+### ASG Tagging (Two-Step — CRITICAL)
+
 1. Tag the ASG itself via `autoscaling:CreateOrUpdateTags` with `PropagateAtLaunch: true`
    (ensures future instances also get tagged)
 2. **Also tag existing EC2 instances in the ASG** — query instances via
