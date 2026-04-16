@@ -31,6 +31,12 @@ Required tools:
 - A prepared experiment directory (from aws-fis-experiment-prepare skill)
 - The CloudFormation stack for this experiment **must already be deployed**
 
+**Required skill dependency:**
+- **`app-service-log-analysis`** — This skill MUST be installed alongside
+  `aws-fis-experiment-execute`. It is loaded at runtime in Steps 4, 6, and 7 for
+  application discovery, log collection, and analysis. If it is not installed,
+  the experiment can still run but all log collection and analysis will be skipped.
+
 ## Workflow
 
 ```dot
@@ -148,10 +154,11 @@ Proceed directly to Step 4 (log collection is always enabled).
 
 ### Step 4: Discover EKS Applications and Start Log Collection
 
-**REQUIRED:** You MUST load the `app-service-log-analysis` skill at this point. It contains
-the detailed procedures for multi-cluster discovery, kubeconfig isolation, application
-dependency deep-scan, and log collection. Load it now and execute its steps as described
-below.
+**REQUIRED:** You MUST use the `skill` tool to load the `app-service-log-analysis`
+skill NOW, before proceeding. Call: `skill(name="app-service-log-analysis")`.
+This injects the skill's instructions into your context so you can execute its
+steps. If the skill is not installed or cannot be loaded, inform the user and
+skip log collection (the experiment can still run without it).
 
 This step runs **BEFORE** the experiment starts — discovering applications after the
 experiment begins risks missing early log entries that get rotated or overwritten.
@@ -242,7 +249,8 @@ polling commands and experiment status reference.
   Query service-specific status (e.g., RDS instance status, ElastiCache replication
   group status, EKS node status) during monitoring to capture detailed observations.
 
-**Log insights during each poll cycle:** Execute `app-service-log-analysis` Step 5
+**Log insights during each poll cycle:** If `app-service-log-analysis` skill was
+loaded in Step 4, execute its Step 5
 (Real-time Monitoring Display) — read recent logs, count errors/warnings, display
 per-app summary, detect recovery signals. If app log collection was skipped (kubectl
 not available), show only managed service log status. The skill must already be loaded
@@ -271,7 +279,7 @@ After the 3-minute baseline window ends, proceed to analysis.
 
 #### Generate Application Log Analysis
 
-Execute `app-service-log-analysis` Steps 7-8 (skill already loaded from Step 4):
+If `app-service-log-analysis` skill was loaded in Step 4, execute its Steps 7-8:
 - **Its Step 7 (Generate Analysis Report)** — analyze error patterns, peak rates, recovery
   times, and generate the "Application Log Analysis" section of the report. The analysis
   time window extends 3 minutes past the experiment end time to cover the baseline period.
