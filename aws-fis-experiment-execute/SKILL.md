@@ -31,11 +31,9 @@ Required tools:
 - A prepared experiment directory (from aws-fis-experiment-prepare skill)
 - The CloudFormation stack for this experiment **must already be deployed**
 
-**Required skill dependency:**
-- **`app-service-log-analysis`** — This skill MUST be installed alongside
-  `aws-fis-experiment-execute`. It is loaded at runtime in Steps 4, 6, and 7 for
-  application discovery, log collection, and analysis. If it is not installed,
-  the experiment can still run but all log collection and analysis will be skipped.
+**REQUIRED SUB-SKILL:** `app-service-log-analysis` must be installed. Loaded at
+runtime for application discovery, log collection, and analysis. Without it, the
+experiment can still run but log analysis will be skipped.
 
 ## Workflow
 
