@@ -134,6 +134,12 @@ a brief primary node reboot (1-3 minutes recovery). This is less disruptive than
 AZ power interruption — only the targeted node is rebooted, and replica
 replacements are NOT blocked.
 
+**CRITICAL LIMITATION:** `RebootCacheCluster` is only supported on **cluster
+mode disabled** clusters (Memcached, Valkey, and Redis OSS). It is **NOT
+supported on Valkey or Redis OSS cluster mode enabled** clusters. If the user's
+replication group has `ClusterEnabled: true`, use Scenario 1 (AZ power
+interruption) instead, or test at the network level.
+
 **Reference:** Based on
 [aws-samples/fis-template-library/elasticache-redis-primary-node-reboot](https://github.com/aws-samples/fis-template-library/tree/main/elasticache-redis-primary-node-reboot),
 adapted to the single-CFN-stack pattern used by this skill.
@@ -390,13 +396,17 @@ aws elasticache list-tags-for-resource \
 | Automatic Failover | Enabled | `AutomaticFailover: enabled` | Both scenarios require automatic failover for proper recovery |
 | Engine | Redis or Valkey | `Engine` field — must NOT be `memcached` | Memcached does not support replication groups |
 | Deployment | Non-serverless | Check if replication group exists (serverless uses different API) | AZ power action does not support serverless |
-| Cluster Mode | Disabled or Enabled | `ClusterEnabled` field | Both modes supported; disabled is simpler to observe |
+| Cluster Mode (Scenario 1: AZ power) | Disabled or Enabled | `ClusterEnabled` field | Both modes supported |
+| Cluster Mode (Scenario 2: reboot) | **Disabled only** | `ClusterEnabled` field — must be `false` | `RebootCacheCluster` API is NOT supported on cluster mode enabled clusters (Valkey/Redis OSS). If cluster mode is enabled, use Scenario 1 instead |
 
 **If incompatible:** Explain the specific mismatch and suggest:
 - Standalone ElastiCache (no replication group) → must create a replication group
   with Multi-AZ first
 - Memcached → not supported for replication group actions; consider switching to
   Redis/Valkey or testing at the network level
+- Cluster mode enabled + user wants primary node reboot → `RebootCacheCluster`
+  is not supported; suggest Scenario 1 (AZ power interruption) or network-level
+  fault injection (`aws:eks:pod-network-*`) instead
 
 ## Common Mistakes
 
@@ -409,6 +419,7 @@ aws elasticache list-tags-for-resource \
 | Not checking `AutomaticFailover` status | Both scenarios require `AutomaticFailover: enabled`; without it, failover may not occur |
 | Assuming `CacheNodeIdsToReboot` varies | For ElastiCache, the node ID is always `0001` for single-node reboot within a cache cluster |
 | Reboot targets a replica instead of primary | Discover the primary node's `CacheClusterId` at prepare time using `CurrentRole == "primary"`. If primary changes before execution, the reboot still tests connection resilience — just on a replica |
+| Attempting reboot on cluster mode enabled | `RebootCacheCluster` is NOT supported on Valkey/Redis OSS cluster mode enabled clusters. Check `ClusterEnabled` field first. Use Scenario 1 (AZ power) instead |
 | Using FIS Experiment Role as SSM `assumeRole` | Same as MSK — FIS role trusts `fis.amazonaws.com`, not `ssm.amazonaws.com`. Create a separate SSM Automation Role |
 
 ## Key Constraints
@@ -421,5 +432,6 @@ aws elasticache list-tags-for-resource \
 | SSM document naming | Max 128 characters. Use `fis-{ExperimentName}-runbook` |
 | `documentParameters` format | Must be a JSON string, not a JSON object |
 | `CacheNodeIdsToReboot` | Always `["0001"]` for single-node reboot |
-| Cluster mode | Both cluster-mode-enabled and cluster-mode-disabled are supported. Cluster mode disabled is easier to observe individual node role changes |
+| Cluster mode (Scenario 1: AZ power) | Both cluster-mode-enabled and cluster-mode-disabled are supported |
+| Cluster mode (Scenario 2: reboot) | **Cluster mode disabled ONLY.** `RebootCacheCluster` API is not supported on Valkey or Redis OSS cluster mode enabled clusters. If cluster mode is enabled, use Scenario 1 (AZ power interruption) or network-level fault injection instead |
 | Rollback | Both scenarios are self-recovering. AZ power: replicas resume when action ends. Reboot: node comes back online automatically |
