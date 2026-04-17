@@ -38,6 +38,9 @@ files. Never deliver untested configuration — deploy and self-heal first.
 - `references/eks-pod-action-guide.md` — when any `aws:eks:pod-*`
   action is used (RBAC Lambda, EKS Access Entry, Pod memory stress
   calculation)
+- `references/elasticache-redis-guide.md` — when the experiment targets
+  ElastiCache Redis/Valkey (native AZ power interruption action, or
+  primary node reboot via SSM Automation)
 - `references/msk-guide.md` — when the experiment targets Amazon MSK
   (broker reboot via SSM Automation — no native FIS action exists)
 
@@ -86,7 +89,8 @@ If mode is `CONFIG_MAP` only, the user must update the cluster first.
 |---|---|---|
 | Scenario Library | User asks for AZ Power Interruption, AZ App Slowdown, Cross-AZ/Region scenarios | Read AWS doc URL (see below) |
 | Custom FIS action | User specifies an action ID (`aws:rds:failover-db-cluster` etc.) or describes a single fault | — |
-| SSM Automation | Target service has no native FIS action (currently: Amazon MSK) | `references/msk-guide.md` |
+| Custom FIS action (ElastiCache) | User asks for ElastiCache AZ power interruption or Redis/Valkey failover testing | `references/elasticache-redis-guide.md` |
+| SSM Automation | Target service has no native FIS action (currently: Amazon MSK, ElastiCache primary node reboot) | `references/msk-guide.md` or `references/elasticache-redis-guide.md` |
 
 If ambiguous, ask the user.
 
@@ -167,10 +171,16 @@ to ARNs via AWS CLI.
    ```
 
 2. If empty, follow the service-specific guide:
-   - Amazon MSK → `references/msk-guide.md`
-   - Other services without native FIS action → not yet documented in this
-     skill. Stop and inform the user that SSM Automation support for the
-     requested service has not been added to this skill.
+    - Amazon MSK → `references/msk-guide.md`
+    - Other services without native FIS action → not yet documented in this
+      skill. Stop and inform the user that SSM Automation support for the
+      requested service has not been added to this skill.
+
+**Special case — ElastiCache primary node reboot:** ElastiCache has a native
+FIS action (`aws:elasticache:replicationgroup-interrupt-az-power`) for AZ-level
+impact, but **no native action for single-node reboot**. If the user wants to
+reboot the primary node (to test connection pool resilience), use SSM Automation
+as documented in `references/elasticache-redis-guide.md` → Scenario 2.
 
 3. Discover resources via the target service's CLI (`aws kafka list-clusters`,
    `aws mq list-brokers`, `aws redshift describe-clusters`, etc.).

@@ -58,6 +58,7 @@ For AWS services that have **no native FIS action**, the skill uses `aws:ssm:sta
 
 Currently supported:
 - **Amazon MSK** — `kafka:RebootBroker` to test Kafka consumer/producer resilience. See `references/msk-guide.md`.
+- **Amazon ElastiCache** (primary node reboot) — `elasticache:RebootCacheCluster` to test Redis/Valkey connection pool and retry logic resilience. See `references/elasticache-redis-guide.md`.
 
 Additional services (Redshift, Neptune, OpenSearch, MemoryDB, etc.) can be added following the same pattern — the `ssm-auto-<service>-<operation>` slug naming and two-role IAM design are documented in `references/slug-conventions.md` and `references/msk-guide.md`.
 
@@ -182,6 +183,9 @@ Step 7: Rename output directory (append experiment template ID for easy identifi
 "test AZ failure impact on EC2 and ElastiCache only"
 "Reboot MSK broker to test Kafka consumer resilience"
 "准备 MSK broker 重启的故障注入实验"
+"Test ElastiCache Redis failover in us-west-2a"
+"Reboot Redis primary node to test connection pool resilience"
+"准备 ElastiCache Redis 主节点重启的实验"
 ```
 
 ## Key Design Decisions
@@ -225,6 +229,7 @@ aws-fis-experiment-prepare/
 │   ├── slug-conventions.md               # Scenario/context slug abbreviations, resource naming, length budget
 │   ├── eks-pod-action-guide.md           # EKS Pod action guide (Lambda + Custom Resource for K8s RBAC, auth mode, memory stress calculation)
 │   ├── az-power-interruption-guide.md    # AZ Power Interruption scenario guide (tagging, permissions, design decisions)
+│   ├── elasticache-redis-guide.md        # ElastiCache Redis/Valkey guide (native AZ power action + primary node reboot via SSM)
 │   └── msk-guide.md                      # Amazon MSK FIS experiment guide (broker reboot via SSM Automation)
 └── scripts/
     ├── precheck-cfn-permissions.sh       # Detects required CFN service role

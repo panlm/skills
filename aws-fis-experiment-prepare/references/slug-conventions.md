@@ -37,6 +37,8 @@ while remaining readable. **Max 18 characters.**
 | `aws:ebs:pause-io` | `ebs-pause-io` | 12 |
 | `aws:ssm:send-command` | `ssm-cmd` | 7 |
 | `aws:ssm:start-automation-execution` (MSK reboot) | `ssm-auto-msk-reboot` | 20→18 |
+| `aws:elasticache:replicationgroup-interrupt-az-power` (standalone) | `ec-rg-az-power` | 14 |
+| `aws:ssm:start-automation-execution` (ElastiCache reboot) | `ssm-auto-ec-reboot` | 19 |
 
 ## Abbreviation Rules for Unlisted Actions
 
@@ -47,8 +49,9 @@ while remaining readable. **Max 18 characters.**
 - EKS pod actions: keep `pod-` prefix, drop `eks-` (e.g., `pod-net-pktloss` not
   `eks-net-pktloss`)
 - SSM Automation actions: use `ssm-auto-` prefix + service abbrev + operation
-  (e.g., `ssm-auto-msk-reboot`). Service abbrevs for when new services are added:
-  `redshift` → `rs`, `neptune` → `np`, `opensearch` → `os`, `memorydb` → `memdb`
+  (e.g., `ssm-auto-msk-reboot`, `ssm-auto-ec-reboot`). Service abbrevs for when new services are added:
+  `redshift` → `rs`, `neptune` → `np`, `opensearch` → `os`, `memorydb` → `memdb`,
+  `elasticache` → `ec`
 - Target max 18 characters
 
 ## Context Slug Guidance
