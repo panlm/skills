@@ -27,11 +27,11 @@ This is tedious and error-prone, especially during iterative skill development.
 
 ## Design Decisions
 
-1. **Generic framework, not FIS-specific.** Works with any skill that has a `test-prompt.md`. The prompt template defines what the skill does; this skill only orchestrates execution and comparison.
+1. **Generic framework, not FIS-specific.** Works with any skill in the repository. The user provides the test prompt directly in the conversation; this skill only orchestrates remote execution and report comparison.
 
 2. **SSH config asked at runtime.** No IP addresses, usernames, or key paths are stored in any committed file. The skill asks the user every time (or the user can provide an SSH config alias).
 
-3. **Test prompt provided by user.** The user provides the test prompt directly in the conversation (or it is constructed from context). Auto-confirm directives are appended automatically. No `test-prompt.md` files needed.
+3. **Test prompt provided by user.** The user provides the test prompt directly in the conversation (or it is constructed from context). Auto-confirm directives are appended automatically so the remote agent runs non-interactively without waiting for user confirmation.
 
 4. **Timestamped directories with skill name.** Remote test directories use `{timestamp}-{skill-name}` format, making it trivial to find the previous run for the same skill and compare reports.
 

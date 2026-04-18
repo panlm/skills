@@ -76,10 +76,6 @@ are provided.**
    If the user doesn't provide a prompt, construct one from the conversation context
    (e.g., the skill name + any dependency paths mentioned earlier).
 
-**Derived from local repo:**
-- `SKILL.md` — read from `{SKILL_DIR}/SKILL.md` for report structure requirements
-- Git diff of SKILL.md — for comparing against report changes
-
 Append the following suffix to the user's prompt (always):
 ```
 如果需要跨目录读取文件，直接操作不要确认。
@@ -227,9 +223,16 @@ Perform the following analysis:
 
 #### 7a. Report Structure Compliance
 
-Read the target skill's `SKILL.md` from the local repo. Extract the report
-template (look for markdown code blocks defining the report structure — headings,
-tables, required fields).
+Read the target skill's SKILL.md from the **skills repository** (this repo).
+The path is `./{SKILL_NAME}/SKILL.md` relative to the repo root (the current
+working directory). If the skill is not found at the repo root, check whether
+it is under `others/{SKILL_NAME}/SKILL.md`.
+
+Extract the report template (look for markdown code blocks defining the report
+structure — headings, tables, required fields). If the target skill's SKILL.md
+does not define a report template (e.g., the skill generates CFN templates or
+directories instead of assessment reports), skip structure compliance and
+proceed directly to 7b.
 
 Check the new report against each required element:
 
@@ -253,11 +256,11 @@ and format.
 
 #### 7c. Correlate with SKILL.md Changes
 
-Read the recent git changes to the target skill's SKILL.md:
+Read the recent git changes to the target skill's SKILL.md from the repo:
 
 ```bash
-git log --oneline -5 -- {SKILL_DIR}/SKILL.md
-git diff HEAD~1 -- {SKILL_DIR}/SKILL.md
+git log --oneline -5 -- ./{SKILL_NAME}/SKILL.md
+git diff HEAD~1 -- ./{SKILL_NAME}/SKILL.md
 ```
 
 For each structural change in the report (from 7b), check whether it
