@@ -80,6 +80,13 @@ npx skills add panlm/skills --list
 - **EKS 认证和访问配置** — 参见 [eks-workload-best-practice-assessment 前置要求](./eks-workload-best-practice-assessment/README_CN.md#前置要求) 中关于启用 EKS API 认证模式和授予 EC2 实例角色访问 EKS 的说明。
 - **CloudFormation 服务角色** — 参见 [aws-fis-experiment-prepare 前置条件](./aws-fis-experiment-prepare/README_CN.md#创建-cloudformation-服务角色) 中关于创建专用 CFN 服务角色以最小权限部署 FIS 实验 Stack 的说明。
 
+## 致谢
+
+本项目受到以下开源项目的启发，并在其基础上构建：
+
+- [**aws-samples/sample-aws-resilience-skill**](https://github.com/aws-samples/sample-aws-resilience-skill) -- 韧性 Skill 示例项目，为本项目提供了关键的设计模式和架构灵感。
+- [**aws-samples/fis-template-library**](https://github.com/aws-samples/fis-template-library) -- 本项目中引用的 SSM Automation 文档和 FIS 实验模板。
+
 ## 许可证
 
 MIT

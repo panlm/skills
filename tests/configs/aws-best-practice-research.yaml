@@ -1,0 +1,217 @@
+name: "aws-best-practice-research-test"
+project_dir: aws-bp-test
+project_root: ../..
+
+skills:
+  - aws-best-practice-research
+
+# 默认值 — 可通过命令行覆盖: test_scope=assessment prompt="..."
+prompt: "帮我研究下aws redis 的最佳实践"
+test_scope: checklist
+
+timeout_seconds: 900
+allowed_tools: "Bash,Read,Write,Edit,Grep,Glob,WebFetch,mcp__aws-knowledge-mcp-server__aws___search_documentation,mcp__aws-knowledge-mcp-server__aws___read_documentation,mcp__aws-knowledge-mcp-server__aws___recommend"
+
+mlflow_port: 32941
+tracking_uri: null
+
+test_runs_dir: /tmp
+keep_workdir: true
+
+# ==============================================================
+# Judge 定义
+#
+# scope 取值:
+#   all        — checklist 和 assessment 两种场景都运行
+#   checklist  — 仅 test_scope=checklist 时运行
+#   assessment — 仅 test_scope=assessment 时运行
+# ==============================================================
+judge_definitions:
+
+  # ---- 工作流行为 (共用) ----
+
+  # 验证 skill 是否被正确加载和调用
+  - name: skill-invoked
+    scope: all
+    question: >
+      Check that the aws-best-practice-research skill was loaded and invoked.
+      The skill is loaded when the agent reads its SKILL.md file from
+      .claude/skills/aws-best-practice-research/.
+      Answer 'yes' only if you see evidence that the skill was loaded.
+
+  # 验证 MCP 工具调用是否顺序执行（不并行）
+  - name: sequential-mcp-calls
+    scope: all
+    question: >
+      Check that MCP tool calls (search_documentation and read_documentation /
+      getDocumentContent) were executed sequentially — each tool CALL should start only
+      after the previous one finished, never two calls running in parallel.
+      IMPORTANT: A single read_documentation call that contains multiple URLs in its
+      'requests' array is NOT parallel — it is one batched call and is perfectly fine.
+      Only flag as 'no' if you see two SEPARATE MCP tool calls overlapping in time.
+      If you cannot determine the order, answer 'yes' (benefit of the doubt).
+
+  # 验证文档搜索覆盖了 5 大主题领域
+  - name: doc-search-coverage
+    scope: all
+    question: >
+      Check that the agent executed approximately 5 documentation search queries
+      covering these topics: 1) best practices + HA/DR, 2) Well-Architected reliability,
+      3) replication/failover/backup, 4) security/encryption/auth, 5) Well-Architected security.
+      Answer 'yes' if at least 4 of these 5 topic areas were searched.
+
+  # 验证是否读取了关键文档页面（至少 2 页）
+  - name: doc-pages-read
+    scope: all
+    question: >
+      Check that the agent read key documentation pages after searching, using
+      read_documentation or getDocumentContent tool calls. The agent should have read
+      3-5 pages, prioritizing Well-Architected Lens pages. Answer 'yes' if at least
+      2 documentation pages were read in total. NOTE: a single read_documentation call
+      can contain multiple URLs in its 'requests' array — count each URL as a separate
+      page read. For example, one call with 3 URLs in the requests array counts as
+      3 pages read.
+
+  # ---- 输出质量 (共用) ----
+
+  # 验证输出包含全部 5 个必需分类
+  - name: five-categories-complete
+    scope: all
+    question: >
+      Check that the generated output contains ALL 5 mandatory categories:
+      1) High Availability Architecture, 2) Disaster Recovery, 3) Failover Planning,
+      4) Security Configuration, 5) Others.
+      Look in the trace for the file content written by the agent.
+      Answer 'yes' only if all 5 categories are present as section headers.
+
+  # 验证检查项 ID 包含优先级后缀（-hi/-md/-lo）
+  - name: item-id-with-priority
+    scope: all
+    question: >
+      Check that checklist item IDs embed priority suffixes. IDs should follow
+      the pattern like HA-01-hi, DR-02-md, SEC-03-lo, FP-01-hi, OT-01-md etc.
+      The suffixes -hi (High), -md (Medium), -lo (Low) must be present.
+      Look in the trace for the written file content.
+      Answer 'yes' if you see IDs with -hi, -md, or -lo suffixes.
+
+  # 验证每个检查项都有来源标注
+  - name: source-annotations
+    scope: all
+    question: >
+      Check that every checklist item has a source annotation tag such as
+      WA-REL, WA-SEC, WA-PE, WA-OE, WA-CO, Security Hub, re:Post, Official Docs,
+      or AWS Blog. The skill requires "Every check item must have a source annotation."
+      Look in the trace for the written file content.
+      Answer 'yes' if source tags are present on the check items.
+
+  # 验证检查项总数在 30-50 之间，每个分类至少 3 项
+  - name: item-count-range
+    scope: all
+    question: >
+      Check that the total number of checklist items is between 30 and 50,
+      and each of the 5 categories has at least 3 items.
+      Look in the trace for the written file content and count the check items
+      in each category table.
+      Answer 'yes' if the total is roughly 30-50 and no category has fewer than 3 items.
+      Be lenient — if it's close (e.g. 25 or 55), still answer 'yes'.
+
+  # 验证输出包含来源注释图例和关键参考链接
+  - name: reference-links-and-legend
+    scope: all
+    question: >
+      Check that the output file includes a "Source Annotations" legend table
+      (explaining abbreviations like WA-REL, WA-SEC etc.) AND a "Key Reference Links"
+      section with documentation URLs.
+      Look in the trace for the written file content.
+      Answer 'yes' if both sections are present.
+
+  # ---- 仅 Checklist 场景 ----
+
+  # 验证输出文件名符合 checklist 命名规范
+  - name: file-naming-convention
+    scope: checklist
+    question: >
+      Check that the output file follows the naming convention:
+      YYYY-mm-dd-HH-MM-SS-{SERVICE}-best-practice-checklist.md
+      (e.g. 2025-07-15-14-30-00-elasticache-redis-best-practice-checklist.md).
+      Look in the trace for the file path used in the Write tool call.
+      Answer 'yes' if the file name matches this pattern.
+
+  # ---- 仅 Assessment 场景 ----
+
+  # 验证执行了 AWS CLI 命令采集资源配置
+  - name: aws-cli-commands-executed
+    scope: assessment
+    question: >
+      Check that the agent ran AWS CLI commands to collect resource configuration.
+      For ElastiCache Redis, expect commands like: aws elasticache describe-replication-groups,
+      describe-cache-clusters, describe-cache-subnet-groups, describe-cache-parameters,
+      list-tags-for-resource, describe-snapshots, etc.
+      Answer 'yes' if at least 3 different aws elasticache commands were executed.
+
+  # 验证未生成多余的 checklist 文件（assessment 场景只输出报告）
+  - name: no-separate-checklist-file
+    scope: assessment
+    question: >
+      When a live resource is provided, the skill should NOT generate a separate
+      checklist file. It should only produce an assessment report.
+      Check that NO file named *-best-practice-checklist.md was created.
+      Answer 'yes' if no separate checklist file was written (only an assessment report).
+
+  # 验证生成了 assessment report 文件且命名正确
+  - name: assessment-report-generated
+    scope: assessment
+    question: >
+      Check that the agent generated an assessment report file named like
+      YYYY-mm-dd-HH-MM-SS-{RESOURCE_ID}-assessment-report.md.
+      Look for a Write tool call that creates a file with "assessment-report" in its name.
+      Answer 'yes' if such a file was created.
+
+  # 验证报告包含资源概要信息
+  - name: resource-summary-present
+    scope: assessment
+    question: >
+      Check that the assessment report contains a "Resource Summary" section
+      with key properties like Resource ID, Engine, Node Type, Topology, Multi-AZ,
+      Encryption, Authentication status.
+      Answer 'yes' if a resource summary table is present in the written file.
+
+  # 验证每个检查项都有 PASS/FAIL/WARN/N/A 状态和实际发现
+  - name: pass-fail-statuses
+    scope: assessment
+    question: >
+      Check that the assessment report maps each check item to a status:
+      PASS, FAIL, WARN, or N/A (with emoji indicators like green/red circles).
+      Each item should also have a "Finding" column with actual observed values.
+      Answer 'yes' if status assessments and findings are present.
+
+  # 验证报告包含按分类汇总的评估统计表
+  - name: assessment-summary-table
+    scope: assessment
+    question: >
+      Check that the assessment report contains an "Assessment Summary" table
+      showing counts of PASS/FAIL/WARN/N/A per category (HA, DR, Failover,
+      Security, Others) with totals.
+      Answer 'yes' if this summary table is present.
+
+  # 验证报告包含严重问题清单及修复指引
+  - name: critical-issues-section
+    scope: assessment
+    question: >
+      Check that the assessment report contains a "Critical Issues" section
+      listing FAIL items with High priority, along with specific remediation guidance.
+      Answer 'yes' if this section exists (it can be empty if everything passed).
+
+  # 验证报告包含按紧急程度分组的改进建议
+  - name: recommendations-section
+    scope: assessment
+    question: >
+      Check that the assessment report contains a "Recommendations" section
+      grouped by urgency: Immediate, Short-term, Medium-term.
+      Each recommendation should indicate whether it can be done in-place
+      or requires resource recreation.
+      Answer 'yes' if this section is present.
+
+environment:
+  OPENAI_API_KEY: ""
+  OPENAI_BASE_URL: ""

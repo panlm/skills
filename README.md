@@ -80,6 +80,13 @@ Before running FIS experiments and EKS-related skills, we recommend setting up t
 - **EKS authentication and access setup** — See [eks-workload-best-practice-assessment Prerequisites](./eks-workload-best-practice-assessment/README.md#prerequisites) for enabling EKS API authentication mode and granting EC2 instance role access to EKS.
 - **CloudFormation service role** — See [aws-fis-experiment-prepare Prerequisites](./aws-fis-experiment-prepare/README.md#create-a-cloudformation-service-role) for creating a dedicated CFN service role to deploy FIS experiment stacks with least privilege.
 
+## Acknowledgements
+
+This project was inspired by and builds upon the following open-source work:
+
+- [**aws-samples/sample-aws-resilience-skill**](https://github.com/aws-samples/sample-aws-resilience-skill) -- The resilience skill sample that provided key design patterns and architectural inspiration for this project.
+- [**aws-samples/fis-template-library**](https://github.com/aws-samples/fis-template-library) -- SSM Automation documents and FIS experiment templates referenced in this project.
+
 ## License
 
 MIT

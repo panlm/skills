@@ -26,6 +26,11 @@ venv/
 *.pem
 *.key
 
+# MLflow
+mlflow.db
+mlruns/
+mlflow-artifacts/
+
 # Generated state
 .upstream-state.json
 .skill-registry.json
