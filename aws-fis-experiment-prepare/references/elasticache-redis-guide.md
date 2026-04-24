@@ -295,9 +295,12 @@ for cluster-mode-enabled clusters. This is AWS expected behavior.
 **Method:**
 1. Get all member clusters and their AZ/Shard mapping from
    `describe-replication-groups` → `NodeGroups[].NodeGroupMembers[]`
-2. For each `CacheClusterId`, query CloudWatch `IsMaster` metric
-   (namespace `AWS/ElastiCache`, dimensions `CacheClusterId` + `CacheNodeId=0001`,
-   last 10 minutes, `Average` statistic)
+2. For each `CacheClusterId`, query CloudWatch `IsMaster` metric using
+   `get-metric-data` with `Period=60` and retrieve only the **most recent single
+   datapoint** (e.g., last 5 minutes, take the latest value). Do NOT use
+   `Average` over a longer window — after a failover the role flips from 1→0
+   or 0→1, and averaging would produce misleading intermediate values like 0.5.
+   (namespace `AWS/ElastiCache`, dimensions `CacheClusterId` + `CacheNodeId=0001`)
 3. Build a shard distribution table: Shard → Node → AZ → Role
 
 **When to run:** Always run this detection for **cluster-mode-enabled**
