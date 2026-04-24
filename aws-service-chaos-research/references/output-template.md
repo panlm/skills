@@ -232,11 +232,24 @@ table. **You MUST reference the Test IDs** (e.g., `EKS-1`, `RDS-3`, `MSK-2`) fro
 per-service "Recommended Testing Scenario Matrix" tables. Do NOT invent new scenario
 names or repeat full descriptions — use the Test ID as the primary reference.
 
-| Priority | Test ID | Scenario (brief) | Target Service | Reason |
-|---|---|---|---|---|
-| **P0 Must Test** | EKS-1 | {brief name from matrix} | EKS | {why it's critical} |
-| **P0 Must Test** | RDS-1 | {brief name from matrix} | RDS MySQL | {why it's critical} |
-| **P1 High** | MSK-3 | {brief name from matrix} | MSK | {why it's important} |
+| Priority | Test ID | Scenario (brief) | Target Service | FIS Experiment Hint | Reason |
+|---|---|---|---|---|---|
+| **P0 Must Test** | EKS-1 | {brief name from matrix} | EKS | {one-line: FIS action/method + target placeholders} | {why it's critical} |
+| **P0 Must Test** | RDS-1 | {brief name from matrix} | RDS MySQL | {one-line: FIS action/method + target placeholders} | {why it's critical} |
+| **P1 High** | MSK-3 | {brief name from matrix} | MSK | {one-line: FIS action/method + target placeholders} | {why it's important} |
+
+**FIS Experiment Hint format:** A one-line description specifying the FIS action (or
+method) and target resource, using `{PLACEHOLDER}` for resource identifiers the customer
+needs to fill in. This helps customers quickly create the corresponding FIS experiment.
+
+Examples:
+- FIS native action: `` `aws:rds:failover-db-cluster` targeting cluster `{DB_CLUSTER_ID}` ``
+- FIS native action: `` `aws:lambda:invocation-add-delay` targeting function `{FUNCTION_ARN}`, startupDelayMilliseconds=`{DELAY_MS}` ``
+- FIS native action: `` `aws:eks:pod-network-latency` targeting cluster `{EKS_CLUSTER}` namespace `{NAMESPACE}` ``
+- Scenario Library: `` Scenario Library "AZ Power Interruption" — tag resources with `AzImpairmentPower: {AZ_ID}` ``
+- Service built-in: `` `aws rds reboot-db-instance --db-instance-identifier {DB_INSTANCE_ID} --force-failover` ``
+- Cross-cutting: `` `aws:network:disrupt-connectivity` targeting subnet `{SUBNET_ID}` in `{AZ}` ``
+- No FIS action: `` No native FIS action — use `aws:ssm:send-command` with custom script on `{INSTANCE_ID}` ``
 
 Priority guidelines:
 - **P0**: FIS Scenario Library composite scenarios directly affecting the service; failover / primary failure (impacts RTO)

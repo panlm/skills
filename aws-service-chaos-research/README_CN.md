@@ -63,7 +63,7 @@
 | 1 | **执行摘要** | 服务、Region、FIS 支持状况、相关 Scenario Library 场景、核心建议 |
 | 2-N | **各服务章节** | FIS 原生场景、服务内置故障注入、环境观察（无 FIS action 时为替代测试方法） |
 | N+1 | **Scenario Library and Cross-Cutting** | Scenario Library 复合场景（最高优先级）、Cross-cutting actions（可选） |
-| N+2 | **推荐测试优先级** | 所有场景按 P0-P3 排序并说明原因 |
+| N+2 | **推荐测试优先级** | 所有场景按 P0-P3 排序并说明原因，附 FIS 实验创建提示（action + 目标占位符）方便快速创建实验 |
 | N+3 | **实施最佳实践** | Stop Condition、稳态定义、DNS/连接处理、爆炸半径控制 |
 | N+4 | **参考资料** | 仅来自实际搜索结果的链接（不编造） |
 | N+5 | **下一步建议** | 3-4 条可操作建议 |

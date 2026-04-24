@@ -68,7 +68,7 @@ Every generated report contains these 7 sections:
 | 1 | **Executive Summary** | Service, region, FIS support status, relevant Scenario Library scenarios, key recommendation |
 | 2-N | **Per-Service Sections** | FIS native scenarios, service built-in fault injection, environment observations (or alternative testing methods if no FIS actions) |
 | N+1 | **Scenario Library and Cross-Cutting** | Scenario Library composite scenarios (highest priority), cross-cutting actions (optional) |
-| N+2 | **Recommended Test Priority** | All scenarios ranked P0-P3 with rationale |
+| N+2 | **Recommended Test Priority** | All scenarios ranked P0-P3 with rationale and FIS experiment hints (action + target placeholders) for quick experiment creation |
 | N+3 | **Implementation Best Practices** | Stop conditions, steady state definition, DNS/connection handling, blast radius control |
 | N+4 | **Reference Materials** | Links from actual search results only (never fabricated) |
 | N+5 | **Next Steps** | 3-4 actionable suggestions |
