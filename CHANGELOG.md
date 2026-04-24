@@ -6,7 +6,7 @@
 
 ---
 
-## [2026-04-21 ~ 2026-04-24] — 第 17 周
+## [2026-04-21 ~ 2026-04-24]
 
 ### aws-fis-experiment-prepare
 - **新增**: ElastiCache Redis Cluster Mode Enabled 分片角色检测 — 通过 CloudWatch IsMaster 指标识别 Primary/Replica 节点，写入 elasticache-redis-guide.md
@@ -31,7 +31,7 @@
 
 ---
 
-## [2026-04-14 ~ 2026-04-18] — 第 16 周
+## [2026-04-14 ~ 2026-04-18]
 
 ### aws-fis-experiment-prepare
 - **新增**: AZ Power Interruption 场景指南（`references/az-power-interruption-guide.md`）— 标签策略、权限、设计决策
@@ -76,7 +76,7 @@
 
 ---
 
-## [2026-04-07 ~ 2026-04-13] — 第 15 周
+## [2026-04-07 ~ 2026-04-13]
 
 ### aws-fis-experiment-execute
 - **新增**: Pod 实验自动日志收集、CFN 权限模拟验证、根据 template ID 自动解析目录
@@ -98,7 +98,7 @@
 
 ---
 
-## [2026-03-31 ~ 2026-04-06] — 第 14 周
+## [2026-03-31 ~ 2026-04-06]
 
 ### app-service-log-analysis（新 Skill）
 - **新增**: 创建 app-service-log-analysis skill，用于 BCP 演练的应用日志分析
@@ -118,7 +118,7 @@
 
 ---
 
-## [2026-03-24 ~ 2026-03-30] — 第 13 周
+## [2026-03-24 ~ 2026-03-30]
 
 ### aws-fis-experiment-prepare / execute（新 Skill）
 - **新增**: 创建 FIS 实验准备和执行 skill — CFN 自愈部署循环、资源-Action 兼容性验证、Scenario Library 文档要求
@@ -138,7 +138,7 @@
 
 ---
 
-## [2026-03-23 ~ 2026-03-25] — 第 12-13 周（项目创建）
+## [2026-03-23 ~ 2026-03-25]
 
 ### aws-best-practice-research（首个 Skill）
 - **新增**: 初始提交 — agent skills 合集，包含 aws-bestpractice-research
@@ -152,7 +152,7 @@
 本文件供人工阅读和 agent 读取，遵循以下规范以保持简洁和一致性：
 
 ### 结构
-- **按周分组**：`## [起始日期 ~ 结束日期] — 第 N 周`
+- **按周分组**：`## [起始日期 ~ 结束日期]`
 - **按 Skill 归类**：每周内按 `### skill-name` 分类，新 Skill 首次出现时标注 `（新 Skill）`
 - **跨 Skill 的变更**（文档、项目配置、CI）归入 `### 文档`、`### 项目配置` 等通用分类
 
