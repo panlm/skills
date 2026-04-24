@@ -61,6 +61,7 @@
 当前已支持：
 - **Amazon MSK** — `kafka:RebootBroker` 测试 Kafka 消费者/生产者的弹性。详见 `references/msk-guide.md`。
 - **Amazon ElastiCache**（主节点重启）— `elasticache:RebootCacheCluster` 测试 Redis/Valkey 连接池和重试逻辑的弹性。详见 `references/elasticache-redis-guide.md`。
+- **Amazon ElastiCache**（复制组主备切换）— `elasticache:TestFailover` 触发指定分片的自动故障转移，将副本提升为主节点。同时支持集群模式禁用和集群模式启用。详见 `references/elasticache-redis-guide.md`。
 
 其他服务（Redshift、Neptune、OpenSearch、MemoryDB 等）可按相同模式扩展——
 `ssm-auto-<service>-<operation>` slug 命名规范和双角色 IAM 设计已记录在
@@ -188,6 +189,8 @@ aws cloudformation deploy \
 "测试 ElastiCache Redis 在 us-west-2a 的故障转移"
 "重启 Redis 主节点，测试连接池弹性"
 "准备 ElastiCache Redis 主节点重启的实验"
+"测试 ElastiCache 复制组分片 0001 的主备切换"
+"准备 ElastiCache 复制组主备切换实验"
 ```
 
 ## 关键设计决策
@@ -231,7 +234,7 @@ aws-fis-experiment-prepare/
 │   ├── slug-conventions.md               # 场景/context slug 缩写表、资源命名、长度预算
 │   ├── eks-pod-action-guide.md           # EKS Pod Action 指南（Lambda + Custom Resource 管理 K8s RBAC、认证模式、memory stress 计算）
 │   ├── az-power-interruption-guide.md    # AZ 电力中断场景指南（标签策略、权限、设计决策）
-│   ├── elasticache-redis-guide.md        # ElastiCache Redis/Valkey 指南（原生 AZ 断电 action + 通过 SSM 实现主节点重启）
+│   ├── elasticache-redis-guide.md        # ElastiCache Redis/Valkey 指南（原生 AZ 断电 action + 通过 SSM 实现主节点重启 + 复制组主备切换）
 │   └── msk-guide.md                      # Amazon MSK FIS 实验指南（通过 SSM Automation 实现 broker 重启）
 └── scripts/
     ├── precheck-cfn-permissions.sh       # 检测是否需要 CFN 服务角色

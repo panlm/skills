@@ -17,6 +17,13 @@
   - Discovery: Identify Primary Node
   - CFN Template Integration
   - Scenario Slug
+- Scenario 3: Replication Group Failover (SSM Automation)
+  - Architecture Overview
+  - SSM Automation Runbook
+  - IAM Design — Two-Role Pattern
+  - Discovery: Identify Node Group
+  - CFN Template Integration
+  - Scenario Slug
 - Resource Discovery
 - Compatibility Validation
 - Common Mistakes
@@ -29,6 +36,7 @@ Redis or Valkey engines. Use it when the user wants to:
 
 - Simulate AZ-level power interruption affecting ElastiCache nodes
 - Reboot the primary node to test application connection resilience
+- Trigger automatic failover on a specific replication group (shard)
 - Test failover behavior and connection pool recovery
 
 **Do NOT use this guide when:**
@@ -44,6 +52,7 @@ Redis or Valkey engines. Use it when the user wants to:
 |---|---|---|
 | AZ-level power interruption (failover + blocked replacements) | `aws:elasticache:replicationgroup-interrupt-az-power` (native) | Scenario 1 |
 | Reboot primary node (test reconnection and retry logic) | `aws:ssm:start-automation-execution` (SSM Automation) | Scenario 2 |
+| Failover a single replication group / shard (primary-to-replica promotion) | `aws:ssm:start-automation-execution` (SSM Automation) | Scenario 3 |
 | Network latency or packet loss between app and Redis | `aws:eks:pod-network-latency` / `aws:eks:pod-network-packet-loss` | `references/eks-pod-action-guide.md` |
 
 If the user's intent is ambiguous, ask which fault type they want before
@@ -418,6 +427,161 @@ FISExperimentTemplate:
 |---|---|---|
 | ElastiCache AZ power interruption | `ec-rg-az-power` | `fis-ec-rg-az-power-my-rg-a3x7k2` |
 | ElastiCache primary node reboot | `ssm-auto-ec-reboot` | `fis-ssm-auto-ec-reboot-my-rg-a3x7k2` |
+| ElastiCache replication group failover | `ssm-auto-ec-failover` | `fis-ssm-auto-ec-failover-my-rg-a3x7k2` |
+
+## Scenario 3: Replication Group Failover (SSM Automation)
+
+ElastiCache has **no native FIS action for triggering automatic failover on a
+single replication group (shard)**. Instead, use
+`aws:ssm:start-automation-execution` to run an SSM Automation runbook that calls
+`elasticache:TestFailover`.
+
+**Use case:** Validate application failover handling when the primary node of a
+specific shard is promoted to a replica in a different AZ. This simulates a
+real failover event — the current primary becomes a replica and a replica is
+promoted to the new primary. More realistic than a reboot (Scenario 2) because
+the endpoint topology actually changes.
+
+**Key differences from Scenario 2 (Reboot):**
+
+| Aspect | Scenario 2 (Reboot) | Scenario 3 (TestFailover) |
+|---|---|---|
+| API | `RebootCacheCluster` | `TestFailover` |
+| Effect | Primary node restarts, same node stays primary | Replica promoted to primary, old primary becomes replica |
+| Cluster mode | Disabled only | Both disabled and enabled |
+| Parameters | `CacheClusterId` | `ReplicationGroupId` + `NodeGroupId` |
+| Recovery | Node reboots and returns to `available` | Failover completes, roles swap |
+
+**Reference:** Based on the
+[ElastiCache TestFailover API](https://docs.aws.amazon.com/AmazonElastiCache/latest/APIReference/API_TestFailover.html).
+
+---
+
+### Architecture Overview
+
+Same architecture as Scenario 2 (FIS → SSM Automation → ElastiCache API).
+Differences:
+
+- **Step 1:** `elasticache:TestFailover` (instead of `RebootCacheCluster`)
+- **Step 2:** waits on `DescribeReplicationGroups` status (instead of
+  `DescribeCacheClusters`)
+- **documentParameters:** `ReplicationGroupId` + `NodeGroupId` (instead of
+  `CacheClusterId`)
+
+### SSM Automation Runbook
+
+Schema version **0.3** is required for all Automation documents.
+
+```yaml
+description: 'FIS: Test automatic failover on ElastiCache replication group'
+schemaVersion: '0.3'
+assumeRole: '{{ AutomationAssumeRoleArn }}'
+parameters:
+  AutomationAssumeRoleArn:
+    type: String
+    description: IAM Role ARN for SSM Automation to assume
+  ReplicationGroupId:
+    type: String
+    description: Replication group ID to trigger failover on
+  NodeGroupId:
+    type: String
+    description: >-
+      Node group (shard) ID to failover. For cluster-mode-disabled,
+      this is always '0001'. For cluster-mode-enabled, specify the
+      target shard ID (e.g., '0001', '0002').
+mainSteps:
+  - name: TestFailover
+    action: aws:executeAwsApi
+    inputs:
+      Service: elasticache
+      Api: TestFailover
+      ReplicationGroupId: '{{ ReplicationGroupId }}'
+      NodeGroupId: '{{ NodeGroupId }}'
+    outputs:
+      - Name: ReplicationGroupId
+        Selector: $.ReplicationGroup.ReplicationGroupId
+        Type: String
+
+  - name: WaitForReplicationGroupAvailable
+    action: aws:waitForAwsResourceProperty
+    timeoutSeconds: 600
+    inputs:
+      Service: elasticache
+      Api: DescribeReplicationGroups
+      ReplicationGroupId: '{{ ReplicationGroupId }}'
+      PropertySelector: $.ReplicationGroups[0].Status
+      DesiredValues:
+        - available
+```
+
+### IAM Design — Two-Role Pattern
+
+Same two-role pattern as Scenario 2 (FIS Experiment Role + SSM Automation
+Role). FIS Experiment Role `iam:PassRole` block is identical. Only the SSM
+Automation Role permissions differ:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "elasticache:TestFailover",
+    "elasticache:DescribeReplicationGroups"
+  ],
+  "Resource": "*"
+}
+```
+
+### Discovery: Identify Node Group
+
+Use the same `describe-replication-groups` commands from Scenario 2's
+"Discovery: Identify Primary Node" section to inspect the replication group.
+
+The target parameter is `NodeGroupId` (not `CacheClusterId`):
+
+- **Cluster mode disabled** — always `0001` (only one node group).
+- **Cluster mode enabled** — list shards via
+  `NodeGroups[].NodeGroupId` and ask the user which shard to target.
+  Use the "Shard Role Detection for Cluster-Mode-Enabled" method from
+  Scenario 2 if `CurrentRole` is null.
+
+### CFN Template Integration
+
+**SSM Document and SSM Automation Role:** Follow the same CFN pattern as
+Scenario 2. Use the runbook from the "SSM Automation Runbook" section above
+as `AWS::SSM::Document.Content`, and create the `SSMAutomationRole` with the
+permissions from the "IAM Design — Two-Role Pattern" section above.
+
+#### FIS Experiment Template Action
+
+```yaml
+FISExperimentTemplate:
+  Type: AWS::FIS::ExperimentTemplate
+  DependsOn:
+    - FISExperimentRole
+    - SSMAutomationDocument
+  Properties:
+    Description: !Sub 'FIS: ${ExperimentName}'
+    RoleArn: !GetAtt FISExperimentRole.Arn
+    StopConditions:
+      - Source: 'none'
+    Tags:
+      Name: !Ref ExperimentName
+    Targets: {}
+    Actions:
+      TestFailover:
+        ActionId: aws:ssm:start-automation-execution
+        Parameters:
+          documentArn: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:document/fis-${ExperimentName}-runbook'
+          documentParameters: !Sub >-
+            {"AutomationAssumeRoleArn":"${SSMAutomationRole.Arn}",
+             "ReplicationGroupId":"{REPLICATION_GROUP_ID}",
+             "NodeGroupId":"{NODE_GROUP_ID}"}
+          maxDuration: 'PT15M'
+```
+
+### Scenario Slug
+
+See the consolidated slug table in Scenario 2's Scenario Slug section.
 
 ## Resource Discovery
 
@@ -453,6 +617,8 @@ aws elasticache list-tags-for-resource \
 | Deployment | Non-serverless | Verify the replication group exists (serverless uses a different API) | AZ power action does not support serverless |
 | Cluster Mode (Scenario 1) | Disabled or Enabled | `ClusterEnabled` field | Both modes are supported for AZ power interruption |
 | Cluster Mode (Scenario 2) | **Disabled only** | `ClusterEnabled` must be `false` | **`RebootCacheCluster` is NOT supported on cluster-mode-enabled clusters.** If `ClusterEnabled: true`, use Scenario 1 instead |
+| Cluster Mode (Scenario 3) | Disabled or Enabled | `ClusterEnabled` field | Both modes are supported for `TestFailover` |
+| Automatic Failover (Scenario 3) | **Enabled** | `AutomaticFailover: enabled` | `TestFailover` requires automatic failover to be enabled |
 
 **If incompatible:** Explain the specific mismatch and suggest alternatives:
 - Standalone ElastiCache (no replication group) — must create a replication
@@ -476,8 +642,11 @@ aws elasticache list-tags-for-resource \
 | Rebooting a replica instead of the primary | Discover the primary node's `CacheClusterId` at prepare time using `CurrentRole == "primary"` (cluster mode disabled) or CloudWatch `IsMaster` metric (cluster mode enabled). If the primary changes before execution, the reboot still validates connection resilience — just on a different node |
 | Using `CurrentRole` on cluster-mode-enabled | `CurrentRole` returns null for cluster-mode-enabled clusters. Use CloudWatch `IsMaster` metric instead |
 | Skipping shard distribution baseline | For cluster-mode-enabled, always record shard roles before the experiment. Without the baseline, you cannot determine which shards experienced failover |
-| Attempting reboot on a cluster-mode-enabled replication group | `RebootCacheCluster` is NOT supported on cluster-mode-enabled clusters. Check `ClusterEnabled` first. Use Scenario 1 (AZ power) instead |
+| Attempting reboot on a cluster-mode-enabled replication group | `RebootCacheCluster` is NOT supported on cluster-mode-enabled clusters. Check `ClusterEnabled` first. Use Scenario 1 (AZ power) or Scenario 3 (TestFailover) instead |
 | Using FIS Experiment Role as SSM Automation `assumeRole` | Same as MSK — the FIS role trusts `fis.amazonaws.com`, not `ssm.amazonaws.com`. Create a dedicated SSM Automation Role |
+| Using wrong `NodeGroupId` for `TestFailover` | For cluster-mode-disabled, `NodeGroupId` is always `0001`. For cluster-mode-enabled, discover available shard IDs via `describe-replication-groups` → `NodeGroups[].NodeGroupId` |
+| Calling `TestFailover` multiple times concurrently on the same replication group (cluster-mode-enabled) | The first node replacement must complete before a subsequent call. Check for failover events via `DescribeEvents` or wait for the replication group to return to `available` |
+| Exceeding `TestFailover` rate limit | Up to 15 node groups per rolling 24-hour period. Plan experiments accordingly |
 
 ## Key Constraints
 
@@ -490,5 +659,9 @@ aws elasticache list-tags-for-resource \
 | `documentParameters` format | Must be a JSON string, not a JSON object |
 | `CacheNodeIdsToReboot` | Always `["0001"]` for single-node reboot |
 | Cluster mode (Scenario 1) | Both cluster-mode-enabled and cluster-mode-disabled are supported |
-| Cluster mode (Scenario 2) | **Cluster mode disabled ONLY.** `RebootCacheCluster` is not supported on cluster-mode-enabled clusters. Use Scenario 1 or network-level injection instead |
-| Rollback | Both scenarios are self-recovering. AZ power: replicas resume when the action ends. Reboot: the node comes back online automatically |
+| Cluster mode (Scenario 2) | **Cluster mode disabled ONLY.** `RebootCacheCluster` is not supported on cluster-mode-enabled clusters. Use Scenario 1 or Scenario 3 instead |
+| Cluster mode (Scenario 3) | Both cluster-mode-enabled and cluster-mode-disabled are supported |
+| `TestFailover` rate limit | Up to 15 node groups per rolling 24-hour period per account |
+| `TestFailover` sequential constraint | For cluster-mode-enabled, the first node replacement must complete before a subsequent `TestFailover` call on a different shard in the same replication group |
+| `NodeGroupId` format | 1-4 digit numeric string (pattern: `\d+`). Always `0001` for cluster-mode-disabled |
+| Rollback | All three scenarios are self-recovering. AZ power: replicas resume when the action ends. Reboot: the node comes back online automatically. TestFailover: roles swap completes, new primary accepts writes |

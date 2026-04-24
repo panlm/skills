@@ -48,6 +48,9 @@ digraph execute_flow {
     "Check CFN stack status" [shape=diamond];
     "Extract template ID from outputs" [shape=box];
     "Display actionIds" [shape=box];
+    "Pre-experiment health check" [shape=box, color=blue];
+    "All resources healthy?" [shape=diamond];
+    "Wait / prompt user" [shape=box];
     "Discover apps + start logs\n(app-service-log-analysis)" [shape=box];
     "User confirms experiment start" [shape=diamond, style=bold, color=red];
     "Start experiment" [shape=box];
@@ -68,7 +71,13 @@ digraph execute_flow {
     "Check CFN stack status" -> "Extract template ID from outputs" [label="CREATE_COMPLETE"];
     "Check CFN stack status" -> "Generate results report" [label="Not deployed / failed, abort"];
     "Extract template ID from outputs" -> "Display actionIds";
-    "Display actionIds" -> "Discover apps + start logs\n(app-service-log-analysis)";
+    "Display actionIds" -> "Pre-experiment health check";
+    "Pre-experiment health check" -> "All resources healthy?";
+    "All resources healthy?" -> "Discover apps + start logs\n(app-service-log-analysis)" [label="Yes"];
+    "All resources healthy?" -> "Wait / prompt user" [label="No"];
+    "Wait / prompt user" -> "Pre-experiment health check" [label="Retry (poll 60s,\nmax 10 min non-interactive)"];
+    "Wait / prompt user" -> "Discover apps + start logs\n(app-service-log-analysis)" [label="User override"];
+    "Wait / prompt user" -> "Generate results report" [label="Abort"];
     "Discover apps + start logs\n(app-service-log-analysis)" -> "User confirms experiment start";
     "User confirms experiment start" -> "Start experiment" [label="Yes, I confirm"];
     "User confirms experiment start" -> "Stop logs + analyze\n(app-service-log-analysis)" [label="No, abort"];
@@ -148,7 +157,60 @@ Actions found:
   ...
 ```
 
-Proceed directly to Step 4 (log collection is always enabled).
+Proceed directly to Step 3.5 (resource health check).
+
+### Step 3.5: Pre-Experiment Resource Health Check
+
+Before starting log collection or the experiment itself, verify that every target
+resource referenced by the FIS experiment template is in a healthy baseline state.
+Starting an experiment against already-degraded resources makes results unattributable
+and may amplify impact on fragile infrastructure.
+
+**Scope:** All resources listed in the FIS experiment template's `targets` map
+(from the Step 3 query). This covers any managed service — RDS, Aurora, MSK,
+ElastiCache (Redis/Memcached), EKS clusters and nodegroups, EC2, OpenSearch,
+DocumentDB, etc. — whatever the template targets.
+
+**Procedure:**
+
+1. For each target in the experiment template, extract its `resourceType` (e.g.
+   `aws:rds:db`, `aws:msk:cluster`, `aws:elasticache:replicationgroup`) and the
+   actual resource identifiers (from `resourceArns` or resolved from `resourceTags`).
+2. For each resource, call the appropriate AWS describe API for its service and
+   read the canonical status field. Use your knowledge of AWS services to pick the
+   right API and the right "healthy" value (e.g. RDS `available`, MSK `ACTIVE`,
+   ElastiCache `available`, EKS `ACTIVE`, EC2 `running` with status check `ok`).
+3. Present a table to the user:
+
+   ```
+   Resource             Type                              Status        Healthy?
+   {id_1}               {resourceType_1}                  {status_1}    {✓ or ✗}
+   {id_2}               {resourceType_2}                  {status_2}    {✓ or ✗}
+   ...
+   ```
+
+4. If the resource type is unfamiliar or the API call fails, mark the resource as
+   **unchecked** and treat it as unhealthy for decision purposes.
+
+**Decision rules:**
+
+- **All resources healthy** → proceed to Step 4.
+- **One or more resources unhealthy / unchecked:**
+  - **Interactive session** (you can prompt the user and get a response):
+    warn the user, list the problem resources with their current states, and wait
+    for explicit input. Accept: `proceed` (override and continue), `abort`
+    (stop the workflow), or `retry` (re-run the health check now).
+  - **Non-interactive session** (no user available to respond): automatically
+    poll every **60 seconds** for up to **10 minutes**. Recheck every target
+    resource each cycle. If all resources become healthy within the window,
+    continue to Step 4 automatically. If the 10-minute window expires with any
+    resource still unhealthy, **abort** and output a diagnostic summary listing
+    each unhealthy resource, its current state, and the duration of the wait.
+
+**How to determine interactive vs non-interactive:** Use your own judgment based
+on the runtime context (e.g. whether a TTY is attached, whether you can invoke
+interactive prompts, or environment signals suggesting a CI/automated run). When
+uncertain, default to interactive behavior.
 
 ### Step 4: Discover EKS Applications and Start Log Collection
 
@@ -317,6 +379,11 @@ After saving, print a brief terminal summary:
 5. **Never delete resources** without user confirmation.
 6. **Never deploy infrastructure.** This skill only checks existing deployments.
 7. **Recommend dry-run first** — suggest the user review all files before starting.
+8. **Never start an experiment against unhealthy resources.** Step 3.5 verifies every
+   target resource is in its service's healthy baseline state. In interactive mode,
+   any unhealthy or unchecked resource requires explicit user override. In
+   non-interactive mode, poll every 60 seconds for up to 10 minutes; abort if still
+   unhealthy when the window expires.
 
 ## Cleanup Guide
 
