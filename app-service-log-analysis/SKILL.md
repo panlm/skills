@@ -182,10 +182,10 @@ For each accessible EKS cluster, search the following sources (ordered by reliab
 **Matching logic:**
 - For each source, search for ANY string from `SERVICE_ENDPOINTS` (case-insensitive)
 - Also match common service identifier patterns:
-  - RDS: `rds`, cluster identifier, `aurora`, `mysql`, `postgres` + port 3306/5432
-  - ElastiCache: `redis`, `elasticache`, replication group ID + port 6379
-  - MSK: `kafka`, `msk`, broker endpoints + port 9092/9094
-  - OpenSearch: `opensearch`, `elasticsearch`, domain name + port 443/9200
+  - RDS: preferred cluster identifier
+  - ElastiCache: preferred cluster name
+  - MSK: preferred broker endpoints 
+  - OpenSearch: preferred domain name 
 - When a match is found, trace back to the owning **Deployment/StatefulSet/DaemonSet**
   via the pod's `ownerReferences`
 
