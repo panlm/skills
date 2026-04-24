@@ -31,15 +31,20 @@
 
 ---
 
-## [2026-04-14 ~ 2026-04-16] — 第 16 周
+## [2026-04-14 ~ 2026-04-18] — 第 16 周
 
 ### aws-fis-experiment-prepare
 - **新增**: AZ Power Interruption 场景指南（`references/az-power-interruption-guide.md`）— 标签策略、权限、设计决策
 - **新增**: 服务范围子动作裁剪 — 用户提到特定服务时仅包含相关子动作，防止影响其他业务应用；子动作与服务映射表、依赖规则、裁剪示例
+- **新增**: SSM Automation 通用 API 指南（`references/ssm-automation-generic-api-guide.md`）— 为无 FIS 原生 action 的服务提供 SSM Document 故障注入方法
+- **新增**: CFN 模板生成前新增 cloudformation topic 文档搜索
+- **重构**: SKILL.md 渐进式披露重写（progressive disclosure）；新增 ElastiCache Redis 场景指南
+- **重构**: 移除独立的 experiment-template.json 和 iam-policy.json，仅保留 cfn-template.yaml 和 README；移除默认的 Pause-Instance-Launches action；移除 scenario-templates.md
 - **变更**: 默认实验持续时间从 PT30M 改为 PT10M（10 分钟）；ARC Zonal Autoshift 时间按比例缩放
 - **变更**: ARC Zonal Autoshift 从"强制基础设施子动作"降级为"条件包含"（仅当环境有启用 zonal autoshift 的资源时才包含）；Pause-Network-Connectivity 为唯一强制子动作
-- **重构**: 移除独立的 experiment-template.json 和 iam-policy.json，仅保留 cfn-template.yaml 和 README；移除默认的 Pause-Instance-Launches action
-- **修复**: README 模板中 Directory 字段使用完整绝对路径
+- **修复**: README 模板中 Directory 字段使用完整绝对路径；slug 描述更新
+- **修复**: CFN Custom Resource Lambda — cfnresponse 模块需 ZipFile 内联代码和精确 import 语法；Lambda 必须直接给 ASG 现有实例打标签（不能仅靠 PropagateAtLaunch）
+- **修复**: az-power 模板移除不完整的 logConfiguration 避免 CFN 400 错误；移除硬编码 IAM 策略改为引用 AWS 文档
 
 ### aws-fis-experiment-execute
 - **重构**: 流程从 10 步精简到 8 步 — 移除检查 Stack 状态（prepare 已保证）和从 Stack Outputs 提取模板 ID（从目录名提取）
@@ -47,21 +52,26 @@
 - **修复**: 移除所有对已删除的 experiment-template.json 和 iam-policy.json 的引用；改为通过 `aws fis get-experiment-template` API 获取 action 列表
 - **修复**: `kubectl version --client --short` 替换为 `-o yaml`（`--short` 在新版 kubectl 中已移除）
 - **修复**: 实验状态轮询 `while true` 改为 MAX_POLL=30 防止死循环（空 queryId / API 报错时退出）
+- **修复**: app-service-log-analysis skill 加载改为显式 skill tool 调用；sub-skill 依赖声明格式对齐 writing-skills 规范
 
 ### app-service-log-analysis
 - **新增**: 多集群 EKS 深度依赖发现 — 自动发现 region 内所有 EKS 集群，为每个集群生成独立 kubeconfig（绝不覆盖 `~/.kube/config`），并行扫描
 - **新增**: 6 层深度扫描：Pod env vars、ConfigMaps、Secret key names（仅元数据）、EnvFrom 引用、Service ExternalName、Volume mounts（projected/CSI）
-- **新增**: ASG scaling activity 历史收集
+- **新增**: 托管服务日志收集（EKS/RDS/ElastiCache/MSK/OpenSearch）；ASG scaling activity 历史收集
 - **重构**: 日志收集改为始终启用；新增 3 分钟实验后基线窗口；skill 重命名为 app-service-log-analysis
 - **修复**: CloudWatch Logs query 脚本新增 3 层防护 — log group 存在性预检查、空 queryId 防护、MAX_POLL=30 防止死循环
 - **修复**: Step 7a 托管服务日志仅收集保存到本地文件，Step 7b 统一读取所有日志进行分析
 
+### aws-best-practice-research
+- **变更**: 搜索查询优化 — 从 6 组精简到 5 组，简化 topics，移除 Q6
+
 ### remote-skill-test
 - **重构**: 移除 test-prompt.md 机制，改为用户直接在对话中提供测试提示词；流程从 9 步精简到 8 步
-- **修复**: 改为安装全部 skills 解决 skill 间依赖问题
+- **修复**: 改为安装全部 skills 解决 skill 间依赖问题；移除 test-prompt.md 引用；修复 SKILL.md 路径解析
 
 ### 文档与项目配置
-- **变更**: 根 README 更新三个核心 skill 描述（服务范围裁剪、多集群发现、流程精简）
+- **新增**: CHANGELOG.md 及 AGENTS.md 中 changelog 维护规则、no-auto-commit 规则
+- **变更**: 所有 skill 的 date 命令统一指定显式时区；根 README 更新三个核心 skill 描述
 - **移除**: 所有 skill 的 test-prompt.md 文件
 
 ---
