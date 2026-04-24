@@ -6,6 +6,13 @@
 
 ---
 
+## [2026-04-21 ~ 2026-04-24] — 第 17 周
+
+### aws-service-chaos-research
+- **新增**: 推荐测试优先级表增加 FIS Experiment Hint 列 — 每个场景附一句话描述（FIS action/method + 目标占位符），方便客户快速创建对应的 FIS 实验；包含 7 种典型场景示例（FIS 原生、Lambda、EKS、Scenario Library、服务内置、Cross-cutting、无 FIS action）
+
+---
+
 ## [2026-04-14 ~ 2026-04-16] — 第 16 周
 
 ### aws-fis-experiment-prepare
