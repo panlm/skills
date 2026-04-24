@@ -3,7 +3,7 @@ name: aws-fis-experiment-execute
 description: >
   Use when the user wants to run a prepared AWS FIS experiment where the
   CloudFormation stack has already been deployed. Triggers on "execute FIS
-  experiment", "run FIS experiment", "start chaos experiment", "启动 FIS 实验",
+  experiment", "run FIS experiment", "start chaos experiment", "执行 FIS 实验",
   "运行混沌实验", "执行故障注入实验", "run the experiment in [directory]",
   or when the user provides an FIS experiment template ID (e.g. EXT1a2b3c4d5e6f7).
   Does NOT deploy infrastructure — only checks that it is already deployed.
