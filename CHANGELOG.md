@@ -8,8 +8,26 @@
 
 ## [2026-04-21 ~ 2026-04-24] — 第 17 周
 
+### aws-fis-experiment-prepare
+- **新增**: ElastiCache Redis Cluster Mode Enabled 分片角色检测 — 通过 CloudWatch IsMaster 指标识别 Primary/Replica 节点，写入 elasticache-redis-guide.md
+- **新增**: 实验前健康检查（Pre-experiment Health Check）流程；ElastiCache failover 场景支持
+
+### aws-fis-experiment-execute
+- **新增**: 实验前健康检查流程，与 prepare skill 对齐
+
+### app-service-log-analysis
+- **重构**: 依赖发现匹配逻辑简化 — 优先使用特定资源标识符（endpoint、ARN）而非通用前缀匹配
+- **修复**: 依赖发现增加匹配结果验证，防止误报（false positive）
+
 ### aws-service-chaos-research
-- **新增**: 推荐测试优先级表增加 FIS Experiment Hint 列 — 每个场景附一句话描述（FIS action/method + 目标占位符），方便客户快速创建对应的 FIS 实验；包含 7 种典型场景示例（FIS 原生、Lambda、EKS、Scenario Library、服务内置、Cross-cutting、无 FIS action）
+- **新增**: 推荐测试优先级表增加 FIS Experiment Hint 列 — 每个场景附一句话描述（FIS action/method + 目标占位符），方便客户快速创建对应的 FIS 实验；包含 7 种典型场景示例
+
+### generate-judgements（新 Skill）
+- **新增**: 创建 generate-judgements skill — 用于生成评测评分标准；包含 judgement-patterns 参考和 YAML 配置规范
+
+### 测试与项目配置
+- **新增**: tests/configs/ 测试配置框架 — aws-best-practice-research.yaml 支持 scope-based judges（checklist/assessment），支持 test_scope CLI 覆盖切换
+- **新增**: 根 README 增加 Acknowledgements 章节；.gitignore 增加 MLflow artifacts
 
 ---
 
