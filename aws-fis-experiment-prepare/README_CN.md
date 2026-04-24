@@ -22,7 +22,7 @@
    - [AZ 应用慢速](https://docs.aws.amazon.com/en_us/fis/latest/userguide/az-application-slowdown-scenario.html)
    - [跨 AZ 流量慢速](https://docs.aws.amazon.com/en_us/fis/latest/userguide/cross-az-traffic-slowdown-scenario.html)
    - [跨 Region 连接](https://docs.aws.amazon.com/en_us/fis/latest/userguide/cross-region-scenario.html)
-3. **发现目标资源** — 查询用户实际的 AWS 资源，收集目标标识。
+3. **发现目标资源** — 查询用户实际的 AWS 资源，收集目标标识。对于 ElastiCache 集群模式启用的复制组，通过 CloudWatch `IsMaster` 指标检测分片主备分布（因为 `CurrentRole` 在集群模式启用时返回 null）。
 4. **验证兼容性** — 通过 AWS CLI 检查实际资源（如 `describe-db-instances`、`describe-db-clusters`），与 FIS Action 的 `resourceType` 要求交叉校验，在生成任何文件之前完成。
 5. **确定监控配置** — 默认使用 `source: "none"`（不绑定 Stop Condition 告警）。仅在用户明确提供告警时才创建 CloudWatch Alarm。生成包含各服务可用性、性能和错误/延迟指标的综合 CloudWatch Dashboard。
 6. **读取 CFN 资源文档** — 在生成 CFN 模板之前，读取 `AWS::FIS::ExperimentTemplate` CloudFormation 文档，确保模板使用当前的属性 schema。
@@ -215,6 +215,8 @@ aws cloudformation deploy \
 11. **默认实验持续时间为 10 分钟。** 所有实验场景和子动作的默认持续时间为 `PT10M`，除非用户另行指定。这比 AWS 文档默认的 `PT30M` 更短，但对大多数验证场景已经足够，同时缩短了影响范围窗口。时间相关参数（如 ARC Zonal Autoshift 时间）按比例调整。
 
 12. **服务专属指南（无原生 FIS Action 的服务）。** Amazon MSK 没有原生 FIS Action，Skill 使用 `aws:ssm:start-automation-execution` 调用 SSM Automation Runbook，直接调用 `kafka:RebootBroker`。这需要双角色 IAM 模式：FIS 实验角色（信任 `fis.amazonaws.com`）将 SSM Automation 角色（信任 `ssm.amazonaws.com`）传递给 SSM，后者拥有 MSK API 权限。SSM 文档和 FIS 实验模板都在单个 CFN Stack 中部署。详见 `references/msk-guide.md`。其他服务（Redshift、Neptune、OpenSearch 等）可按相同模式以独立的服务专属指南扩展。
+
+13. **Redis 集群实验前分片角色检测。** 对于 ElastiCache 集群模式启用的复制组，`describe-replication-groups` 返回的 `CurrentRole` 为 null。Skill 使用 CloudWatch `IsMaster` 指标检测每个节点的角色，并将分片分布记录为实验前基线。这使得 README 的"预期行为"部分能够精确描述：哪些分片的主节点在目标 AZ 中（会发生故障转移），哪些分片只会丢失副本（不会故障转移）。
 
 ## 目录结构
 

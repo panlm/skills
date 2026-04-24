@@ -277,7 +277,7 @@ Include only services actually affected by the experiment.
 | EC2 | `StatusCheckFailed`, `CPUUtilization`, `NetworkIn/Out`, `NetworkPacketsIn/Out` |
 | RDS/Aurora | `DatabaseConnections`, `ReadLatency`, `WriteLatency`, `AuroraReplicaLag`, `FreeableMemory` |
 | EKS | `pod_number_of_running_pods`, `pod_number_of_container_restarts`, `node_cpu_utilization`, `node_memory_utilization` |
-| ElastiCache | `ReplicationLag`, `EngineCPUUtilization`, `CurrConnections`, `CacheHitRate`, `Evictions` |
+| ElastiCache | `ReplicationLag`, `EngineCPUUtilization`, `CurrConnections`, `CacheHitRate`, `Evictions`, `IsMaster` |
 | ALB | `HealthyHostCount`, `UnHealthyHostCount`, `HTTPCode_ELB_5XX_Count`, `TargetResponseTime` |
 | NLB | `ActiveFlowCount`, `TCP_Client_Reset_Count`, `TCP_Target_Reset_Count` |
 

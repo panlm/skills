@@ -256,25 +256,64 @@ Same pattern as `references/msk-guide.md`:
 The prepare skill must identify the primary node's `CacheClusterId` before
 generating the template.
 
+**Cluster mode disabled** — `CurrentRole` is available directly:
+
 ```bash
-# 1. List node details for the replication group
 aws elasticache describe-replication-groups \
   --replication-group-id {RG_ID} \
   --query 'ReplicationGroups[0].NodeGroups[].NodeGroupMembers[].[CacheClusterId,CurrentRole,PreferredAvailabilityZone]' \
   --output table
-
-# 2. Pick the node where CurrentRole == "primary"
-# That node's CacheClusterId becomes the target parameter.
-# CacheNodeIdsToReboot is always ["0001"] for a single-node reboot.
+# Pick the node where CurrentRole == "primary"
 ```
 
 If the user does not know the replication group ID, list all replication groups:
 
 ```bash
 aws elasticache describe-replication-groups \
-  --query 'ReplicationGroups[].{Id:ReplicationGroupId,Status:Status,Engine:AtRestEncryptionEnabled,MultiAZ:MultiAZ,Nodes:NodeGroups[0].NodeGroupMembers[].{Node:CacheClusterId,Role:CurrentRole,AZ:PreferredAvailabilityZone}}' \
-  --output json
+  --query 'ReplicationGroups[].{Id:ReplicationGroupId,Status:Status,MultiAZ:MultiAZ,ClusterEnabled:ClusterEnabled}' \
+  --output table
 ```
+
+### Shard Role Detection for Cluster-Mode-Enabled
+
+**Problem:** `describe-replication-groups` returns `CurrentRole` as **null**
+for cluster-mode-enabled clusters. This is AWS expected behavior.
+
+**Solution:** Use CloudWatch `IsMaster` metric to determine each node's role:
+- `IsMaster` = `1.0` → Primary
+- `IsMaster` = `0.0` → Replica
+
+**Method:**
+1. Get all member clusters and their AZ/Shard mapping from
+   `describe-replication-groups` → `NodeGroups[].NodeGroupMembers[]`
+2. For each `CacheClusterId`, query CloudWatch `IsMaster` metric
+   (namespace `AWS/ElastiCache`, dimensions `CacheClusterId` + `CacheNodeId=0001`,
+   last 10 minutes, `Average` statistic)
+3. Build a shard distribution table: Shard → Node → AZ → Role
+
+**When to run:** Always run this detection for **cluster-mode-enabled**
+replication groups (both Scenario 1 and Scenario 2 validation). Record the
+result as a pre-experiment baseline.
+
+**Why it matters for FIS experiments:**
+- **Scenario 1 (AZ power):** Knowing which AZ holds each shard's primary
+  predicts how many failovers the experiment will trigger
+- **Scenario 2 validation:** Confirms the cluster is cluster-mode-enabled
+  and should be redirected to Scenario 1
+
+### Pre-Experiment Shard Distribution Report
+
+For **any** ElastiCache Redis/Valkey experiment targeting a cluster-mode-enabled
+replication group, record the shard distribution in the output README. Include:
+
+- Each shard's slot range
+- Each node's CacheClusterId, AZ, and role (Primary/Replica)
+- For AZ-scoped experiments: which shards have their primary in the target AZ
+  (these will failover) vs. which only lose replicas
+
+This baseline enables the README's "Expected Behavior" section to state
+precisely: "Shard 0001 primary is in us-west-2a — expect failover to
+us-west-2b replica. Shard 0002 only loses a replica — no failover."
 
 ### CFN Template Integration
 
@@ -434,7 +473,9 @@ aws elasticache list-tags-for-resource \
 | Forgetting `tag:GetResources` permission | Required for tag-based target resolution |
 | Not checking `AutomaticFailover` status | Both scenarios require `AutomaticFailover: enabled`. Without it, failover does not occur |
 | Assuming `CacheNodeIdsToReboot` varies | For single-node reboot, the node ID is always `0001` |
-| Rebooting a replica instead of the primary | Discover the primary node's `CacheClusterId` at prepare time using `CurrentRole == "primary"`. If the primary changes before execution, the reboot still validates connection resilience — just on a different node |
+| Rebooting a replica instead of the primary | Discover the primary node's `CacheClusterId` at prepare time using `CurrentRole == "primary"` (cluster mode disabled) or CloudWatch `IsMaster` metric (cluster mode enabled). If the primary changes before execution, the reboot still validates connection resilience — just on a different node |
+| Using `CurrentRole` on cluster-mode-enabled | `CurrentRole` returns null for cluster-mode-enabled clusters. Use CloudWatch `IsMaster` metric instead |
+| Skipping shard distribution baseline | For cluster-mode-enabled, always record shard roles before the experiment. Without the baseline, you cannot determine which shards experienced failover |
 | Attempting reboot on a cluster-mode-enabled replication group | `RebootCacheCluster` is NOT supported on cluster-mode-enabled clusters. Check `ClusterEnabled` first. Use Scenario 1 (AZ power) instead |
 | Using FIS Experiment Role as SSM Automation `assumeRole` | Same as MSK — the FIS role trusts `fis.amazonaws.com`, not `ssm.amazonaws.com`. Create a dedicated SSM Automation Role |
 

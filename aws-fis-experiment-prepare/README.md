@@ -22,7 +22,7 @@ Preparing an AWS FIS experiment manually involves several error-prone, tedious s
    - [AZ Application Slowdown](https://docs.aws.amazon.com/en_us/fis/latest/userguide/az-application-slowdown-scenario.html)
    - [Cross-AZ Traffic Slowdown](https://docs.aws.amazon.com/en_us/fis/latest/userguide/cross-az-traffic-slowdown-scenario.html)
    - [Cross-Region Connectivity](https://docs.aws.amazon.com/en_us/fis/latest/userguide/cross-region-scenario.html)
-3. **Discovers target resources** — Queries the user's actual AWS resources and collects target identifiers.
+3. **Discovers target resources** — Queries the user's actual AWS resources and collects target identifiers. For ElastiCache cluster-mode-enabled replication groups, detects shard primary/replica distribution via CloudWatch `IsMaster` metric (since `CurrentRole` returns null for cluster-mode-enabled).
 4. **Validates compatibility** — Inspects actual resources via AWS CLI (e.g., `describe-db-instances`, `describe-db-clusters`) and cross-checks against FIS action `resourceType` requirements before generating any files.
 5. **Determines monitoring configuration** — Defaults to `source: "none"` (no stop condition alarm). Only creates CloudWatch alarms if the user explicitly provides one. Generates a comprehensive CloudWatch dashboard with per-service availability, performance, and error/latency metrics.
 6. **Reads CFN resource documentation** — Before generating the CFN template, reads the `AWS::FIS::ExperimentTemplate` CloudFormation documentation to ensure the template uses the current property schema.
@@ -215,6 +215,8 @@ Step 7: Rename output directory (append experiment template ID for easy identifi
 12. **Default experiment duration is 10 minutes.** All experiment scenarios and sub-actions default to `PT10M` unless the user specifies otherwise. This is shorter than the AWS documentation default of `PT30M` but sufficient for most validation scenarios, and reduces the blast radius window. Time-dependent parameters (e.g., ARC Zonal Autoshift timing) scale proportionally.
 
 13. **Service-specific guides for services without native FIS actions.** Amazon MSK has no native FIS action, so the skill uses `aws:ssm:start-automation-execution` to invoke an SSM Automation runbook that calls `kafka:RebootBroker` directly. This requires a two-role IAM pattern: the FIS Experiment Role (trusts `fis.amazonaws.com`) passes an SSM Automation Role (trusts `ssm.amazonaws.com`) that has the MSK API permissions. Both the SSM document and the FIS experiment template are deployed in a single CFN stack. See `references/msk-guide.md` for full details. Additional services (Redshift, Neptune, OpenSearch, etc.) can be added as separate service-specific guides following the same pattern.
+
+14. **Pre-experiment shard role detection for Redis clusters.** For ElastiCache cluster-mode-enabled replication groups, `describe-replication-groups` returns `CurrentRole` as null. The skill uses CloudWatch `IsMaster` metric to detect each node's role and records the shard distribution as a pre-experiment baseline. This enables the README to include precise expected behavior — e.g., which shards will experience primary failover in the target AZ vs. which only lose replicas.
 
 ## Directory Structure
 
