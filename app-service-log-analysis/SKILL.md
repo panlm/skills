@@ -109,10 +109,10 @@ digraph log_analysis_flow {
     "Detect mode" -> "Post-hoc mode" [label="*-experiment-results.md"];
     "Real-time mode" -> "Read service list";
     "Post-hoc mode" -> "Read service list";
-    "Read service list" -> "Auto-discover + confirm app dependencies";
-    "Auto-discover + confirm app dependencies" -> "Detect + collect managed service logs";
-    "Detect + collect managed service logs" -> "Start background log collection" [label="real-time"];
-    "Detect + collect managed service logs" -> "Batch fetch historical logs" [label="post-hoc"];
+    "Read service list" -> "Detect + collect managed service logs";
+    "Detect + collect managed service logs" -> "Auto-discover + confirm app dependencies";
+    "Auto-discover + confirm app dependencies" -> "Start background log collection" [label="real-time"];
+    "Auto-discover + confirm app dependencies" -> "Batch fetch historical logs" [label="post-hoc"];
     "Start background log collection" -> "Frontend polling + insight display";
     "Frontend polling + insight display" -> "Experiment complete?";
     "Experiment complete?" -> "Frontend polling + insight display" [label="No, continue"];
@@ -141,6 +141,45 @@ Extract affected AWS services from:
 
 Look for service name headings (e.g., "### RDS (cluster-xxx)") to build the list.
 Present the detected service list to the user.
+
+
+### Step 2.5: Detect and Collect Managed Service Logs
+
+For each affected AWS service identified in Step 2, check whether it has CloudWatch
+logging enabled. If enabled, record the log group names for later collection in Step 7.
+If not enabled, skip and note in the final report as a recommendation.
+
+**Time window note:** When called from `aws-fis-experiment-execute`, the end time
+includes a 3-minute post-experiment baseline window. Use `EXPERIMENT_END_TIME + 3 minutes`
+as the query end time to capture recovery behavior in managed service logs.
+
+**Supported managed services:** EKS Control Plane, RDS/Aurora, ElastiCache, MSK, OpenSearch.
+See `references/managed-service-log-commands.md` for check commands and log group formats.
+
+**Workflow:**
+
+1. For each service in the affected service list, extract the resource identifier from
+   the experiment template or README (cluster name, cluster ID, replication group ID, etc.)
+2. Run the check command. If logging is not enabled or the service is not present
+   in the experiment, skip it
+3. For enabled services, record the log group name(s) in `MANAGED_LOG_GROUPS` map
+   (service → list of log group names) for later use in Step 7
+4. Present detection results to the user:
+   ```
+   Managed service log detection:
+     ✅ EKS Control Plane: enabled (api, audit, scheduler) → /aws/eks/{cluster}/cluster
+     ✅ RDS Aurora: enabled (error, slowquery) → /aws/rds/cluster/{id}/error, .../slowquery
+     ❌ ElastiCache: logging not enabled (recommend enabling slow-log, engine-log)
+     ⬚ MSK: not involved in this experiment
+   ```
+
+**If logging is not enabled for a service**, record in `MANAGED_LOG_RECOMMENDATIONS`
+for the report's Recommendations section:
+```
+**{Service}:** CloudWatch logging is not enabled. Enable {log-types} for better
+fault injection analysis. Without these logs, only application-side impact is visible.
+```
+
 
 ### Step 3: Collect Application Dependencies
 
@@ -249,43 +288,6 @@ SERVICE_APP_MAP:
     - eks-cluster-prod/sessions/session-mgr
 ```
 
-### Step 3.5: Detect and Collect Managed Service Logs
-
-For each affected AWS service identified in Step 2, check whether it has CloudWatch
-logging enabled. If enabled, query logs for the experiment time window. If not enabled,
-skip and note in the final report as a recommendation.
-
-**Time window note:** When called from `aws-fis-experiment-execute`, the end time
-includes a 3-minute post-experiment baseline window. Use `EXPERIMENT_END_TIME + 3 minutes`
-as the query end time to capture recovery behavior in managed service logs.
-
-**Supported managed services:** EKS Control Plane, RDS/Aurora, ElastiCache, MSK, OpenSearch.
-See `references/managed-service-log-commands.md` for check commands and log group formats.
-
-**Workflow:**
-
-1. For each service in the affected service list, extract the resource identifier from
-   the experiment template or README (cluster name, cluster ID, replication group ID, etc.)
-2. Run the check command. If logging is not enabled or the service is not present
-   in the experiment, skip it
-3. For enabled services, record the log group name(s) in `MANAGED_LOG_GROUPS` map
-   (service → list of log group names) for later use in Step 7
-4. Present detection results to the user:
-   ```
-   Managed service log detection:
-     ✅ EKS Control Plane: enabled (api, audit, scheduler) → /aws/eks/{cluster}/cluster
-     ✅ RDS Aurora: enabled (error, slowquery) → /aws/rds/cluster/{id}/error, .../slowquery
-     ❌ ElastiCache: logging not enabled (recommend enabling slow-log, engine-log)
-     ⬚ MSK: not involved in this experiment
-   ```
-
-**If logging is not enabled for a service**, record in `MANAGED_LOG_RECOMMENDATIONS`
-for the report's Recommendations section:
-```
-**{Service}:** CloudWatch logging is not enabled. Enable {log-types} for better
-fault injection analysis. Without these logs, only application-side impact is visible.
-```
-
 ### Step 4: Log Collection
 
 > **Shell scripting rule:** Use multi-line scripts. Do NOT chain commands with `&&`
@@ -377,7 +379,7 @@ After experiment completes (or immediately in post-hoc mode):
 
 #### Step 7a: Collect Managed Service Logs
 
-If `MANAGED_LOG_GROUPS` is non-empty (from Step 3.5), query CloudWatch Logs Insights
+If `MANAGED_LOG_GROUPS` is non-empty (from Step 2.5), query CloudWatch Logs Insights
 for each recorded log group using the experiment time window. See
 `references/managed-service-log-commands.md` for the query script and ASG activity
 collection commands.

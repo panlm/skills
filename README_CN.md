@@ -46,6 +46,7 @@ npx skills add panlm/skills --list
 - [**aws-knowledge-mcp-server**](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) — AWS 文档搜索与检索
 - [**context7**](https://context7.com/) — 库和框架文档查询，提供代码示例
 - **AWS CLI** — 用于可选的线上资源审计
+- **kubectl** — 需配置好对目标 EKS 集群的访问权限，FIS 实验执行和应用日志分析 Skills 需要
 
 <details>
 <summary>OpenCode MCP 配置示例（<code>config.json</code>）</summary>

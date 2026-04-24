@@ -46,6 +46,7 @@ Skills in this repo may depend on the following MCP servers and tools:
 - [**aws-knowledge-mcp-server**](https://github.com/awslabs/mcp/tree/main/src/aws-knowledge-mcp-server) -- AWS documentation search and retrieval
 - [**context7**](https://context7.com/) -- Library and framework documentation lookup with code examples
 - **AWS CLI** -- for optional live resource auditing
+- **kubectl** -- configured with access to target EKS cluster(s), required by FIS experiment execution and application log analysis skills
 
 <details>
 <summary>OpenCode MCP configuration sample (<code>config.json</code>)</summary>

@@ -26,8 +26,7 @@ Detect the language of the user's conversation and use the **same language** for
 
 Required tools:
 - **AWS CLI** — `aws fis`, `aws cloudwatch`, `aws cloudformation`, `aws logs`
-- **kubectl** (optional) — configured with access to target EKS cluster. If not available,
-  application log collection is skipped but managed service logs are still collected.
+- **kubectl**  — configured with access to target EKS cluster. 
 - A prepared experiment directory (from aws-fis-experiment-prepare skill)
 - The CloudFormation stack for this experiment **must already be deployed**
 
@@ -223,35 +222,19 @@ skip log collection (the experiment can still run without it).
 This step runs **BEFORE** the experiment starts — discovering applications after the
 experiment begins risks missing early log entries that get rotated or overwritten.
 
-#### kubectl Availability Check
+Execute from `app-service-log-analysis` skill:
 
-Before starting app log collection, verify that `kubectl` is available:
-
-```bash
-kubectl version --client -o yaml 2>/dev/null
-```
-
-**If kubectl is NOT available:**
-- Skip app discovery and app log collection
-- **Still execute `app-service-log-analysis` Step 3.5 (Detect and Collect Managed
-  Service Logs)** — this only requires AWS CLI, not kubectl
-- Inform the user:
-  ```
-  kubectl not available — skipping application log collection.
-  Managed service logs (EKS control plane, RDS, etc.) will still be collected.
-  ```
-
-**If kubectl IS available**, execute from `app-service-log-analysis` skill:
-
-1. **Its "Multi-Cluster EKS Discovery and Kubeconfig Isolation" section** — discovers
+1. **Its Step 2 (Read Service List)** — extracts affected AWS services from the
+   experiment directory's `expected-behavior.md`
+2. **Its Step 2.5 (Detect and Collect Managed Service Logs)** — checks managed service
+   CloudWatch logging status, records log groups for later analysis
+3. **Its "Multi-Cluster EKS Discovery and Kubeconfig Isolation" section** — discovers
    all EKS clusters in the target region, generates isolated kubeconfig per cluster
    (never overwrites `~/.kube/config`), verifies access to each cluster
-2. **Its Step 3 (Collect Application Dependencies — Deep Scan)** — resolves service
+4. **Its Step 3 (Collect Application Dependencies — Deep Scan)** — resolves service
    endpoints, deep-scans all accessible clusters in parallel, confirms discovered
    dependencies with user
-3. **Its Step 3.5 (Detect and Collect Managed Service Logs)** — checks managed service
-   CloudWatch logging status, records log groups for later analysis
-4. **Its Step 4 (Log Collection — Real-time Mode)** — starts background `kubectl logs -f`
+5. **Its Step 4 (Log Collection — Real-time Mode)** — starts background `kubectl logs -f`
    for all confirmed applications across all clusters
 
 ### Step 5: Start Experiment (CRITICAL CONFIRMATION)
@@ -277,10 +260,10 @@ Stop Conditions:
   - {list each alarm that will stop the experiment}
 
 Applications being monitored:
-  - {list each namespace/deployment from SERVICE_APP_MAP, or "N/A (kubectl not available)" if skipped}
+  - {list each namespace/deployment from SERVICE_APP_MAP}
 
 Managed service log collection:
-  - {list each service with logging status from Step 6}
+  - {list each service with logging status from MANAGED_LOG_GROUPS}
 
 Log directory: {LOG_DIR}
 Post-experiment baseline: 3 minutes (automatic)
@@ -309,12 +292,9 @@ polling commands and experiment status reference.
   Query service-specific status (e.g., RDS instance status, ElastiCache replication
   group status, EKS node status) during monitoring to capture detailed observations.
 
-**Log insights during each poll cycle:** If `app-service-log-analysis` skill was
-loaded in Step 4, execute its Step 5
+**Log insights during each poll cycle:** Execute `app-service-log-analysis` Step 5
 (Real-time Monitoring Display) — read recent logs, count errors/warnings, display
-per-app summary, detect recovery signals. If app log collection was skipped (kubectl
-not available), show only managed service log status. The skill must already be loaded
-from Step 4.
+per-app summary, detect recovery signals. The skill must already be loaded from Step 4.
 
 **During monitoring, remind the user:**
 - Check the CloudWatch dashboard for real-time metrics
@@ -327,8 +307,8 @@ After the experiment completes (any terminal state):
 #### Post-Experiment Baseline (3 minutes)
 
 Continue collecting logs for **3 minutes** after the experiment ends to capture
-recovery behavior. This applies to both application logs (if kubectl is available)
-and managed service logs. Display a countdown to the user:
+recovery behavior. This applies to both application logs and managed service logs.
+Display a countdown to the user:
 
 ```
 Experiment completed. Collecting post-experiment baseline logs...
@@ -339,11 +319,11 @@ After the 3-minute baseline window ends, proceed to analysis.
 
 #### Generate Application Log Analysis
 
-If `app-service-log-analysis` skill was loaded in Step 4, execute its Steps 7-8:
+Execute `app-service-log-analysis` Steps 7-8:
 - **Its Step 7 (Generate Analysis Report)** — analyze error patterns, peak rates, recovery
   times, and generate the "Application Log Analysis" section of the report. The analysis
   time window extends 3 minutes past the experiment end time to cover the baseline period.
-- **Its Step 8 (Cleanup)** — kill background `kubectl logs` processes (if any were started)
+- **Its Step 8 (Cleanup)** — kill background `kubectl logs` processes
 
 The application log analysis output is embedded into the experiment results report
 (see Step 10 below), NOT saved as a separate file.
@@ -366,7 +346,7 @@ After saving, print a brief terminal summary:
 - Start/end time and duration (ISO 8601 with timezone)
 - Per-action status (one line each)
 - Per-service recovery status (one line each)
-- Application log summary — total errors per app (or "N/A — kubectl not available")
+- Application log summary — total errors per app
 - Issues requiring attention (if any)
 - Cleanup instructions
 
