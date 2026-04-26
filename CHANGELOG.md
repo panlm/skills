@@ -11,13 +11,16 @@
 ### aws-fis-experiment-prepare
 - **新增**: ElastiCache Redis Cluster Mode Enabled 分片角色检测 — 通过 CloudWatch IsMaster 指标识别 Primary/Replica 节点，写入 elasticache-redis-guide.md
 - **新增**: 实验前健康检查（Pre-experiment Health Check）流程；ElastiCache failover 场景支持
+- **修复**: IsMaster 指标查询改用 Latest 数据点代替 Average，修正分片角色检测准确性
 
 ### aws-fis-experiment-execute
 - **新增**: 实验前健康检查流程，与 prepare skill 对齐
+- **修复**: description 中文触发词更正（"启动 FIS 实验" → "执行 FIS 实验"）
 
 ### app-service-log-analysis
-- **重构**: 依赖发现匹配逻辑简化 — 优先使用特定资源标识符（endpoint、ARN）而非通用前缀匹配
-- **修复**: 依赖发现增加匹配结果验证，防止误报（false positive）
+- **重构**: 依赖发现匹配逻辑简化 — 优先使用特定资源标识符而非通用前缀匹配
+- **修复**: 依赖发现匹配防误报 — 新增 DO NOT match 禁止项（domain suffix、端口、通用关键词）；Step 3a-3 增加 dot-anchor 验证步骤丢弃 false positive
+- **修复**: 托管服务日志检测步骤位置调整；修复跨步骤引用
 
 ### aws-service-chaos-research
 - **新增**: 推荐测试优先级表增加 FIS Experiment Hint 列 — 每个场景附一句话描述（FIS action/method + 目标占位符），方便客户快速创建对应的 FIS 实验；包含 7 种典型场景示例
