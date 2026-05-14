@@ -6,6 +6,13 @@
 
 ---
 
+## [2026-05-14]
+
+### aws-fis-experiment-execute
+- **修复**: 将 app-service-log-analysis skill 加载从 Step 4 拆分为独立的 Step 3.9，解耦 skill 加载与 discovery 逻辑，防止用户指定 pod 时 Claude 跳过加载子 skill
+
+---
+
 ## [2026-04-21 ~ 2026-04-24]
 
 ### aws-fis-experiment-prepare
