@@ -6,6 +6,18 @@
 
 ---
 
+## [2026-08-04]
+
+### ai-daily-report
+- **修复**: 禁止用 `memory_export`/`recall`/`smart_search` 当主取数源（纪律点 1）— curated memory 只有个位数条目，2026-08-03 的 cron 因此只拿到 4 条、漏掉窗口内 449 条 observation / 8 个 session
+- **新增**: 取数完整性闸门（纪律点 1b）— 枚举完必须报出 session 数 N 与 observation 数 M，`M<50` 或 `N<3` 视为取数可疑不准往下写
+- **新增**: 写入自检拆两层 — d1 写入成功 + d2 内容完整（`blocks_added ≥ bullet 数+1` 且与 session 数交叉核对）；原来只查 `blocks_added>0`，写 3 个 block 也算"成功"
+- **新增**: Step 0 补 macOS 窗口计算（BSD date 无 `-d`，改用 python）
+- **新增**: Step 3 补飞书授权兜底 a2 — 已知 doc_token、`lark_refresh.mjs` 刷 token、MCP 进程内存仍持旧 token 时直接走 REST、当前 scope 缺 `drive:drive:readonly`
+- **变更**: timeline 分页补明确终止条件（拉到某页最大 timestamp ≥ END）；大输出落盘后用 python 去重过滤；`memory_sessions` 残缺记录需 `.get()` 兜底
+
+---
+
 ## [2026-08-02]
 
 ### ai-daily-report
