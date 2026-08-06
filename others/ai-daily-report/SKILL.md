@@ -34,19 +34,20 @@ scripts/publish_feishu.py   备份旧段 + 删旧 + 倒序插入 + 回读校验
 | `AGENTMEMORY_URL` | agentmemory 服务地址 | agentmemory 的本地 env 文件(见下) |
 | `AGENTMEMORY_SECRET` | REST Bearer token | 同上 |
 | `FEISHU_USER_TOKEN` | 飞书 docx user_access_token | 刷新脚本 + lark-mcp storageManager |
+| `FEISHU_DOC_<YYYYMM>` | 当月日报文档的 document_id | 见下「文档 ID」 |
 
-**agentmemory 两个变量**：本机在 agentmemory 的运行时配置目录下有个 env 文件(Mac 上是 `~/.agentmemory/.env`，openclaw/EC2 上看该实例的安装目录)。载入当前 shell：
+**agentmemory 两个变量**：agentmemory 的运行时配置目录下有个 env 文件(各机器位置不同，Mac 和 openclaw/EC2 实例各看自己的安装目录)。载入当前 shell：
 
 ```bash
-set -a; . ~/.agentmemory/.env; set +a
+set -a; . <agentmemory 配置目录>/.env; set +a
 ```
 
-如果那个文件不存在，用 `grep -rl AGENTMEMORY_SECRET ~/.zshrc ~/.bashrc ~/.agentmemory/` 找它在哪。**不要把值 echo 出来。**
+找不到那个文件就 `grep -rl AGENTMEMORY_SECRET` 扫 shell rc 和 agentmemory 配置目录。**不要把值 echo 出来。**
 
-**飞书 token**：user_access_token 只有 2 小时有效期。先刷新，再从 lark-mcp 的 storage 读出来 export：
+**飞书 token**：user_access_token 只有 2 小时有效期。先跑本机的 lark refresh 脚本刷新，再从 lark-mcp 的 storage 读出来 export：
 
 ```bash
-node ~/.config/lark-daily/lark_refresh.mjs        # refresh_token 7 天有效，超期要重走 OAuth
+node <lark 工具目录>/lark_refresh.mjs        # refresh_token 7 天有效，超期要重走 OAuth
 export FEISHU_USER_TOKEN=$(node -e "
 const {createRequire}=require('module');
 const r=createRequire('<lark-mcp 安装路径>/node_modules/@larksuiteoapi/lark-mcp/');
@@ -54,9 +55,17 @@ const {storageManager}=r('<同上>/dist/auth/utils/storage-manager.js');
 storageManager.loadStorageData().then(d=>process.stdout.write(Object.values(d.tokens)[0].token));")
 ```
 
-刷完 **MCP 进程内存里还是旧 token**，所以 `lark-mcp` 工具仍会报 `Current user_access_token is invalid or expired` —— 不要反复重试 MCP，直接用上面的 REST 路径(`publish_feishu.py` 走的就是 REST)。当前 token scope **只有 docx 没有 drive**，`/drive/v1/files` 和文档搜索会报 99991679，所以用已知 doc_token 直接操作。
+刷完 **MCP 进程内存里还是旧 token**，所以 `lark-mcp` 工具仍会报 `Current user_access_token is invalid or expired` —— 不要反复重试 MCP，直接用上面的 REST 路径(`publish_feishu.py` 走的就是 REST)。
 
-**已知 doc_token**(确认过属于 panlm 本人)：`202608 = SU8ndWh1PoMfONxLu5CcjgZEnMc`、`202607 = UxLZdrKVyod4pBxyRSScZKh4nHd`。当月文档不存在时新建 `工作日报-YYYYMM`，首篇写 `# 工作日报 · YYYY年M月` + `---` 分割线 + 报告日段落。
+**文档 ID**：本 skill 是公开仓库，**不在这里写死任何 document_id**。按月存进本机环境变量，例如 `FEISHU_DOC_202608`，和上面的凭证放同一个 env 文件里(该文件已被 `.gitignore` 挡住)：
+
+```bash
+python3 scripts/publish_feishu.py --doc "$FEISHU_DOC_202608" ...
+```
+
+首次为某个月准备时，用飞书搜索按名字找 `工作日报-YYYYMM` 拿到 id 再存进去。当前 token scope **只有 docx 没有 drive**，`/drive/v1/files` 和文档搜索会报 99991679 —— 补 `drive:drive:readonly` scope 才能搜，或者从浏览器打开文档直接从 URL 里抄 id。
+
+当月文档不存在时新建 `工作日报-YYYYMM`，首篇写 `# 工作日报 · YYYY年M月` + `---` 分割线 + 报告日段落，然后把新 id 存进环境变量。
 
 `lark-cli-mcp-agentcore` 那条路要走 AgentCore Identity 浏览器授权，无头环境不可用，cron 里不要指望它。
 
@@ -132,9 +141,11 @@ python3 scripts/check_coverage.py \
 
 ```bash
 python3 scripts/publish_feishu.py \
-  --report /tmp/daily-YYYY-MM-DD.md --doc <完整 document_id> \
+  --report /tmp/daily-YYYY-MM-DD.md --doc "$FEISHU_DOC_202608" \
   --coverage-ok /tmp/cov.ok --backup /tmp/feishu-old-section.md
 ```
+
+`--doc` 用 Step 0 存好的 `FEISHU_DOC_<YYYYMM>` 环境变量(YM 取脚本输出的报告日年月)，**不要把 id 明文写进命令、日报或任何提交物**。
 
 脚本自动做：定位分割线 → 找同日旧段并备份 → 删旧段 → 在分割线后插入(实现倒序) → 回读校验标题和 bullet 条数。
 
@@ -146,6 +157,8 @@ python3 scripts/publish_feishu.py \
 ## Step 5: 完成后简短汇报
 
 用正常中文完整句：报告日几个主要任务、飞书文档链接。
+
+链接**只在给 panlm 的对话回复里给**(他要点开看)。**不要把它写进任何会提交进仓库的文件** —— 文档 URL 里就带着 document_id。
 
 如果 Step 1 的 N/M 偏低但闸门放行了(脚本会打印"首页只返回 R 条"的证据)，汇报里**必须写明该证据 + 时段分布**，不要只说一句"当天活动少"。
 

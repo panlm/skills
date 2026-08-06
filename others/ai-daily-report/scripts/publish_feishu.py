@@ -128,12 +128,19 @@ def md_to_blocks(md_path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", required=True)
-    ap.add_argument("--doc", required=True, help="完整 document_id，禁止用 … 省略")
+    ap.add_argument("--doc", required=True,
+                    help='完整 document_id，从环境变量传入如 --doc "$FEISHU_DOC_202608"')
     ap.add_argument("--coverage-ok", required=True, help="check_coverage.py 通过后创建的标记文件")
     ap.add_argument("--backup", default="/tmp/feishu-old-section.md")
     ap.add_argument("--dry-run", action="store_true", help="只显示将要做的操作，不写入")
     args = ap.parse_args()
 
+    if not args.doc.strip():
+        die(
+            "--doc 是空的 —— 对应的 FEISHU_DOC_<YYYYMM> 环境变量没设置。\n"
+            "  见 SKILL.md「Step 0 准备凭证 / 文档 ID」：按月存进本机 env 文件，\n"
+            "  不要把 document_id 明文写进命令或任何提交物。"
+        )
     if not os.path.exists(args.coverage_ok):
         die(
             f"覆盖核对标记 {args.coverage_ok} 不存在 —— 拒绝写入飞书。\n"
@@ -142,7 +149,9 @@ def main():
             code=2,
         )
     if "…" in args.doc or len(args.doc) < 20:
-        die(f"document_id 看起来被截断了: {args.doc}")
+        # 不回显完整 id：报错信息可能进 cron 日志。
+        die(f"document_id 看起来被截断了(长度 {len(args.doc)}，前 6 字符 {args.doc[:6]}…)。"
+            f"检查 FEISHU_DOC_<YYYYMM> 环境变量是否完整。")
 
     tok = token()
     heading, new_blocks = md_to_blocks(args.report)
