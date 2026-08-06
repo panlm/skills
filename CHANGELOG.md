@@ -9,11 +9,15 @@
 ## [2026-08-06]
 
 ### ai-daily-report
-- **新增**: 纪律点 1a — 判断"是否空会话"只看 `facts` 数组长度，**禁止用 `observationCount`**。openclaw 的 agent_end hook 每 session 只写 1 条 observation，但内含 7-13 条 facts(完整对话摘要)，按 count 判空必然误杀
-- **新增**: 写入自检 d3 逐条覆盖核对 — 原 d2 的 `blocks_added ≥ bullet 数+1` 是**恒真式**(拿写入数比自己写的 bullet 数，写 4 条也过)，改为把 facts≥1 的 observation 逐条映射到 bullet，`unmapped` 非空不准提交
-- **新增**: 写入自检 d4 — 排除性结论("其余为空会话/心跳/已计入前一天")必须附支撑数字，给不出就删掉该 bullet 改为如实写出
-- **变更**: 纪律点 1b 闸门触发后不准用"当天活动少"结案 — 需给出 dedup 总数+覆盖区间证据，并报北京时间 4 段(00-06/06-12/12-18/18-24)observation 分布，连续 2 段为 0 强制回 Step 1 重拉
-- 根因(2026-08-05)：cron 版把北京 16:48 后 7 个 `observationCount=1` 的 session 判成心跳整段丢弃(实际各带 7-13 facts，含 AWS Quick Suite 接 M365 权限答复、multica.ai 关联性三轮调研、OpenClaw 报错横幅根因)；4 条 bullet 只覆盖到北京 07:54，而 d2 算式 `5 ≥ 4+1` 成立、自检放行。窗口内 18 条 observation 无一条 facts 为空，"空会话"结论从头到尾是错的。新规则用当日真实数据回测：1a 与 d3 各自独立拦住，均精确报出 7 条漏项
+- **新增**: `scripts/` 三个 python 脚本接管全部机械步骤，SKILL.md 从纪律散文改成脚本调用说明(19KB → 174 行)
+  - `fetch_activity.py` — 算窗口 + 直连 agentmemory REST 分页取数 + dedup + facts 判空 + 北京时段分布 + 完整性闸门(exit 2 = 不准往下写)
+  - `check_coverage.py` — 逐条覆盖核对：每条 `facts>=1` 的 observation 必须映射到某条 bullet，未归属 / bullet 无出处 / 排除性结论缺证据全部 exit 2
+  - `publish_feishu.py` — 备份旧段 + 删旧 + 倒序 insert + 回读校验；**读不到 `check_coverage.py` 的通过标记直接拒绝执行**
+- **变更**: 判空标准改为只看 `facts` 数组长度，**禁止用 `observationCount`** — openclaw 的 agent_end hook 每 session 只写 1 条 observation 但内含 7-13 条 facts(完整对话摘要)，按 count 判空必然误杀
+- **移除**: 原 d2 自检 `blocks_added ≥ bullet 数+1` — **恒真式**，拿写入数比自己写的 bullet 数，写 4 条也过。改由 `check_coverage.py` 跟取数结果对账
+- 凭证全部从环境变量读(`AGENTMEMORY_URL`/`AGENTMEMORY_SECRET`/`FEISHU_USER_TOKEN`)，仓库不含任何 secret，取法写在 SKILL.md Step 0
+- 根因(2026-08-05)：cron 版把北京 16:48 后 7 个 `observationCount=1` 的 session 判成心跳整段丢弃(实际各带 7-13 facts，含 AWS Quick Suite 接 M365 权限答复、multica.ai 关联性三轮调研、OpenClaw 报错横幅根因)；4 条 bullet 只覆盖到北京 07:54，而 d2 算式 `5 ≥ 4+1` 成立、自检放行。**更深层原因是散文纪律的执行率随平台漂移** —— 08-03 漏 445 条、08-05 漏 7 条、openclaw 版持续比 Mac 本地版残缺，加字只会更容易被跳过
+- 回测(2026-08-05 真实数据)：cron 那份 4-bullet 版 → `check_coverage.py` exit 2，三条信号同时命中并逐条列出 7 条漏项，其中一条直接判定"空会话"结论不成立(`facts==0` 条数为 0)；今天的 8-bullet 版 → exit 0。另测 4 个边界(bullet 无出处 / 映射越界 / 真有空心跳时放行不误报 / 排除性结论无数字)全部符合预期
 
 ---
 
