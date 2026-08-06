@@ -11,6 +11,8 @@ description: Use when generating panlm's daily AI work report — the 00:30 cron
 
 **取数主源只有一个：timeline 分页 + `memory_sessions` 逐 session 枚举。** `memory_export`/`recall`/`smart_search` 返回 curated memory(个位数条目)，只能补细节，用它当主源必然漏掉绝大部分活动 —— 详见 Step 1 纪律点 1。
 
+**判断某条记录有没有内容，只看 `facts` 数组，不看 `observationCount`** —— 后者是 1 也可能装着一整场对话，详见纪律点 1a。
+
 ## When to Use
 
 - 00:30 定时日报任务触发时
@@ -66,12 +68,52 @@ session 枚举是唯一可信的全貌来源，不能只靠一次 timeline 或�
 - **d.** 用 `memory_sessions` 列出所有 session，挑窗口内有活动的，【逐个 session】核对。注意 `memory_sessions` 里有【残缺记录】(缺 `startedAt`/`endedAt` 字段)，直接排序会 KeyError，过滤时要 `.get()` 兜底。
 - **e.** 所有 entries 按 `observation.timestamp` 过滤，只留 `[START, END)` 内的；早于 START 或不早于 END(运行当天)的一律丢弃。
 
+### 纪律点 1a：判断"是否空会话"只看 facts，禁止看 observationCount
+
+**`observationCount` 不是活动量，一条 observation 可以装一整场对话。** openclaw 的 agent_end hook 每个 session 只写 1 条 observation，但那 1 条的 `facts` 里有 7-13 条事实 —— 是完整对话摘要，不是心跳。**按 `observationCount == 1` 判"空会话/心跳"必然误杀。**
+
+判空的唯一标准：**该 session 在窗口内的 observation 的 `facts` 数组**。
+
+```python
+# 对窗口内每条 observation 打印 facts 条数，0 facts 才是真空
+for o in sorted(win, key=lambda y: y["timestamp"]):
+    nf = len(o.get("facts") or [])
+    print(o["timestamp"][:19], o["sessionId"][:8], f"facts={nf}", o["title"][:60])
+```
+
+- `facts >= 1` → **有实质内容，必须落进 bullet**，不管 `observationCount` 是几。
+- `facts == 0` 且 title/subtitle 无信息 → 才算心跳，可并入末条 bullet。
+- 写"其余为空会话/心跳"这类结论前，**必须先报出"0 facts 的条数"**。这个数是 0 就不准写该结论。
+
+反面案例(2026-08-05)：cron 把北京 16:48 之后 7 个 `observationCount=1` 的 openclaw session 全判成心跳，一句"其余为空会话与心跳类记录，无实质内容"打包丢掉。实际那 7 条各带 7-13 facts，含 AWS Quick Suite 接 M365 的权限类型答复(13 facts)、multica.ai 与紫讯关联性三轮调研、OpenClaw 报错横幅根因定位。当天窗口内 18 条 observation **无一条 facts 为空**，"空会话"结论从头到尾是错的。
+
 ### 纪律点 1b：取数完整性闸门(枚举完必须报数)
 
 枚举结束后**必须显式报出两个数**：窗口内 **session 数 N** 和 **observation 数 M**，并和 `memory_sessions` 的结果交叉核对。
 
 - `M < 50` 或 `N < 3` → **视为取数可疑，不准往下写**。回到 b/d 重新分页多拉几轮、确认 timeline 覆盖到 END 之后，而不是接受这个结果直接生成日报。
 - 若确认当天真的活动很少(比如休假)，在 Step 4 汇报里明确写出"窗口内仅 N 个 session / M 条 observation，已二次确认无遗漏"。
+
+**闸门触发后不准用"当天活动少"结案，必须给出可复核的排除证据**，至少一条：
+
+- timeline 分页 dedup 后的总条数 + 实际覆盖区间(必须两端都越过 START/END)；
+- 首页 `after=400` 却只返回 R 条(`R < 400`) → 证明 START 之后库里总量就只有 R 条，是库里少不是分页截断。
+
+**时段覆盖检查(防"只覆盖半天")**：把窗口按北京时间切 4 段(00-06 / 06-12 / 12-18 / 18-24)，报出每段的 observation 数。
+
+```python
+from datetime import datetime, timedelta, timezone
+sh = timezone(timedelta(hours=8))
+buckets = {}
+for o in win:
+    h = datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00")).astimezone(sh).hour
+    buckets[f"{h//6*6:02d}-{h//6*6+6:02d}"] = buckets.get(f"{h//6*6:02d}-{h//6*6+6:02d}", 0) + 1
+print("北京时段分布:", buckets)
+```
+
+**连续 2 段为 0 → 强制回 Step 1 重拉**(尤其 START 之后半天全空，通常是 timeline 只拉了一页)。确认真的是空(如休假、整天在会)才准往下写，并在 Step 4 报出该分布。
+
+反面案例(2026-08-05)：M=18 已触发 `M<50` 闸门，但 cron 只在末条 bullet 写"活动少/空会话"就结案，没做时段覆盖检查 —— 它的 bullet 全部落在北京 00-08 段，12-18 段的 7 条实质活动一条没进。**闸门被触发却用一句话糊过去，等于没有闸门。**
 
 补充：`memory_lesson_recall` 查报告日新增经验(这是补细节，不是主源)。查路径时 file_write/file_read/command_run 类 observation 常带绝对路径，尽量提取。
 
@@ -114,6 +156,25 @@ session 枚举是唯一可信的全貌来源，不能只靠一次 timeline 或�
   - **d1 写入成功**：insert/write 返回 success 且 `blocks_added > 0`(或 write 成功)。没成功必须重试或明确报错。
   - **d2 内容完整**：`blocks_added` 必须 **≥ bullet 数 + 1**(标题)，且和 Step 1 报的 session 数 N 交叉核对 —— **每个有实质活动的 session 至少对应 1 条 bullet**(纯心跳/空会话除外)。对不上说明 Step 1 取数漏了或 bullet 合并过度，回 Step 1 重查，别拿少的那版交差。
   - **`blocks_added>0` 单独不构成完成信号**。2026-08-03 那次写了 3 个 block 就 success 通过自检，实际漏了 8 个 session 里的绝大部分内容 —— 3 条和 12 条在旧自检眼里一样"成功"。
+  - **d3 逐条覆盖核对(硬闸门，`blocks_added ≥ bullet+1` 不能替代)**：d2 拿 `blocks_added` 跟【自己写的】bullet 数比，**恒真** —— 写 4 条也过、写 8 条也过，它只能证明"写进去的和打算写的一样多"，证明不了"打算写的够全"。必须再跟【取数结果】对一次账：
+
+    列一张 **facts≥1 的 observation → bullet 编号** 映射表，逐条标注归到哪条 bullet。
+
+    ```python
+    # 每条有实质内容的 observation 都必须有归属，unmapped 必须为空
+    mapping = {"2026-08-05T08:48:46": 6, "2026-08-05T09:56:33": 7}  # ts -> bullet 序号
+    unmapped = [o["timestamp"][:19] for o in win
+                if len(o.get("facts") or []) >= 1 and o["timestamp"][:19] not in mapping]
+    print("未归属:", unmapped)   # 非空 → 不准提交，回去补 bullet
+    ```
+
+    - `unmapped` 非空 → **写入不算完成**，补齐 bullet 后重插。
+    - 允许多条 observation 合并到同一 bullet(同一任务的连续步骤)，**不允许某条 facts≥1 的 observation 没有任何归属**。
+    - 「零碎小事合并一条」是**归属**不是**豁免** —— 归到该 bullet 的 observation 也要在映射表里列出。
+
+    反面案例(2026-08-05)：cron 写 4 条 bullet、`blocks_added=5`，d2 算式 `5 ≥ 4+1` 成立、自检通过；但窗口内 18 条 facts≥1 的 observation 里有 7 条(北京 12:00 之后全部)根本没进任何 bullet。做一次 d3 映射就会立刻暴露 7 条 unmapped。
+
+  - **d4 结论类 bullet 需反证**：凡写"其余为空会话/心跳/无实质内容"「已计入前一天日报」这类**排除性结论**，必须在汇报里附上支撑数字(0 facts 的条数、或那些 observation 的时间戳落在窗口外的证据)。给不出数字就删掉该 bullet，改成把内容如实写出来。**排除性结论是最容易掩盖漏数的地方 —— 它把"没查到"写成了"本来没有"。**
   - **绝不允许在没写成功、或内容明显不全的情况下进入 Step 4 谎报完成。**
 
 ## Step 4: 完成后简短汇报
@@ -126,6 +187,10 @@ session 枚举是唯一可信的全貌来源，不能只靠一次 timeline 或�
 |----|------|---------|
 | 用 `memory_export`/`recall` 当主取数源 | **只拿到 curated memory 的个位数条目，漏掉几百条 raw observation(2026-08-03 根因：4 条 vs 449 条)** | timeline 分页 + memory_sessions 逐个枚举；curated 只补细节 |
 | 枚举完不报 N/M 数量 | 取数悄悄降级也没人发现，日报缺一大半 | 报出 session 数 N + observation 数 M，`M<50` 或 `N<3` 就重查 |
+| 用 `observationCount` 判空会话 | **openclaw 一个 session 只写 1 条 observation 但内含 7-13 facts，被误杀成"心跳"(2026-08-05 漏 7 个 session)** | 只看 `facts` 数组长度，`facts>=1` 就必须写进 bullet(纪律点 1a) |
+| 闸门触发后写"当天活动少"结案 | 闸门形同虚设，半天活动没进日报 | 给出 dedup 总数+覆盖区间证据，并报北京时段 4 段分布，连续 2 段为 0 就重拉 |
+| 写"其余为空会话/心跳"不给数字 | 把"没查到"写成"本来没有"，掩盖漏数 | 先报 0 facts 的条数，该数为 0 就不准写这个结论(d4) |
+| 只用 `blocks_added ≥ bullet+1` 当完整性自检 | **恒真式：拿写入数比自己写的 bullet 数，写 4 条也过(2026-08-05)** | 加 d3：facts≥1 的 observation 逐条映射到 bullet，unmapped 非空不准提交 |
 | 手算 UTC 窗口 | 时区算错，漏/混入活动 | 跑 Step 0 的 date 命令 |
 | 用 project 过滤 | 漏 Mac 上 claude-code session | 逐 session 枚举全 project |
 | 只信一次 timeline | 输出被体积截断，漏中间记录 | 分页拉到覆盖 END 之后 + memory_sessions 逐个核对 |
@@ -140,6 +205,10 @@ session 枚举是唯一可信的全貌来源，不能只靠一次 timeline 或�
 
 - "先 `memory_export` 看看有什么" → **这是 2026-08-03 漏掉 445 条记录的起点**。curated memory 不是当天活动，回 Step 1 走 timeline 枚举
 - "昨天好像没什么事，就这几条" → 报出 N/M，`M<50` 就是取数漏了，不是当天真闲
+- "这几个 session 只有 1 条 observation，是心跳" → **看 facts 不看 count**，openclaw 的 1 条能装 13 facts(2026-08-05 就这么漏了 7 个 session)
+- "其余为空会话与心跳类记录，无实质内容" → 先数 0 facts 有几条；是 0 就说明这句是错的
+- "闸门触发了，但当天确实活动少" → 报北京时段 4 段分布，连续 2 段为 0 就是漏了
+- "blocks_added 跟 bullet 数对得上，完整性没问题" → 那是恒真式，做 d3 逐条映射才算核对
 - "手算一下 UTC 就行" → 跑命令
 - "timeline 拉了一次够了" → 分页拉到覆盖 END 之后 + 逐 session 核对
 - "输出太大，我挑几条看看" → 落盘 + python 过滤，别抽样

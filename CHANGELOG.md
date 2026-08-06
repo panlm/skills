@@ -6,6 +6,17 @@
 
 ---
 
+## [2026-08-06]
+
+### ai-daily-report
+- **新增**: 纪律点 1a — 判断"是否空会话"只看 `facts` 数组长度，**禁止用 `observationCount`**。openclaw 的 agent_end hook 每 session 只写 1 条 observation，但内含 7-13 条 facts(完整对话摘要)，按 count 判空必然误杀
+- **新增**: 写入自检 d3 逐条覆盖核对 — 原 d2 的 `blocks_added ≥ bullet 数+1` 是**恒真式**(拿写入数比自己写的 bullet 数，写 4 条也过)，改为把 facts≥1 的 observation 逐条映射到 bullet，`unmapped` 非空不准提交
+- **新增**: 写入自检 d4 — 排除性结论("其余为空会话/心跳/已计入前一天")必须附支撑数字，给不出就删掉该 bullet 改为如实写出
+- **变更**: 纪律点 1b 闸门触发后不准用"当天活动少"结案 — 需给出 dedup 总数+覆盖区间证据，并报北京时间 4 段(00-06/06-12/12-18/18-24)observation 分布，连续 2 段为 0 强制回 Step 1 重拉
+- 根因(2026-08-05)：cron 版把北京 16:48 后 7 个 `observationCount=1` 的 session 判成心跳整段丢弃(实际各带 7-13 facts，含 AWS Quick Suite 接 M365 权限答复、multica.ai 关联性三轮调研、OpenClaw 报错横幅根因)；4 条 bullet 只覆盖到北京 07:54，而 d2 算式 `5 ≥ 4+1` 成立、自检放行。窗口内 18 条 observation 无一条 facts 为空，"空会话"结论从头到尾是错的。新规则用当日真实数据回测：1a 与 d3 各自独立拦住，均精确报出 7 条漏项
+
+---
+
 ## [2026-08-04]
 
 ### ai-daily-report
