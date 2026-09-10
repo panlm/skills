@@ -14,6 +14,7 @@
 | [2026-09-03-utilization-based-rightsizing-design.md](./specs/2026-09-03-utilization-based-rightsizing-design.md) | 初版设计:基于资源利用率做机型配置优化的整体方案 |
 | [2026-09-04-run2-findings-design.md](./specs/2026-09-04-run2-findings-design.md) | 第二轮真实运行反馈的设计与裁定 |
 | [2026-09-09-sampling-guard-and-veto-persistence-design.md](./specs/2026-09-09-sampling-guard-and-veto-persistence-design.md) | 采样守卫从「拒绝线」改「置信度分档线」;三条否决项改判持续态 |
+| [2026-09-10-burstable-credit-not-applicable-design.md](./specs/2026-09-10-burstable-credit-not-applicable-design.md) | EC2 突发候选:信用指标在非突发机型上是「不适用」不是「缺失」,fail-closed 让突发路线永久不可达 |
 
 ## plans
 
