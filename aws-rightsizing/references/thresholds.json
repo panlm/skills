@@ -1,0 +1,50 @@
+{
+  "_comment": "唯一真值源。散文文档不得复述这里的数值，只能引用键名。min_biz_hours_points 是**置信度分档线**不是拒绝线：0 < n < 该值 ⇒ 照常判据 + confidence=low；n 为 0 或缺失才 fail-closed 成 insufficient-data。它**不适用于 is_idle 与 is_stop_candidate**——那两条的动作是删除与停机、不可回滚，保持硬门限。",
+  "_verified": "2026-09-04",
+  "profiles": {
+    "aggressive": {
+      "target_cpu_p95": 60,
+      "ceiling_cpu_max": 85,
+      "target_mem_p95": 70,
+      "ceiling_mem_max": 85,
+      "burstable_baseline_headroom": 0.2,
+      "max_reduction_ratio": 3,
+      "max_mem_reduction_ratio": 3,
+      "min_biz_hours_points": 168,
+      "idle_cpu_p95": 5,
+      "idle_net_mb_day": 5,
+      "stop_candidate_peak_cpu_max": 20,
+      "msk_target_cpu_p95": 40,
+      "reserved_memory_pct_default": 25,
+      "burstable_max_vcpu": 8,
+      "burstable_max_gib": 32,
+      "rds_dbload_ratio": 0.5,
+      "rds_freeable_mem_floor_pct": 15,
+      "redis_repl_lag_max_s": 1,
+      "msk_disk_used_max": 50,
+      "msk_handler_idle_min": 0.7
+    },
+    "conservative": {
+      "target_cpu_p95": 40,
+      "ceiling_cpu_max": 60,
+      "target_mem_p95": 50,
+      "ceiling_mem_max": 70,
+      "burstable_baseline_headroom": 0.2,
+      "max_reduction_ratio": 2,
+      "max_mem_reduction_ratio": 2,
+      "min_biz_hours_points": 168,
+      "idle_cpu_p95": 5,
+      "idle_net_mb_day": 5,
+      "stop_candidate_peak_cpu_max": 20,
+      "msk_target_cpu_p95": 40,
+      "reserved_memory_pct_default": 25,
+      "burstable_max_vcpu": 8,
+      "burstable_max_gib": 32,
+      "rds_dbload_ratio": 0.5,
+      "rds_freeable_mem_floor_pct": 15,
+      "redis_repl_lag_max_s": 1,
+      "msk_disk_used_max": 50,
+      "msk_handler_idle_min": 0.7
+    }
+  }
+}

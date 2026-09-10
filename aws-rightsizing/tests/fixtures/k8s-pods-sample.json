@@ -1,0 +1,8 @@
+{"clusters": [
+  {"name": "cluster-a",
+   "nodes": [{"allocatable": {"cpu": "1930m", "memory": "7146376Ki"}}],
+   "pods": [{"spec": {"containers": [{"resources": {"requests": {"cpu": "500m", "memory": "1Gi"}}}]}}]},
+  {"name": "cluster-b",
+   "nodes": [{"allocatable": {"cpu": "3860m", "memory": "14292752Ki"}}],
+   "pods": [{"spec": {"containers": [{"resources": {"requests": {"cpu": "200m", "memory": "512Mi"}}}]}}]}
+]}

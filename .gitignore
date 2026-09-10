@@ -31,6 +31,9 @@ mlflow.db
 mlruns/
 mlflow-artifacts/
 
+# Skill run outputs (contain real account ids / resource ids — never commit)
+report_output/
+
 # Generated state
 .upstream-state.json
 .skill-registry.json
