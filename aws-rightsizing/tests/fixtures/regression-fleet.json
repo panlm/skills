@@ -13,7 +13,8 @@
   "specs 里刻意保留了 a1 / c4 / r4 三个 legacy 族：它们只会被 legacy 过滤拦下，",
   "其余过滤（架构/分类/带宽/价格/降幅）都放行。清空 legacy_families 后总额会变，",
   "所以这份 fixture 也能守住「legacy 策展清单」这条 ruling。",
-  "不含 sizing_profile：它是必填输入，由测试按 profile 注入。"
+  "不含 sizing_profile：它是必填输入，由测试按 profile 注入。",
+  "非突发机型的 surplus_credits 一律为 null：CPUSurplusCreditsCharged 只有 T 系列发布，真实采集对这些机型不可能产出 0。此前这里填 0，让「把不适用当缺失」的判据缺陷绕过了整套基线，见 docs/specs/2026-09-10-burstable-credit-not-applicable-design.md 的 P4。"
  ],
  "specs": [
   {
@@ -3239,7 +3240,7 @@
    "peak_mem": null,
    "net_mb_day": 23.688286,
    "ebs_need": 19.451484,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-03",
@@ -3256,7 +3257,7 @@
    "peak_mem": null,
    "net_mb_day": 389.77224,
    "ebs_need": 36.208216,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-04",
@@ -3273,7 +3274,7 @@
    "peak_mem": null,
    "net_mb_day": 27.404317,
    "ebs_need": 6.994609,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-05",
@@ -3290,7 +3291,7 @@
    "peak_mem": null,
    "net_mb_day": 18.503156,
    "ebs_need": 3.215391,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-06",
@@ -3307,7 +3308,7 @@
    "peak_mem": null,
    "net_mb_day": 620.402587,
    "ebs_need": 15.818125,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-07",
@@ -3324,7 +3325,7 @@
    "peak_mem": null,
    "net_mb_day": 29.174349,
    "ebs_need": 3.359049,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-08",
@@ -3341,7 +3342,7 @@
    "peak_mem": null,
    "net_mb_day": 6.393786,
    "ebs_need": 7.98526,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-09",
@@ -3358,7 +3359,7 @@
    "peak_mem": null,
    "net_mb_day": 14.297185,
    "ebs_need": 2.684338,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-10",
@@ -3375,7 +3376,7 @@
    "peak_mem": 6.294626,
    "net_mb_day": 35.569761,
    "ebs_need": 0.031971,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-11",
@@ -3392,7 +3393,7 @@
    "peak_mem": null,
    "net_mb_day": 30.625494,
    "ebs_need": 0.052852,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-12",
@@ -3409,7 +3410,7 @@
    "peak_mem": null,
    "net_mb_day": 708.773761,
    "ebs_need": 1.236367,
-   "surplus_credits": 0
+   "surplus_credits": null
   },
   {
    "rid": "i-EX-13",
@@ -3426,7 +3427,7 @@
    "peak_mem": null,
    "net_mb_day": 14.619788,
    "ebs_need": 0.025195,
-   "surplus_credits": 0
+   "surplus_credits": null
   }
  ]
 }
