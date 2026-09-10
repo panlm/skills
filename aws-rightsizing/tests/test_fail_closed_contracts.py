@@ -40,25 +40,34 @@ CACHE = {"rid": "cache-T-01", "service": "elasticache", "type": "cache.r7g.large
          "cheaper_candidate_exists": True}
 
 
-def _ctx(t, resources):
-    ctx = {"thresholds": t, "specs": SPECS, "prices": PRICES,
-           "baseline_pct": BASELINE, "categories": CATS,
-           "offerings": [s["t"] for s in SPECS], "legacy_families": [],
+def _ctx(t, resources, specs=None, prices=None, cats=None, baseline=None):
+    """构造 evaluate() 的 ctx。四个 fixture 参数缺省用模块级共享常量。
+
+    允许传局部 specs，是为了让「当前机型是 T 系列」这类被测形态有自己的
+    候选池，而不必往共享 SPECS 里加机型 —— 加进去会给其他复用同一份 SPECS
+    的测试引入一个新的更便宜候选，静默改掉既有断言。
+    """
+    specs = SPECS if specs is None else specs
+    ctx = {"thresholds": t, "specs": specs,
+           "prices": PRICES if prices is None else prices,
+           "baseline_pct": BASELINE if baseline is None else baseline,
+           "categories": CATS if cats is None else cats,
+           "offerings": [s["t"] for s in specs], "legacy_families": [],
            "resources": resources}
-    ctx["_specs_by_type"] = {s["t"]: s for s in SPECS}
+    ctx["_specs_by_type"] = {s["t"]: s for s in specs}
     ctx["_offerings"] = set(ctx["offerings"])
     ctx["_legacy"] = set()
     return ctx
 
 
-def _evaluate(res, t):
+def _evaluate(res, t, **ctx_kw):
     """跑 evaluate()，把异常翻译成指名缺陷的断言失败。
 
     这些分支坏掉时多半是「None 参与算术」而不是「结论错」，裸抛的
     TypeError 不说明是哪个守卫没了。
     """
     try:
-        return core.evaluate(res, _ctx(t, [res]))
+        return core.evaluate(res, _ctx(t, [res], **ctx_kw))
     except Exception as e:
         raise AssertionError(
             f"{res['rid']} 未在早退分支短路，落进了选型算术并抛 {type(e).__name__}: {e}")
