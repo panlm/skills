@@ -39,6 +39,21 @@ CACHE = {"rid": "cache-T-01", "service": "elasticache", "type": "cache.r7g.large
          "engine_cpu_p95": 12, "db_mem_used_pct_max": 35,
          "cheaper_candidate_exists": True}
 
+# 「当前机型已是 T 系列」专用池：抑制分支只在这种形态下才该触发。
+# 不并入共享 SPECS —— t3.xlarge 会成为 RES(m5.xlarge) 的一个新候选。
+T_SPECS = [{"t": "t3.xlarge", "vcpu": 4, "gib": 16, "burst": True,
+            "arch": "x86_64", "store": False, "ebs": 86.875, "curgen": True},
+           {"t": "t3.large", "vcpu": 2, "gib": 8, "burst": True,
+            "arch": "x86_64", "store": False, "ebs": 86.875, "curgen": True}]
+T_PRICES = {"t3.xlarge|RunInstances": 0.1664, "t3.large|RunInstances": 0.0832}
+T_CATS = {"t3.xlarge": "General purpose", "t3.large": "General purpose"}
+T_BASELINE = {"t3.xlarge": 0.4, "t3.large": 0.3}
+T_FIXTURE = dict(specs=T_SPECS, prices=T_PRICES, cats=T_CATS, baseline=T_BASELINE)
+T_RES = {"rid": "i-T-11", "service": "ec2", "type": "t3.xlarge", "arch": "x86_64",
+         "operation": "RunInstances", "sus_cpu": 10, "peak_cpu": 25,
+         "sus_mem": 20, "peak_mem": 35, "ebs_need": 5,
+         "cpu_n": 243, "metric_coverage": []}
+
 
 def _ctx(t, resources, specs=None, prices=None, cats=None, baseline=None):
     """构造 evaluate() 的 ctx。四个 fixture 参数缺省用模块级共享常量。
@@ -202,23 +217,55 @@ def test_missing_cpu_metrics_short_circuit_before_sizing_math():
         assert out["required_vcpu"] is None, (miss, out)
 
 
-def test_missing_surplus_credits_suppresses_the_burstable_candidate():
-    """信用指标缺失 ⇒ 不得给 burstable 建议（不能断言"没超额"）。
+def test_missing_surplus_credits_suppresses_burst_only_on_burstable_current_type():
+    """当前机型已是 T 系列时，信用指标缺失才是真缺失 ⇒ 保持 fail-closed。
+
+    被测对象必须是 burstable 当前机型（t3.xlarge）。此测试原先拿 m5.xlarge
+    做被测对象，把「不适用」当成「缺失」的缺陷写成了契约 —— 见
+    docs/specs/2026-09-10-burstable-credit-not-applicable-design.md 的 P1。
 
     第二半是这个测试的关键：同一台机器把 surplus_credits 给成 0 时确实能选出
     t3.large。若只断言"缺失时 burst is None"，候选池本来就空也照样通过，
     删掉抑制分支不会被发现。
     """
     t = core.load_thresholds("aggressive")
-    base = dict(RES, rid="i-T-09", cpu_n=243, sus_cpu=10, peak_cpu=25)
-    suppressed = _evaluate(dict(base, surplus_credits=None), t)
-    assert suppressed["burst"] is None, \
-        f"信用指标缺失时不得产出 burstable 建议，却选出了 {suppressed['burst']}"
+    suppressed = _evaluate(dict(T_RES, surplus_credits=None), t, **T_FIXTURE)
+    assert suppressed["burst"] is None, (
+        "当前机型已是 T 系列且信用指标缺失时不得产出 burstable 建议，"
+        f"却选出了 {suppressed['burst']}")
     assert "CPUSurplusCreditsCharged 缺失" in suppressed["burst_na"], suppressed
     assert suppressed.get("b_save_mo") is None, suppressed
-    allowed = _evaluate(dict(base, surplus_credits=0), t)
+    allowed = _evaluate(dict(T_RES, surplus_credits=0), t, **T_FIXTURE)
     assert allowed["burst"] is not None and allowed["burst"]["t"] == "t3.large", \
         f"候选池里本应有 t3.large，抑制测试才有意义：{allowed['burst_na']}"
+    assert allowed["b_save_mo"] == 60.74, allowed["b_save_mo"]
+
+
+def test_non_burstable_current_type_gets_a_burstable_candidate_without_credits():
+    """非突发当前机型不发布信用指标 ⇒ 「不适用」，不得 fail-closed。
+
+    CPUSurplusCreditsCharged 只有 T 系列发布（metrics-catalog.md 实测记录：
+    非 T 实例 0 台）。对 m5 / c6i / c7i 这类机型要求它，会让突发降配路线在
+    生产上永久不可达 —— 实测一支 29 台机队里 25 台被压掉，另有 3 行被误判成
+    「已合理配置」。eval_rds 已用 _rds_is_burstable 做了这个区分，EC2 侧漏了。
+
+    第二半锁住等价性：字段缺失与字段为 0，对非突发当前机型必须得出同一结论。
+    这条等价性是 regression fixture 能从不可能的 0 改成真实的 null 而锚定值
+    不变的依据。
+    """
+    t = core.load_thresholds("aggressive")
+    base = dict(RES, rid="i-T-12", cpu_n=243, sus_cpu=10, peak_cpu=25)
+    absent = _evaluate(dict(base, surplus_credits=None), t)
+    assert absent["burst"] is not None, (
+        "非突发当前机型的信用指标结构性不存在，属「不适用」，不得因此压掉"
+        f"突发候选：burst_na={absent['burst_na']!r}")
+    assert absent["burst"]["t"] == "t3.large", absent["burst"]
+    assert absent["burst_na"] is None, absent["burst_na"]
+    zero = _evaluate(dict(base, surplus_credits=0), t)
+    assert zero["burst"] == absent["burst"], (
+        f"缺失与 0 对非突发当前机型必须等价：{zero['burst']} vs {absent['burst']}")
+    assert zero["b_save_mo"] == absent["b_save_mo"] == 79.42, \
+        (zero["b_save_mo"], absent["b_save_mo"])
 
 
 def test_overspent_credits_suppress_the_burstable_candidate():
@@ -355,7 +402,8 @@ if __name__ == "__main__":
              test_unpriced_instance_is_price_unknown_not_downsized,
              test_accelerated_instance_is_excluded_before_sizing,
              test_missing_cpu_metrics_short_circuit_before_sizing_math,
-             test_missing_surplus_credits_suppresses_the_burstable_candidate,
+             test_missing_surplus_credits_suppresses_burst_only_on_burstable_current_type,
+             test_non_burstable_current_type_gets_a_burstable_candidate_without_credits,
              test_overspent_credits_suppress_the_burstable_candidate,
              test_serverless_rds_is_excluded_not_spec_unknown]
     failed = 0

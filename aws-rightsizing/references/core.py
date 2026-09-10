@@ -253,10 +253,14 @@ def evaluate(res, ctx):
                 key=lambda s: (s["usd"], s["t"]))
     out["nonburst"] = nb[0] if nb else None
 
+    # 先判「适用性」再判「缺失」。CPUSurplusCreditsCharged 只有 T 系列发布，
+    # 对非突发当前机型它是「不适用」而不是「缺失」——
+    # 无条件 fail-closed 会让突发降配路线在生产上永久不可达（实测 25/29 台）。
+    # 与 eval_rds 的 _rds_is_burstable 守卫同构。
     sc = res.get("surplus_credits")
-    if sc is None:
+    if cs["burst"] and sc is None:
         out["burst_na"] = "CPUSurplusCreditsCharged 缺失，无法确认是否已超额消费信用"
-    elif sc > 0:
+    elif sc is not None and sc > 0:
         out["burst_na"] = "CPUSurplusCreditsCharged>0，当前规格已不足"
     else:
         sus_abs = cs["vcpu"] * sus_cpu / 100.0
