@@ -268,6 +268,84 @@ def test_non_burstable_current_type_gets_a_burstable_candidate_without_credits()
         (zero["b_save_mo"], absent["b_save_mo"])
 
 
+def test_sustained_demand_above_current_spec_is_upsize_candidate():
+    """需求量超过当前规格 ⇒ `upsize-candidate`，不得输出「已合理配置」。
+
+    「已合理配置」是面向客户的**肯定断言**（已核查、无需优化）。实测一支机队里
+    9 行 EC2 带着这个标签，而同一行的 required_vcpu 大于 cur_vcpu —— 自相矛盾
+    就写在同一行上，读者没有线索发现它。eval_rds 早有 upsize-candidate 出口，
+    EC2 侧此前连这个概念都没有。
+
+    三个反向半锁住规则边界，缺一条这个测试就不成立：
+      ① 把 sus_cpu 降到目标以下 ⇒ 必须回到「已合理配置」（否则分不清是规则
+         生效还是候选池恰好为空）；
+      ② 内存轴独立成立（只有内存持续项超时也要判）；
+      ③ 无内存数据时内存轴**不得**参与判定 —— rg 此时已被置为 cur_gib，
+         拿它反推「内存不足」是替实例做假设。
+    """
+    t = core.load_thresholds("aggressive")
+    base = dict(RES, rid="i-T-20", cpu_n=243, surplus_credits=0)
+
+    cpu_over = _evaluate(dict(base, sus_cpu=80, peak_cpu=90), t)
+    assert cpu_over["verdict"] == "upsize-candidate", cpu_over["verdict"]
+    assert cpu_over["nonburst"] is None and cpu_over["burst"] is None, cpu_over
+    assert cpu_over["required_vcpu"] == 6, cpu_over["required_vcpu"]
+    need = [b for b in cpu_over["blockers"] if "当前规格已不足" in b]
+    assert need, cpu_over["blockers"]
+    assert "6 vCPU" in need[0] and "不产出升配目标机型" in need[0], need[0]
+
+    # ① 反向：持续项落回目标以下 ⇒ 不再是规格不足
+    sustained_ok = _evaluate(dict(base, sus_cpu=30, peak_cpu=90), t)
+    assert sustained_ok["verdict"] == "已合理配置", sustained_ok["verdict"]
+
+    # ② 内存轴独立成立
+    mem_over = _evaluate(dict(base, sus_cpu=10, peak_cpu=20,
+                              sus_mem=95, peak_mem=95), t)
+    assert mem_over["verdict"] == "upsize-candidate", mem_over["verdict"]
+    mem_need = [b for b in mem_over["blockers"] if "内存持续 p95" in b]
+    assert mem_need and "22 GiB" in mem_need[0], mem_over["blockers"]
+
+    # ③ 无内存数据 ⇒ 内存轴不参与判定，结论只由 CPU 轴驱动
+    no_mem = _evaluate(dict(base, sus_cpu=80, peak_cpu=90,
+                            sus_mem=None, peak_mem=None), t)
+    assert no_mem["verdict"] == "upsize-candidate", no_mem["verdict"]
+    assert no_mem["required_gib"] == no_mem["cur_gib"], no_mem
+    assert not [b for b in no_mem["blockers"] if "内存持续 p95" in b], no_mem["blockers"]
+
+
+def test_peak_only_demand_stays_right_sized_but_says_why():
+    """需求量超当前规格但只由**峰值项**驱动 ⇒ 仍「已合理配置」，且必须说明理由。
+
+    _required 的峰值项是为**降配方向**设计的安全约束（降配后 max 不得越
+    ceiling），拿它反推「当前规格不足」会把闲置的小机器判成不足 —— 实测一台
+    t3.medium 的 CPU p95 仅 1.09% / max 76.09%，required 3 > 现有 2，
+    它显然不是规格不足。
+
+    但「已合理配置」这一侧也必须写明绑定约束是峰值项，否则「required 比 cur 大
+    却说合理」这个疑问仍然无解 —— 那只是把自相矛盾的行数从 9 缩到 5。
+    """
+    t = core.load_thresholds("aggressive")
+    base = dict(RES, rid="i-T-21", cpu_n=243, surplus_credits=0)
+    out = _evaluate(dict(base, sus_cpu=30, peak_cpu=90), t)
+    assert out["verdict"] == "已合理配置", out["verdict"]
+    assert out["required_vcpu"] > out["cur_vcpu"], out
+    why = [b for b in out["blockers"] if "峰值项" in b]
+    assert why, out["blockers"]
+    assert "持续项未超" in why[0], why[0]
+    assert "不是升配判据" in why[0], why[0]
+
+    # 反向：持续项一旦超过目标，同一台机器必须改判规格不足
+    assert _evaluate(dict(base, sus_cpu=80, peak_cpu=90), t)["verdict"] \
+        == "upsize-candidate"
+
+    # 需求量未超当前规格的行不得带这条 blocker（它只解释「超了但不算不足」）。
+    # 用 .get：`blockers` 由 main() 保证每行都有，evaluate() 单独调用时
+    # 一个干净的 downsize 行**没有**这个键。
+    fits = _evaluate(dict(base, sus_cpu=10, peak_cpu=20), t)
+    assert fits["verdict"] == "downsize", fits["verdict"]
+    assert not [b for b in (fits.get("blockers") or []) if "峰值项" in b], fits
+
+
 def test_overspent_credits_suppress_the_burstable_candidate():
     """信用已超额 ⇒ 当前规格已不足，更不能推 burstable。
 
@@ -321,8 +399,12 @@ def test_low_sample_blocker_does_not_assert_a_recommendation_exists():
     t = core.load_thresholds("aggressive")
     floor = t["min_biz_hours_points"]
     # ① EC2 低样本但无候选 ⇒ 已合理配置
+    # 持续值须落在目标以下、峰值保持高位：这样该行仍然无候选、仍然「已合理配置」，
+    # 而不会命中「持续项超 ⇒ upsize-candidate」分支。本测试锁的是 blocker 文案，
+    # 不是这个 verdict —— 但**不得**把断言放宽成「已合理配置 或 upsize-candidate」，
+    # 那会让它不再锁定任何一种行形态。
     out = _evaluate(dict(RES, rid="i-LOW-NOREC", cpu_n=floor - 1,
-                         sus_cpu=90, peak_cpu=95, sus_mem=90, peak_mem=95), t)
+                         sus_cpu=30, peak_cpu=95, sus_mem=30, peak_mem=95), t)
     assert out["verdict"] == "已合理配置", out["verdict"]
     low = [b for b in out["blockers"] if "样本" in b]
     assert low, out["blockers"]
@@ -404,6 +486,8 @@ if __name__ == "__main__":
              test_missing_cpu_metrics_short_circuit_before_sizing_math,
              test_missing_surplus_credits_suppresses_burst_only_on_burstable_current_type,
              test_non_burstable_current_type_gets_a_burstable_candidate_without_credits,
+             test_sustained_demand_above_current_spec_is_upsize_candidate,
+             test_peak_only_demand_stays_right_sized_but_says_why,
              test_overspent_credits_suppress_the_burstable_candidate,
              test_serverless_rds_is_excluded_not_spec_unknown]
     failed = 0

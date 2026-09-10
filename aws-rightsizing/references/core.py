@@ -301,7 +301,51 @@ def evaluate(res, ctx):
             f"若本行给出了变更建议，执行前优先安排回滚演练")
     else:
         out["confidence"] = "medium" if not mem_known else "high"
-    out["verdict"] = "downsize" if (out["nonburst"] or out["burst"]) else "已合理配置"
+    # 「找不到候选」有三种成因，只有一种是「已合理配置」：需求量超过当前规格时
+    # 降配搜索本来就不可能有结果，把它标成「已合理配置」是对客户的错误肯定断言。
+    #
+    # 只按**持续项**判规格不足。_required 的峰值项是为**降配方向**设计的安全约束
+    # （降配后 max 不得越 ceiling），拿它反推「当前规格不足」会把 p95 1.09% /
+    # max 76% 的闲置小机器判成不足。实测按持续项筛，9 行收敛到 4 行。
+    rv_sus = _ceil_div(cs["vcpu"] * sus_cpu, t["target_cpu_p95"])
+    # 无内存数据 ⇒ 内存轴不参与判定。此时 rg 已被置为 cs["gib"]（内存保持当前
+    # 规格），拿它反推「内存不足」是替实例做假设。
+    rg_sus = (_ceil_div(cs["gib"] * res["sus_mem"], t["target_mem_p95"])
+              if mem_known else 0)
+    if out["nonburst"] or out["burst"]:
+        # 候选池已要求 vcpu >= rv and gib >= rg（rv/rg 是两项取 max 的全量需求），
+        # 所以选出了候选就说明它满足全量需求 —— 合法降配，不是规格不足。
+        # 实测存在这种形态且现行行为正确：某 c7i.8xlarge 的 required 内存
+        # 85 GiB > 现有 64 GiB，却选出 r5.4xlarge（128 GiB）并省 $349.23。
+        out["verdict"] = "downsize"
+    elif rv_sus > cs["vcpu"] or rg_sus > cs["gib"]:
+        out["verdict"] = "upsize-candidate"
+        axes = []
+        if rv_sus > cs["vcpu"]:
+            axes.append(f"CPU 持续 p95 {sus_cpu}% ⇒ 按目标 "
+                        f"{t['target_cpu_p95']}% 反推需 {rv_sus} vCPU，"
+                        f"当前仅 {cs['vcpu']}")
+        if rg_sus > cs["gib"]:
+            axes.append(f"内存持续 p95 {res['sus_mem']}% ⇒ 按目标 "
+                        f"{t['target_mem_p95']}% 反推需 {rg_sus} GiB，"
+                        f"当前仅 {cs['gib']}")
+        # insert(0) 而不是 append：规格不足是本行的**结论**，须排在低样本等
+        # 附注之前。_verdict() 对托管侧做的是同一件事。
+        out.setdefault("blockers", []).insert(
+            0, "当前规格已不足（" + "；".join(axes)
+            + "）。本 skill 不产出升配目标机型——选型需容量规划输入"
+              "（增长率 / SLA / 峰值形态）。basic monitoring 会压低持续值，"
+              "故本判据偏保守")
+    else:
+        out["verdict"] = "已合理配置"
+        if rv > cs["vcpu"] or rg > cs["gib"]:
+            out.setdefault("blockers", []).append(
+                f"需求量 {rv} vCPU / {rg} GiB 大于当前规格 "
+                f"{cs['vcpu']} vCPU / {cs['gib']} GiB，但由**峰值项**驱动"
+                f"（CPU max {peak_cpu}% 对 ceiling {t['ceiling_cpu_max']}%）；"
+                f"持续项未超（CPU p95 {sus_cpu}% 对目标 "
+                f"{t['target_cpu_p95']}%），故不判规格不足。峰值项的作用是"
+                f"防止降配落在尖峰上，不是升配判据")
     return out
 
 
