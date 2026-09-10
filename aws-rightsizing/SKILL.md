@@ -269,6 +269,11 @@ legacy 族清单 → 用途分类 → region 可用性 → 规格硬约束 → �
 - `g*`/`p*`/`inf*`/`trn*` 直接排除出桶 A（受限资源是加速器，无 GPU 利用率指标）。
 - 其余走 solver 产出两个候选。当前已是 T 系列且 `CPUSurplusCreditsCharged > 0`
   时抑制 burstable 选项。
+- **需求量超过当前规格 ⇒ `upsize-candidate`，不得输出「已合理配置」。**
+  判定只用**持续项**（`sus_cpu` / `sus_mem` 对 `target_*_p95` 反推），
+  峰值项不参与——它是降配方向的安全约束。仅峰值项超的行仍是「已合理配置」，
+  但必须带一条 blocker 写明绑定约束是峰值项。本 skill **不产出升配的目标机型**：
+  选型需要容量规划输入（增长率 / SLA / 峰值形态），不在本版本边界内。
 - 闲置判据（桶 B）走 `core.py` 的 `is_idle()`，阈值见 `thresholds.md`。**不要自己实现**——`net_mb_day == 0` 是最强闲置信号，用缺失值兜底写法（Python 的 `or`、jq 的 `//`）会把 0 当缺失值替换掉，专挑信号最强的记录静默失效（实测漏判 $1,369/mo）。
 - **桶 C 停机走 `core.py` 的 `is_stop_candidate()`，同样不要自己实现。**
   三个门限（`idle_cpu_p95` / `idle_net_mb_day` / `stop_candidate_peak_cpu_max`）
@@ -630,6 +635,7 @@ awk -F, 'NR>1{gsub(/"/,""); print $4}' findings-<profile>.csv | sort | uniq -d
 | **下限型／峰值型指标只取 `biz-hours` 档** | `freeable_mem_min_gib` 取 biz-hours 最小值会漏掉备份/批处理窗口的真实低点（实测两台 RDS 偏高 0.18% 与 1.1%），方向是**把危险实例判成安全**；主判据指标（`sample_n` / `dbload_p95` / `engine_cpu_p95`）才限定 biz-hours | 下限型与峰值型一律取 `agg.jq` 的 **`full-window`** 档 |
 | **给 `agg.jq` 加了 `full-window` 档后仍按 bucket 全量求和** | `§2.6` 的覆盖度一行是 `group_by(.rid+"|"+.stat) \| map(.n)\|add`，新档让 `n` 翻倍（实测 465 → 930），覆盖度看起来充足 ⇒ 正是该节警告的「偏松」失效 | 覆盖度直接读 `bucket == "full-window"` 那一行，不再拿三档相加 |
 | **「仅某子集机型发布」的指标当成「缺失」fail-closed** | `CPUSurplusCreditsCharged` 只有 T 系列发布，非突发机型该序列结构性不存在。无条件卡 `is None` 会让**突发降配路线在生产上永久不可达**（实测 29 台机队里 25 台被压掉，3 行误判成「已合理配置」），且 `burst_na` 让客户去补一个不可能存在的指标。RDS 侧同一缺陷修于 2026-09-04，EC2 侧因文档误称「已做区分」而漏到 2026-09-10 | **先判适用性，再判缺失**：`if cs["burst"] and sc is None`（EC2）/ `_rds_is_burstable()`（RDS）。回归 fixture 必须用真实值（非突发机型填 `null`），填 0 会让整套基线为一个不可能的输入背书 |
+| **「仅某子集资源发布」的指标，判据先判缺失而不先判适用性** | 「不适用」与「缺失」是两件事：前者是**资源形态**的属性，后者是**采集**的属性。混同的两个方向都错——把「不适用」当「缺失」会让整条路径永久不可达（实测 `CPUSurplusCreditsCharged` 让 25/29 台的突发路线关闭）；把「缺失」当「不适用」会让否决项静默消失。已知成员：`CPUSurplusCreditsCharged`（仅 `t*` / `db.t*`）、`CPUCreditBalance`（同）、`ReplicationLag`（仅有副本时）、`EngineCPUUtilization` 与 `DatabaseMemoryUsagePercentage`（仅 Redis/Valkey，Memcached 不发布） | **先解析适用性、再判缺失**，并在该判据处写明落在 fail-closed 还是 fail-open 哪一侧及理由。区分二者的依据必须是**输入里已有的形态字段**（`spec["burst"]` / 实例类前缀 / 引擎 / 节点数），**不得靠指标自身的有无去推断**——那是循环论证。新增指标先按这张清单比对 |
 
 ## references
 

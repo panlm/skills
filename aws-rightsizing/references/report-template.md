@@ -279,7 +279,11 @@ downsize | 已合理配置 | insufficient-data | spec-unknown | price-unknown
 metric-missing | excluded | downsize-candidate | upsize-candidate | blocked
 ```
 
-后三个来自托管服务判据（`eval_rds` / `eval_elasticache` / `eval_msk`）。
+`downsize-candidate` 与 `blocked` 来自托管服务判据（`eval_rds` /
+`eval_elasticache` / `eval_msk`）。`upsize-candidate` 由 `eval_rds()` 与
+`evaluate()` **两侧**产出：RDS 侧的依据是信用超额，EC2 侧的依据是**持续项**
+反推的需求量超过当前规格（**不是峰值项**——峰值项是降配方向的安全约束，
+拿它反推规格不足会把闲置的小机器判成不足）。
 `upsize-candidate` 不是降配建议——它表示该资源规格**已不足**，
 出现在报告里必须与降配建议分开呈现，否则会被误读成可优化项。
 

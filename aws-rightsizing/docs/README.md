@@ -25,6 +25,7 @@
 | [2026-09-04-run2-findings.md](./plans/2026-09-04-run2-findings.md) | 修掉两次真实端到端运行暴露的 5 个判据缺陷、10 个契约缺口、7 个采集配方缺陷、6 项文档卫生问题,使同一机队在任何 agent runtime 下产出可比报告 |
 | [2026-09-09-sampling-guard-and-veto-persistence.md](./plans/2026-09-09-sampling-guard-and-veto-persistence.md) | 样本不足时照样出降配建议(降置信度而非拒绝);三条「曾出现过一次」的否决项改判持续状态 |
 | [2026-09-10-burstable-credit-not-applicable.md](./plans/2026-09-10-burstable-credit-not-applicable.md) | 让 `evaluate()` 先判信用指标是否适用于当前机型再判是否缺失,恢复非突发机型的突发降配路线;回归 fixture 改用真实输入 |
+| [2026-09-10-ec2-underprovisioned-verdict.md](./plans/2026-09-10-ec2-underprovisioned-verdict.md) | 给 `evaluate()` 补第三个 verdict 出口:需求量超当前规格 ⇒ `upsize-candidate`,按持续项判;附「仅子集发布」指标的通则 |
 
 ## 脱敏
 
