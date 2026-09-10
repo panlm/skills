@@ -629,6 +629,7 @@ awk -F, 'NR>1{gsub(/"/,""); print $4}' findings-<profile>.csv | sort | uniq -d
 | **否决项判「曾经出现过」而不是「持续成立」** | 一次滚动重启的尖峰否决整个窗口。实测 8 个 MSK 集群 `UnderReplicatedPartitions` 的 Average 序列 p95 **全为 0**，而 max 达 27–244（MSK 自动打补丁必然产生尖峰）⇒ 任何被维护过的集群降配路径永久关闭。ElastiCache 的 `ReplicationLag` 同形状（p95 毫秒级，max 10.2s / 23.9s） | 判 `*_p95`（gauge 取全窗口 Average 的 p95，计数类取 `Sum` 的 p95）；`*_max` 只写进 `blockers` 让尖峰仍可见；`*_p95` 缺失时回退 `*_max` 保持向后兼容 |
 | **下限型／峰值型指标只取 `biz-hours` 档** | `freeable_mem_min_gib` 取 biz-hours 最小值会漏掉备份/批处理窗口的真实低点（实测两台 RDS 偏高 0.18% 与 1.1%），方向是**把危险实例判成安全**；主判据指标（`sample_n` / `dbload_p95` / `engine_cpu_p95`）才限定 biz-hours | 下限型与峰值型一律取 `agg.jq` 的 **`full-window`** 档 |
 | **给 `agg.jq` 加了 `full-window` 档后仍按 bucket 全量求和** | `§2.6` 的覆盖度一行是 `group_by(.rid+"|"+.stat) \| map(.n)\|add`，新档让 `n` 翻倍（实测 465 → 930），覆盖度看起来充足 ⇒ 正是该节警告的「偏松」失效 | 覆盖度直接读 `bucket == "full-window"` 那一行，不再拿三档相加 |
+| **「仅某子集机型发布」的指标当成「缺失」fail-closed** | `CPUSurplusCreditsCharged` 只有 T 系列发布，非突发机型该序列结构性不存在。无条件卡 `is None` 会让**突发降配路线在生产上永久不可达**（实测 29 台机队里 25 台被压掉，3 行误判成「已合理配置」），且 `burst_na` 让客户去补一个不可能存在的指标。RDS 侧同一缺陷修于 2026-09-04，EC2 侧因文档误称「已做区分」而漏到 2026-09-10 | **先判适用性，再判缺失**：`if cs["burst"] and sc is None`（EC2）/ `_rds_is_burstable()`（RDS）。回归 fixture 必须用真实值（非突发机型填 `null`），填 0 会让整套基线为一个不可能的输入背书 |
 
 ## references
 

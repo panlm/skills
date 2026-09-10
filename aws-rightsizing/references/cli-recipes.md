@@ -1684,7 +1684,7 @@ ap-northeast-1 有 1198 个、us-east-1 有 1371 个、us-west-2 有 1350 个，
 | `peak_mem` | 否 | 同上，`Maximum` 的 `max` | 同上 |
 | `ebs_need` | 是 | `(Σ EBSReadBytes 的 Sum + Σ EBSWriteBytes 的 Sum) ÷ 窗口秒数 ÷ 1048576`，单位 MB/s | `metric-missing`（**不可当 0**，否则跳过带宽校验，选出带宽不够的机型） |
 | `net_mb_day` | 桶 B 需要 | `(Σ NetworkIn 的 Sum + Σ NetworkOut 的 Sum) ÷ 1048576 ÷ 窗口天数` | `is_idle()` 返回 `False`，该资源不进桶 B（不是"判成不闲置"，是"没判"） |
-| `surplus_credits` | 否 | agg 中 `CPUSurplusCreditsCharged` / `Maximum` 的 `max`，**三档取最大** | 抑制 burstable 侧（不能断言"没超额"） |
+| `surplus_credits` | T 机型必填 | agg 中 `CPUSurplusCreditsCharged` / `Maximum` 的 `max`，**三档取最大**。**非突发机型该序列结构性不存在，字段留空即正确** —— `core.py` 用 spec 的 `burst` 标志区分「不适用」与「缺失」。**不要补 0**：补 0 会让「当前机型是 T 系列而序列真的采失败」被当成「已确认未超额」放行，那是反方向的错且无任何信号 | **当前机型是 T 系列时**抑制 burstable 侧（不能断言"没超额"）；非突发机型不受影响 |
 | `off_sus_cpu`、`off_peak_cpu`、`off_net_mb_day` | 桶 C 需要 | 与 `sus_cpu` / `peak_cpu` / `net_mb_day` 同法，但只取 `bucket == "off-hours"` 那一档 | 六个里少一个 ⇒ `stop_candidate = null`（**判不了**，不是"不是候选"） |
 | `weekend_sus_cpu`、`weekend_peak_cpu`、`weekend_net_mb_day` | 桶 C 需要 | 同上，取 `weekend` 档 | 同上 |
 | `metric_coverage` | 是 | 上面哪几项取不到的名字数组 | 报告缺口列不出来 |

@@ -428,7 +428,9 @@ def _rds_is_burstable(itype):
     CPUSurplusCreditsCharged —— 实测 db.m5.large 三条序列全空，同批
     db.t4g.medium 都有数据。对它们要求信用指标会让降配路径永久不可达，
     这是「不适用」而不是「缺失」，所以不走 fail-closed。
-    EC2 侧用 spec["burst"] 做同一个区分，RDS 侧此前漏了。
+    EC2 侧的 evaluate() 用 cs["burst"] 做同一个区分。注意：2026-09-04 记录
+    J2 时曾断言「EC2 侧已做了这个区分」，那句话当时并不成立 —— EC2 侧同样
+    无条件 fail-closed，直到 2026-09-10 才补上。别再凭这类断言跳过复查。
     """
     return itype.split(".")[1].startswith("t") if "." in itype else False
 

@@ -64,7 +64,7 @@ floor         = 下限型判据，须显式采 Stat=Minimum（见 cli-recipes.md
 | CPUCreditBalance | Average, **Minimum** | blocker / floor（是否触底） | 已实测 |
 | CPUCreditUsage | **计数类**，Average, Maximum ⚠️ | blocker（burstable）。⚠️ = 计数类配非 Sum stat，**目前无判据消费**，同 MSK 侧那行 | 已实测 |
 | CPUSurplusCreditBalance | Maximum | blocker（burstable） | 已实测 |
-| CPUSurplusCreditsCharged | Maximum | blocker（>0 抑制 burstable 选项） | 已实测 |
+| CPUSurplusCreditsCharged | Maximum | blocker（**当前机型已是 T 系列**且 >0 ⇒ 抑制 burstable 选项）；**仅 `t*` 发布**，非 burstable 缺失属「不适用」不是「缺失」，判据不走 fail-closed | 已实测 |
 
 `CPUUtilization` 在 T 机型上同样按完整 vCPU 百分比计量，所以
 `cur_vcpu × sus_cpu%` 是有效的绝对持续消耗量，与 baseline 无关。
