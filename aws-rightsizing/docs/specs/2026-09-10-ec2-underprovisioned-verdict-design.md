@@ -78,8 +78,15 @@ rg_sus = ceil(cur_gib  × sus_mem / target_mem_p95)     # 仅当有内存数据
 | `i-A03` | c7i.xlarge | 57.18% | **72.36%** | vCPU 4→6 / GiB 8→12 | GiB 8→9 | $165.56 |
 | `i-A04` | c6a.2xlarge | 51.36% | **71.43%** | vCPU 8→11 / GiB 16→23 | GiB 16→17 | $283.82 |
 
-**两个 profile 命中同一批 4 台，是这条规则正确的旁证** —— 真实的规格不足不应随
-风险偏好改变结论；随 profile 摆动的那 5 行，摆动的正是峰值项。
+**这支机队上两个 profile 命中同一批 4 台，是这条规则正确的旁证** —— 摆动的那 5 行，
+摆动的正是峰值项。
+
+但**不要把「两 profile 必然一致」当成规则的一部分**：另一个账号
+（`123456789012` 之外的第二支机队）实测 conservative 命中 1 台
+（`m6i.2xlarge`，需 11 vCPU / 42 GiB vs 现有 8 / 32）、aggressive 命中 **0** 台 ——
+它的持续值正落在两个 profile 的目标利用率之间。这属**预期**：目标利用率就是
+profile 声明的标准，「按 40% 目标算它不够、按 60% 目标算它够」两句话都成立。
+一致性只是这支机队的观测结果，不是判据的不变式。
 
 ### P3：`upsize-candidate` 枚举值早已存在，只是 EC2 侧不产出
 
@@ -246,13 +253,29 @@ aggressive:   持续项超当前规格的行 0，verdicts {'downsize': 13}
 必须回到「已合理配置」；仅峰值项超的那条，把 `sus_cpu` 提到目标以上后必须变
 `upsize-candidate`。否则测试无法区分「规则生效」与「候选池恰好为空」。
 
+**一条既有测试会失败，已实测定位**：
+`test_low_sample_blocker_does_not_assert_a_recommendation_exists` 的 ① 用
+`sus_cpu=90 / sus_mem=90` 造一个「低样本且无候选」的 EC2 行并断言
+`verdict == "已合理配置"`。新规则下 `sus_cpu=90` 超过目标 ⇒ 该行变
+`upsize-candidate`。
+
+**处置：改 fixture，不改断言。** 该测试的被测意图是「低样本 blocker 的文案不得
+断言存在建议」，`已合理配置` 只是造出「无候选行」的脚手架 —— 其 docstring 自己
+写着「`已合理配置` / `blocked` / `metric-missing` 同理」。把持续值降到目标以下
+（`sus_cpu=30` / `sus_mem=30`）、峰值保持高位（`peak_cpu=95` / `peak_mem=95`），
+该行仍然无候选、仍然 `已合理配置`、仍然带低样本 blocker，原意图逐字保留。
+**不得把断言放宽成「已合理配置 或 upsize-candidate」** —— 那会让这条测试不再
+锁定任何一种行形态。
+
 ## 验证方式
 
 1. 9 个测试文件全绿。
 2. 新增两条测试的反向半都成立。
-3. 真实数据回放（数据在仓库外，不得提交）：conservative 与 aggressive 各
-   **4 行**由「已合理配置」变 `upsize-candidate`，两个 profile 命中**同一批实例**；
-   `route1` / `route2` / 桶 B / 采集侧四条口径与分母**逐值不变**。
+3. 真实数据回放（数据在仓库外，不得提交）：第一支机队 conservative 与 aggressive
+   各 **4 行**由「已合理配置」变 `upsize-candidate`，命中同一批实例；第二支机队
+   conservative **1 行**、aggressive **0 行**（理由见 P2 末段）。两支机队、两个
+   profile 共 4 个组合的 `route1` / `route2` / 桶 B / 采集侧四条口径与分母
+   **全部逐值不变**。
 4. 仅峰值项超的 5 行仍是「已合理配置」，且每行都带 C3 那条 blocker。
 5. `i-A06`（信用触底的 t3.xlarge）本轮**仍**是「已合理配置」——
    这是预期，用于确认 P4 的边界没有被无意越过。
