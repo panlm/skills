@@ -15,6 +15,7 @@
 | [2026-09-04-run2-findings-design.md](./specs/2026-09-04-run2-findings-design.md) | 第二轮真实运行反馈的设计与裁定 |
 | [2026-09-09-sampling-guard-and-veto-persistence-design.md](./specs/2026-09-09-sampling-guard-and-veto-persistence-design.md) | 采样守卫从「拒绝线」改「置信度分档线」;三条否决项改判持续态 |
 | [2026-09-10-burstable-credit-not-applicable-design.md](./specs/2026-09-10-burstable-credit-not-applicable-design.md) | EC2 突发候选:信用指标在非突发机型上是「不适用」不是「缺失」,fail-closed 让突发路线永久不可达 |
+| [2026-09-10-ec2-underprovisioned-verdict-design.md](./specs/2026-09-10-ec2-underprovisioned-verdict-design.md) | EC2 verdict 只有两个出口,把「规格不足」输出成「已合理配置」;规格不足按持续项判,不用峰值项。附「仅子集发布」指标的通则 |
 
 ## plans
 
