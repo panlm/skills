@@ -610,6 +610,57 @@ def test_burstable_rds_credit_overage_still_vetoes():
         f"CPUSurplusCreditsCharged=3.11 > 0 应判升配候选 —— {got}")
 
 
+def test_uneven_metric_coverage_is_flagged_on_every_service_and_exit():
+    """同资源内部分指标短覆盖 ⇒ 每个服务、每条出口都要留一条注记。
+
+    required_* 拿**当前**规格去乘**整窗口**的利用率百分比，只有在窗口内规格没变过
+    时才成立，而一处都没校验。实测两台 db.m6g.xlarge 的核心指标 720/720、
+    信用序列只有 178/720，且信用余额上限 576 对应 2 vCPU 机型 ⇒ 窗口内被放大过。
+    方向：先小后大 ⇒ 混合 p95 虚高 ⇒ 低估节省（保守）；先大后小则相反，是危险方向。
+
+    **注记必须在早退路径上也出现**——spec-unknown / metric-missing 这些行恰恰
+    最需要解释「为什么数据看起来怪」。这是 helper 必须放在每个判据最前面的回归。
+
+    反向半：字段缺失或为空时不得加任何注记，且 verdict 与不传时逐字相同。
+    """
+    t = core.load_thresholds("aggressive")
+    gaps = [["CPUCreditBalance", 178, 720], ["CPUSurplusCreditsCharged", 178, 720]]
+
+    # ① 四个服务都要产出注记，且 verdict 不受影响
+    got = _findings(_ctx([dict(EC2_OK, rid="i-U-01", partial_coverage=gaps)]))["i-U-01"]
+    assert got["verdict"] == "downsize", got["verdict"]
+    assert any("覆盖不齐" in b for b in got["blockers"]), got["blockers"]
+
+    for label, fn, res in (
+            ("rds", core.eval_rds, dict(RDS_OK, partial_coverage=gaps)),
+            ("elasticache", core.eval_elasticache,
+             dict(CACHE_OK, partial_coverage=gaps)),
+            ("msk", core.eval_msk, dict(MSK_OK, partial_coverage=gaps))):
+        out = fn(res, t)
+        assert out["verdict"] == "downsize-candidate", (label, out["verdict"])
+        note = [b for b in out["blockers"] if "覆盖不齐" in b]
+        assert note, (label, out["blockers"])
+        assert "CPUCreditBalance 178/720" in note[0], (label, note[0])
+        assert "不改结论" in note[0], (label, note[0])
+
+    # ② 早退路径也要带注记（spec-unknown 在最靠前的守卫上）
+    early = core.eval_elasticache(dict(CACHE_OK, mem_gib=None,
+                                       partial_coverage=gaps), t)
+    assert early["verdict"] == "spec-unknown", early["verdict"]
+    assert any("覆盖不齐" in b for b in early["blockers"]), (
+        f"早退路径丢了覆盖注记 —— helper 没放在判据最前面：{early['blockers']}")
+
+    # ③ 反向半：缺失与空数组都不得加注记，且 verdict 与不传时相同
+    baseline = core.eval_rds(RDS_OK, t)
+    for empty in (None, []):
+        res = dict(RDS_OK)
+        if empty is not None:
+            res["partial_coverage"] = empty
+        out = core.eval_rds(res, t)
+        assert out["verdict"] == baseline["verdict"], (empty, out["verdict"])
+        assert out["blockers"] == baseline["blockers"], (empty, out["blockers"])
+
+
 def test_elasticache_engine_gates_the_redis_only_criteria():
     """两个主判据指标是 Redis/Valkey 独有 ⇒ 必须先判引擎，再判指标缺失。
 
@@ -921,6 +972,7 @@ if __name__ == "__main__":
              test_nonburstable_rds_does_not_require_credit_metrics,
              test_burstable_rds_still_requires_credit_metrics,
              test_burstable_rds_credit_overage_still_vetoes,
+             test_uneven_metric_coverage_is_flagged_on_every_service_and_exit,
              test_elasticache_engine_gates_the_redis_only_criteria,
              test_replication_lag_absence_splits_by_replica_presence,
              test_rds_credit_floor_and_branch_order,

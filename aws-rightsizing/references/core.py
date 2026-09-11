@@ -150,6 +150,7 @@ def evaluate(res, ctx):
     out = {"rid": rid, "cur": itype, "az": res.get("az"),
            "metric_coverage": coverage, "nonburst": None, "burst": None,
            "burst_na": None, "required_vcpu": None, "required_gib": None}
+    _coverage_note(out, res)
 
     # ---- 采样量：分档而非拒绝 ----
     # 阈值用下标取而非 .get()：注入的 thresholds 缺这个键时必须抛 KeyError。
@@ -506,6 +507,40 @@ def _spike_note(label, mx, cause):
             f"处于该状态仍不否决")
 
 
+def _coverage_note(out, res):
+    """把「窗口内指标覆盖不齐」记成 blocker。**必须在任何早退分支之前调用。**
+
+    整套判据的需求反推是 `required_vcpu = ceil(cur_vcpu x sus_cpu% / target)`
+    —— 拿 describe 返回的**当前**规格去乘 CloudWatch 的**整窗口**利用率百分比。
+    这个乘法只在「窗口内规格没变过」时成立，而本 skill 一处都没校验它。
+
+    信号不需要新增采集：同一资源内某指标的点数明显低于该资源其他指标的点数，
+    就说明它只在窗口的一段时间内存在。实测两台 db.m6g.xlarge 的
+    CPUUtilization / DBLoad / FreeableMemory 都是 720/720，而
+    CPUCreditBalance 只有 178/720，且信用余额上限 576 对应 2 vCPU 机型
+    ⇒ 窗口内被放大过。
+
+    **只标注、不改结论。** 判定偏差方向需要逐小时的规格历史：先小后大 ⇒
+    混合 p95 虚高 ⇒ 低估节省（保守）；先大后小则相反，是危险方向。
+    describe-* 只返回当前规格，CloudWatch 也没有「规格」这个维度，拿不到就不能算。
+
+    放在最前面而不是各出口：早退路径（spec-unknown / metric-missing / excluded）
+    上的行恰恰最需要解释「为什么数据看起来怪」。`_verdict()` 保证分支理由排在
+    已追加的说明之前，所以先 append 再 `_verdict` 不会被覆盖。
+    """
+    gaps = res.get("partial_coverage")
+    if not gaps:
+        return
+    detail = "、".join(f"{m} {n}/{exp}" for m, n, exp in gaps)
+    out.setdefault("blockers", []).append(
+        f"窗口内指标覆盖不齐（{detail}）：同资源的其他指标满覆盖，说明这些指标"
+        f"只在窗口的一段时间里存在——常见成因是**窗口内改过规格**，"
+        f"也可能是中途才开启的监控。此时本行的利用率百分比混合了两个规格的采样，"
+        f"而需求量是按**当前**规格反推的，须人工确认窗口内规格未变。"
+        f"本判据**不改结论**：判定偏差方向需要逐小时的规格历史，"
+        f"describe-* 只返回当前规格，拿不到就不能算")
+
+
 def _verdict(out, verdict, *reasons):
     """设置 verdict，并把分支理由排在**已追加**的说明之前。
 
@@ -543,6 +578,7 @@ def eval_rds(res, t):
     ⇒ 规格已不足，实际是升配候选。故信用超额是**独立否决项**，优先级高于 DBLoad。
     """
     out = {"rid": res["rid"], "service": "rds", "cur": res["type"], "blockers": []}
+    _coverage_note(out, res)
     if res["type"] == "db.serverless":
         _verdict(out, "excluded",
                  "Aurora Serverless v2 按 ACU 伸缩，无固定规格")
@@ -649,6 +685,7 @@ def eval_elasticache(res, t):
     DatabaseMemoryUsagePercentage 是相对真实节点内存的百分比，基数错则绝对量错。
     """
     out = {"rid": res["rid"], "service": "elasticache", "cur": res["type"], "blockers": []}
+    _coverage_note(out, res)
     if res.get("mem_gib") is None or res.get("vcpu") is None:
         _verdict(out, "spec-unknown",
                  "pricing 的 vcpu/memory 属性为 null（实测 88 个 node type 中 33 个如此），"
@@ -778,6 +815,7 @@ def eval_msk(res, t):
         RequestHandlerAvgIdlePercent 0-1     ← 判据写 >70% 会永不成立
     """
     out = {"rid": res["rid"], "service": "msk", "cur": res["type"], "blockers": []}
+    _coverage_note(out, res)
     urp_persist, urp_max = _persistent(res, "under_replicated_p95",
                                        "under_replicated_max")
     if urp_persist is None:
