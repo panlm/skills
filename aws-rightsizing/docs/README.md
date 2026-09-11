@@ -17,6 +17,7 @@
 | [2026-09-10-burstable-credit-not-applicable-design.md](./specs/2026-09-10-burstable-credit-not-applicable-design.md) | EC2 突发候选:信用指标在非突发机型上是「不适用」不是「缺失」,fail-closed 让突发路线永久不可达 |
 | [2026-09-10-ec2-underprovisioned-verdict-design.md](./specs/2026-09-10-ec2-underprovisioned-verdict-design.md) | EC2 verdict 只有两个出口,把「规格不足」输出成「已合理配置」;规格不足按持续项判,不用峰值项。附「仅子集发布」指标的通则 |
 | [2026-09-10-credit-floor-and-veto-applicability-design.md](./specs/2026-09-10-credit-floor-and-veto-applicability-design.md) | `CPUCreditBalance` 在四个服务节声明为 blocker 却无判据消费,被限流的实例因此隐形;`ReplicationLag` 的 fail-open 改按副本存在性分流 |
+| [2026-09-11-elasticache-engine-applicability-design.md](./specs/2026-09-11-elasticache-engine-applicability-design.md) | ElastiCache 的两个主判据指标仅 redis/valkey 发布,Memcached 此前得到指向不存在指标的 `metric-missing` 且说明与该引擎相反 |
 
 ## plans
 
@@ -28,6 +29,7 @@
 | [2026-09-10-burstable-credit-not-applicable.md](./plans/2026-09-10-burstable-credit-not-applicable.md) | 让 `evaluate()` 先判信用指标是否适用于当前机型再判是否缺失,恢复非突发机型的突发降配路线;回归 fixture 改用真实输入 |
 | [2026-09-10-ec2-underprovisioned-verdict.md](./plans/2026-09-10-ec2-underprovisioned-verdict.md) | 给 `evaluate()` 补第三个 verdict 出口:需求量超当前规格 ⇒ `upsize-candidate`,按持续项判;附「仅子集发布」指标的通则 |
 | [2026-09-10-credit-floor-and-veto-applicability.md](./plans/2026-09-10-credit-floor-and-veto-applicability.md) | 消费 `CPUCreditBalance` 下限让被限流的实例可见;`eval_rds` 分支重排;`ReplicationLag` 缺失按副本存在性分流 |
+| [2026-09-11-elasticache-engine-applicability.md](./plans/2026-09-11-elasticache-engine-applicability.md) | `eval_elasticache` 先判 `engine` 再判两个 Redis 独有指标;Memcached ⇒ `excluded`,Valkey 留在 Redis 路径 |
 
 ## 脱敏
 
