@@ -233,6 +233,45 @@ has_replica 缺失                            ⇒ metric-missing（fail-closed�
 **不用 `count` 做代理**（理由见 P5）。`count` 保持原用途（乘 `cur_cost_mo`
 与两个 `*_save_mo`）不变。
 
+### C6：`eval_rds` 的分支顺序必须重排（试跑时暴露，非原计划）
+
+起草本轮的 plan 时把 C3 试装了一遍，`tests/test_managed_dispatch.py` 的
+`test_no_cheaper_candidate_yields_already_right_sized` 当场拦下：一台
+`db.t4g.micro`、`cheaper_candidate_exists=False`、**故意不给内存数据**的 fixture
+被判成了 `metric-missing`。那正是该测试存在的理由 ——
+「让客户为一条不可能产出的建议去补指标、再等一个窗口」。
+
+根因不在本轮的新字段，而是 `eval_rds` **既有的**分支顺序与两个同级判据不一致。
+`eval_msk` 与 `eval_elasticache` 的注释都写着：
+
+> 候选集为空 ⇒ 直接已合理配置，**且早于所有前置指标要求**。
+
+而 `eval_rds` 的 `cheaper_candidate_exists` 短路排在 `surplus_credits` 与
+`dbload` 的 fail-closed **之后**。本轮再加一个 fail-closed（信用余额）会把这个
+既有缺陷放大成实测可见的回归，所以必须一并修。
+
+**正确顺序**（已在试装中验证，9 个测试文件全绿）：
+
+```
+1. serverless / vcpu 守卫
+2. 已能评估的否决项：surplus > 0、信用余额触底  ⇒ upsize-candidate
+3. cheaper_candidate_exists 短路：为空 ⇒ 已合理配置
+4. 缺失型 fail-closed：surplus 缺失、信用字段缺失 ⇒ metric-missing
+5. dbload / freeable 等降配前置
+```
+
+两条边界都有依据，方向相反，缺一不可：
+
+- **第 2 步必须早于第 3 步。** 候选集为空**不该**压掉「这台机器已经不够用了」
+  这条警告 —— 与 2026-09-09 那轮「采样守卫把否决项一起压掉」是同一个教训。
+  `upsize-candidate` 不是降配建议，没有更便宜的候选并不能让它失效。
+- **第 4 步必须晚于第 3 步。** 候选集为空时补指标也换不来建议，要求它就是让
+  客户白等一个窗口。
+
+**这条改动会改变一个既有路径的行为**：一台 `db.t*`、无更便宜候选、且
+`surplus_credits` 缺失的实例，此前判 `metric-missing`，此后判「已合理配置」
+（带既有的两条说明 blocker）。这是正确方向 —— 补上那个指标也不会产出任何建议。
+
 ### C5：`metrics-catalog.md` 四行用途列订正
 
 - EC2 / RDS：改成实际判据（余额触底 ⇒ `upsize-candidate`，取 `full-window` 的
@@ -244,7 +283,8 @@ has_replica 缺失                            ⇒ metric-missing（fail-closed�
 
 | 文件 | 改动 |
 |---|---|
-| `references/core.py` | C2 EC2 余额判据；C3 RDS 余额判据；C4 `has_replica` 分流 + `Evictions` 不对称的注释 |
+| `references/core.py` | C2 EC2 余额判据；C3 RDS 余额判据；C4 `has_replica` 分流 + `Evictions` 不对称的注释；**C6 `eval_rds` 分支重排** |
+| `references/sample-solve.md` | ElastiCache 样例输入补 `has_replica` —— **该文档的 fixture 被 `tests/test_sample_reproduces.py` 解析**，漏了它这条测试会红 |
 | `references/thresholds.json` | C1 新增 `credit_balance_floor_pct`（两个 profile） |
 | `references/cli-recipes.md` | C1 两个信用字段 + C4 `has_replica` 的输入契约行（含「非突发机型留空即正确、不要补 0」，沿用上一轮的措辞） |
 | `references/metrics-catalog.md` | C5 四行 |
@@ -266,6 +306,22 @@ has_replica 缺失                            ⇒ metric-missing（fail-closed�
 **处置纪律**：`route1_nb` / `route2_max` / `MEM_FLOOR_OFF_ROUTE2` /
 `WITHDRAWN_ROUTE2_20260904` / `verdicts` / `buckets` **任一变化都视为实现错误**。
 本轮的意图是新增一条判据，不是改动既有 13 台的结论。
+试装已验证：给那台 burstable 补健康余额后回归基线回到 **14/14、锚定值逐值未动**。
+
+**fixture 波及面比预估大，试装实测清单：**
+
+| 位置 | 处数 | 补什么 |
+|---|---:|---|
+| `tests/test_managed_dispatch.py` | 8（7 处 kwargs + 1 处 dict 字面量） | `has_replica=False` |
+| `tests/test_csv_contract.py` | 1 | `"has_replica": False` |
+| `tests/test_fail_closed_contracts.py` | 2 | `CACHE` 加 `has_replica`；`T_RES` 加两个信用字段 |
+| `references/sample-solve.md` | 1 | `"has_replica": false` |
+| `tests/fixtures/regression-fleet.json` | 1 台 burstable | 健康信用值 |
+
+**既有 elasticache fixture 一律给 `has_replica=False`**：那等价于改动前的
+fail-open，逐条保住原测试意图；新门槛由本轮新增的测试用 `True` 覆盖。
+`test_managed_vetoes_actually_fire_and_block` 不受影响 ——
+`lag_persist >= 门限` 的否决判定与 `has_replica` 无关，只有**缺失**的处理被分流。
 
 `test_no_duplicated_constants.py` 的**双向**键覆盖会自动把
 `credit_balance_floor_pct` 纳入门禁：core.py 读了它、JSON 里有它，两边缺一即红。
