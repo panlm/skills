@@ -1685,9 +1685,63 @@ ap-northeast-1 有 1198 个、us-east-1 有 1371 个、us-west-2 有 1350 个，
 | `ebs_need` | 是 | `(Σ EBSReadBytes 的 Sum + Σ EBSWriteBytes 的 Sum) ÷ 窗口秒数 ÷ 1048576`，单位 MB/s | `metric-missing`（**不可当 0**，否则跳过带宽校验，选出带宽不够的机型） |
 | `net_mb_day` | 桶 B 需要 | `(Σ NetworkIn 的 Sum + Σ NetworkOut 的 Sum) ÷ 1048576 ÷ 窗口天数` | `is_idle()` 返回 `False`，该资源不进桶 B（不是"判成不闲置"，是"没判"） |
 | `surplus_credits` | T 机型必填 | agg 中 `CPUSurplusCreditsCharged` / `Maximum` 的 `max`，**三档取最大**。**非突发机型该序列结构性不存在，字段留空即正确** —— `core.py` 用 spec 的 `burst` 标志区分「不适用」与「缺失」。**不要补 0**：补 0 会让「当前机型是 T 系列而序列真的采失败」被当成「已确认未超额」放行，那是反方向的错且无任何信号 | **当前机型是 T 系列时**抑制 burstable 侧（不能断言"没超额"）；非突发机型不受影响 |
+| `credit_balance_min` | T 机型必填 | agg 中 `CPUCreditBalance` / `Minimum` / **`full-window`** 档的 `min`。**这是下限型指标，必须取 `full-window`** —— `biz-hours` 会漏掉夜间批处理把信用耗尽的低点（同 `freeable_mem_min_gib` 的坑）。**非突发机型该序列结构性不存在，字段留空即正确，不要补 0** | 当前机型是 T 系列时 `metric-missing`（信用耗尽会把 `CPUUtilization` 压住，放行等于按被限流的持续值定档）；非突发机型不受影响 |
+| `credit_balance_max` | T 机型必填 | 同一行的 `max`（判据按「占窗口内观测最大余额的百分比」判，不依赖信用上限——RDS 的 baseline 百分比不在本 skill 的静态资产里） | 同上 |
+| `has_replica` | ElastiCache 必填 | 由 `raw/inventory/elasticache.json` 的节点 `id`（形如 `<rg>-<NNNN>-<MMM>`）按 `(rg, NNNN)` 分组，**任一分片的成员数 > 1** 即 `true`。**不要用 `count` 代替** —— `3 分片 × 1 节点`（`count=3`、无副本）是合法的 cluster-mode 配置 | `metric-missing`（无法区分「无副本故不适用」与「采集失败」，不得假定无副本） |
 | `off_sus_cpu`、`off_peak_cpu`、`off_net_mb_day` | 桶 C 需要 | 与 `sus_cpu` / `peak_cpu` / `net_mb_day` 同法，但只取 `bucket == "off-hours"` 那一档 | 六个里少一个 ⇒ `stop_candidate = null`（**判不了**，不是"不是候选"） |
 | `weekend_sus_cpu`、`weekend_peak_cpu`、`weekend_net_mb_day` | 桶 C 需要 | 同上，取 `weekend` 档 | 同上 |
 | `metric_coverage` | 是 | 上面哪几项取不到的名字数组 | 报告缺口列不出来 |
+
+**`has_replica` 的派生。** 从节点 id 的分片-成员结构推出，**不需要**
+`describe-replication-groups`。
+
+**节点 id 有两种形态，取决于 cluster mode**（实测，两支机队都同时存在）：
+
+| cluster mode | 节点 id | 分片号 |
+|---|---|---|
+| enabled | `<rg>-<NNNN>-<MMM>`（如 `…redis-01-0001-002`） | 有 |
+| **disabled** | `<rg>-<MMM>`（如 `…redis-01-002`） | **无**，隐含单分片 |
+
+**只认前一种会静默丢掉后一种。** 实测某账号 13 个复制组里有 2 组是非集群模式，
+按单形态正则推导只得到 11 组 —— 那 2 组的 `has_replica` 会缺失，
+进而整组判 `metric-missing`。所以分片号必须**可选**，缺省当 `0001`：
+
+```bash
+jq -s '
+  [ .[0][]
+    | {rg,
+       shard: (((.id | capture("-(?<s>[0-9]{4})-[0-9]{3}$").s)? // "0001")),
+       member: (.id | capture("-(?<m>[0-9]{3})$").m)} ]
+  | group_by(.rg)
+  | map({ (.[0].rg): (group_by(.shard) | map(length) | max > 1) })
+  | add
+' raw/inventory/elasticache.json > raw/solver/has-replica.json
+```
+
+`rg` 直接取 inventory 里的字段，**不从 id 里解析** —— 复制组名本身含连字符和
+数字后缀，用一条正则同时切 `rg` 与分片号必然在某些命名上切错。
+
+**自检两条**（都必须相等；不等说明有节点 id 两种形态都不匹配、被静默丢弃）：
+
+```bash
+# ① 覆盖到的节点数 == inventory 节点总数
+jq -s '[.[0][] | (.id | capture("-(?<m>[0-9]{3})$").m)] | length' \
+   raw/inventory/elasticache.json
+jq 'length' raw/inventory/elasticache.json
+# ② 推出的复制组数 == inventory 的 rg 去重数
+jq 'length' raw/solver/has-replica.json
+jq '[.[].rg] | unique | length' raw/inventory/elasticache.json
+```
+
+实测两支机队：节点 64/64 → 13 组（**12 有副本 / 1 无副本**）、
+节点 42/42 → 11 组（**10 / 1**）。形态分布含
+`3 分片×2 成员`、`3 分片×3 成员`、`1 分片×3 成员`、非集群模式 `3 成员`、
+以及单节点 `1×1`。
+
+**不要用 `count` 代替。** 在这两份数据上 `count > 1` 恰好与本推导同结果
+（唯一的无副本组也正好是单节点），**但那是巧合**：`3 分片×1 节点`
+（`count=3`、无副本）是合法的 cluster-mode 配置，按 `count` 判会把它误报成
+「该有副本却缺指标」。上面的配方在合成用例上验证过这一形态判 `false`。
 
 **桶 C 的网络口径。** `off_net_mb_day` / `weekend_net_mb_day` 是**该档的 Σ Sum
 ÷ 窗口天数**，即"该时段对全天流量的贡献"，与 `net_mb_day`（三档合计）同一个分母，

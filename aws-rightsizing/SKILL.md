@@ -274,6 +274,11 @@ legacy 族清单 → 用途分类 → region 可用性 → 规格硬约束 → �
   峰值项不参与——它是降配方向的安全约束。仅峰值项超的行仍是「已合理配置」，
   但必须带一条 blocker 写明绑定约束是峰值项。本 skill **不产出升配的目标机型**：
   选型需要容量规划输入（增长率 / SLA / 峰值形态），不在本版本边界内。
+- **CPU 信用余额触底 ⇒ `upsize-candidate`，且必须压掉两列候选。**
+  `CPUSurplusCreditsCharged > 0` 是**窄**信号（仅 unlimited 模式且透支超期未偿还），
+  standard 模式触底只会被限流、不产生 surplus 计费。**限流会把 `CPUUtilization`
+  压住**，于是饿死的机器看起来最闲、最容易被推荐再降一档 —— 所以这条必须**优先于**
+  持续项判定。取 `full-window` 的 `Minimum`，阈值键 `credit_balance_floor_pct`。
 - 闲置判据（桶 B）走 `core.py` 的 `is_idle()`，阈值见 `thresholds.md`。**不要自己实现**——`net_mb_day == 0` 是最强闲置信号，用缺失值兜底写法（Python 的 `or`、jq 的 `//`）会把 0 当缺失值替换掉，专挑信号最强的记录静默失效（实测漏判 $1,369/mo）。
 - **桶 C 停机走 `core.py` 的 `is_stop_candidate()`，同样不要自己实现。**
   三个门限（`idle_cpu_p95` / `idle_net_mb_day` / `stop_candidate_peak_cpu_max`）
@@ -303,6 +308,11 @@ legacy 族清单 → 用途分类 → region 可用性 → 规格硬约束 → �
   `DBLoad p95 >= vCPU 数` ⇒ CPU 已是瓶颈，一律禁止降配。
 - 内存用 `FreeableMemory` 反推：`已用 ≈ 实例内存 − FreeableMemory`。
 - `db.serverless` 排除（Aurora Serverless v2 按 ACU 伸缩，无固定规格）。
+- **信用余额触底与 `CPUSurplusCreditsCharged > 0` 是两条独立否决项**，都产出
+  `upsize-candidate`。**已能评估**的否决项排在 `cheaper_candidate_exists` 短路
+  **之前**（候选集为空不该压掉「这台机器已经不够用了」这条警告）；
+  **缺失型** fail-closed 排在它**之后**（候选集为空时补指标也换不来建议，
+  要求它就是让客户白等一个窗口）。
 - 非生产**不建议停实例**：停止的 RDS 仍收存储费且最多 7 天自动启动，
   桶 C 须改为"快照 + 删除"路径并在 `blockers` 写明。
 
@@ -315,7 +325,12 @@ legacy 族清单 → 用途分类 → region 可用性 → 规格硬约束 → �
   该指标是 **maxmemory**（= 节点内存 × (1 − reserved)）的百分比，不是节点内存的百分比；
   写成除会算出节点总内存口径，与列名 `usable` 矛盾。`reserved` 缺省取
   `reserved_memory_pct_default`（值在 `thresholds.json`）。
-- `Evictions > 0` 或 `ReplicationLag max >= redis_repl_lag_max_s` ⇒ 阻断。
+- `Evictions > 0` 或 `ReplicationLag` 持续值 `>= redis_repl_lag_max_s` ⇒ 阻断。
+  **两者的缺失处理不对称，且这是有依据的**：`Evictions` 每个节点都发布，缺失是
+  真缺失 ⇒ fail-closed；`ReplicationLag` 只在存在副本时才有意义 ⇒ 按 `has_replica`
+  分流（有副本却缺序列 = 采集缺口，仍 fail-closed；无副本 = 不适用，放行）。
+  `has_replica` 由节点 id 的分片-成员结构推出，**不得用 `count` 代替** ——
+  `3 分片 × 1 节点`（`count=3`、无副本）是合法配置。
 - 分片倾斜只作为事实陈述，**不产出减 shard 建议**。
 
 ### MSK
@@ -635,7 +650,7 @@ awk -F, 'NR>1{gsub(/"/,""); print $4}' findings-<profile>.csv | sort | uniq -d
 | **下限型／峰值型指标只取 `biz-hours` 档** | `freeable_mem_min_gib` 取 biz-hours 最小值会漏掉备份/批处理窗口的真实低点（实测两台 RDS 偏高 0.18% 与 1.1%），方向是**把危险实例判成安全**；主判据指标（`sample_n` / `dbload_p95` / `engine_cpu_p95`）才限定 biz-hours | 下限型与峰值型一律取 `agg.jq` 的 **`full-window`** 档 |
 | **给 `agg.jq` 加了 `full-window` 档后仍按 bucket 全量求和** | `§2.6` 的覆盖度一行是 `group_by(.rid+"|"+.stat) \| map(.n)\|add`，新档让 `n` 翻倍（实测 465 → 930），覆盖度看起来充足 ⇒ 正是该节警告的「偏松」失效 | 覆盖度直接读 `bucket == "full-window"` 那一行，不再拿三档相加 |
 | **「仅某子集机型发布」的指标当成「缺失」fail-closed** | `CPUSurplusCreditsCharged` 只有 T 系列发布，非突发机型该序列结构性不存在。无条件卡 `is None` 会让**突发降配路线在生产上永久不可达**（实测 29 台机队里 25 台被压掉，3 行误判成「已合理配置」），且 `burst_na` 让客户去补一个不可能存在的指标。RDS 侧同一缺陷修于 2026-09-04，EC2 侧因文档误称「已做区分」而漏到 2026-09-10 | **先判适用性，再判缺失**：`if cs["burst"] and sc is None`（EC2）/ `_rds_is_burstable()`（RDS）。回归 fixture 必须用真实值（非突发机型填 `null`），填 0 会让整套基线为一个不可能的输入背书 |
-| **「仅某子集资源发布」的指标，判据先判缺失而不先判适用性** | 「不适用」与「缺失」是两件事：前者是**资源形态**的属性，后者是**采集**的属性。混同的两个方向都错——把「不适用」当「缺失」会让整条路径永久不可达（实测 `CPUSurplusCreditsCharged` 让 25/29 台的突发路线关闭）；把「缺失」当「不适用」会让否决项静默消失。已知成员：`CPUSurplusCreditsCharged`（仅 `t*` / `db.t*`）、`CPUCreditBalance`（同）、`ReplicationLag`（仅有副本时）、`EngineCPUUtilization` 与 `DatabaseMemoryUsagePercentage`（仅 Redis/Valkey，Memcached 不发布） | **先解析适用性、再判缺失**，并在该判据处写明落在 fail-closed 还是 fail-open 哪一侧及理由。区分二者的依据必须是**输入里已有的形态字段**（`spec["burst"]` / 实例类前缀 / 引擎 / 节点数），**不得靠指标自身的有无去推断**——那是循环论证。新增指标先按这张清单比对 |
+| **「仅某子集资源发布」的指标，判据先判缺失而不先判适用性** | 「不适用」与「缺失」是两件事：前者是**资源形态**的属性，后者是**采集**的属性。混同的两个方向都错——把「不适用」当「缺失」会让整条路径永久不可达（实测 `CPUSurplusCreditsCharged` 让 25/29 台的突发路线关闭）；把「缺失」当「不适用」会让否决项静默消失。已知成员与状态（**状态过期会让这张清单失效，改判据时一并更新**）：`CPUSurplusCreditsCharged`（仅 `t*` / `db.t*`，**已按适用性分流**）、`CPUCreditBalance`（同，**已按适用性分流**）、`ReplicationLag`（仅有副本时，**已按 `has_replica` 分流**）、`EngineCPUUtilization` 与 `DatabaseMemoryUsagePercentage`（仅 Redis/Valkey，Memcached 不发布，**尚未分流** —— `eval_elasticache` 的输入里还没有 `engine` 字段） | **先解析适用性、再判缺失**，并在该判据处写明落在 fail-closed 还是 fail-open 哪一侧及理由。区分二者的依据必须是**输入里已有的形态字段**（`spec["burst"]` / 实例类前缀 / 引擎 / 节点数），**不得靠指标自身的有无去推断**——那是循环论证。新增指标先按这张清单比对 |
 
 ## references
 

@@ -61,7 +61,7 @@ floor         = 下限型判据，须显式采 Stat=Minimum（见 cli-recipes.md
 | NetworkOut | **Sum**（只取 Sum） | 闲置判据 `net_mb_day` | 已实测 |
 | EBSReadBytes | **Sum**（只取 Sum） | EBS 带宽约束 `ebs_need` | 已实测 |
 | EBSWriteBytes | **Sum**（只取 Sum） | EBS 带宽约束 `ebs_need` | 已实测 |
-| CPUCreditBalance | Average, **Minimum** | blocker / floor（是否触底） | 已实测 |
+| CPUCreditBalance | Average, **Minimum** | blocker：`full-window` 的 `min` 触底 ⇒ `upsize-candidate`（当前规格已不足）。**仅 `t*` 发布**，非 burstable 缺失属「不适用」不是「缺失」；**存在**则说明窗口内改过规格 | 已实测 |
 | CPUCreditUsage | **计数类**，Average, Maximum ⚠️ | blocker（burstable）。⚠️ = 计数类配非 Sum stat，**目前无判据消费**，同 MSK 侧那行 | 已实测 |
 | CPUSurplusCreditBalance | Maximum | blocker（burstable） | 已实测 |
 | CPUSurplusCreditsCharged | Maximum | blocker（**当前机型已是 T 系列**且 >0 ⇒ 抑制 burstable 选项）；**仅 `t*` 发布**，非 burstable 缺失属「不适用」不是「缺失」，判据不走 fail-closed | 已实测 |
@@ -227,7 +227,7 @@ us-west-2 覆盖 2/18 台；`disk_used_percent` 合计只覆盖 3/31 台。
 | BytesInPerSec / BytesOutPerSec | **速率**（名字里就带 per second） | Average, Maximum | 负载画像 | ✅ | B/s |
 | UnderReplicatedPartitions | gauge | Average, Maximum | blocker，>0 禁止降配 | ✅ | 计数 |
 | **RequestHandlerAvgIdlePercent** | gauge | Average, Maximum | 降配前置 > `msk_handler_idle_min` | ❌ **不发布** | **0–1**（实测 0.999–1.002） |
-| CPUCreditBalance | gauge（余额） | Average, Maximum | blocker（broker 为 T 机型时出现） | ✅ | — |
+| CPUCreditBalance | gauge（余额） | Average, Maximum | **无判据消费** —— `eval_msk` 的输入里没有 burstable 形态字段（同 ElastiCache 侧那行） | ✅ | — |
 | CPUCreditUsage | **计数类** | Average, Maximum ⚠️ | blocker（同上） | ✅ | — |
 
 `CPUCreditUsage` 那行的 ⚠️ 是**已知的计数类配非 Sum stat**，与 EC2 侧同一行同因：
@@ -260,7 +260,7 @@ per-broker 的 CPU / 磁盘 / URP / 内存 / 吞吐全都有，**唯一缺的是
 | CPUUtilization | Average, Maximum | 次级判据 / PI 未开时的替代 | 已实测 |
 | FreeableMemory | Average, Maximum, **Minimum** | mem 反推 + **floor 阻断** | 已实测 |
 | FreeStorageSpace | Average, **Minimum** | 存储过配判据（桶 F） | 已实测 |
-| CPUCreditBalance | Average, **Minimum** | blocker（`db.t*` 是否触底） | 已实测 |
+| CPUCreditBalance | Average, **Minimum** | blocker：`full-window` 的 `min` 触底 ⇒ `upsize-candidate`。**仅 `db.t*` 发布**，非 burstable 缺失属「不适用」；**存在**则说明窗口内改过规格（实测两台 `db.m6g.xlarge` 有 178/720 的信用序列） | 已实测 |
 | CPUSurplusCreditsCharged | Maximum | **blocker，>0 = 规格已不足**；**仅 `db.t*` 发布**，非 burstable 缺失属"不适用"不是"缺失" | 已实测 |
 | DatabaseConnections | Average, Maximum | 负载画像 | 已实测 |
 | ReadIOPS / WriteIOPS | Average, Maximum | 存储画像 | 已实测 |
@@ -297,7 +297,7 @@ Single-AZ 部署、只读副本。指标名预期相同但未验证。
 | BytesUsedForCache | Average, Maximum | 数据量绝对值 | 字节（实测 max ≈ 10.9 MB） |
 | Evictions | **计数类**，Maximum | blocker，**单小时最大 > 0** 即禁止降配（判据是 `> 0`，与窗口累计 > 0 等价）。⚠️ `sample-solve.md` 的字段名叫 `evictions_sum`，那是**历史命名**，采的是 `Maximum` | 计数（实测 0） |
 | ReplicationLag | Maximum | blocker，max >= 1s | **秒**（实测 0–0.009） |
-| CPUCreditBalance | Average, **Minimum** | blocker（`cache.t*` 是否触底） | — |
+| CPUCreditBalance | Average, **Minimum** | **无判据消费** —— `eval_elasticache` 的输入里没有 burstable 形态字段，不为未实测的引擎/机型发明判据 | — |
 | CurrConnections / CurrItems | Average, Maximum（gauge，瞬时值） | 负载画像 | 计数 |
 
 - **必须用 `EngineCPUUtilization`，不得用 `CPUUtilization`。** 后者含后台线程，
@@ -490,7 +490,7 @@ grep -nE '^\|' references/metrics-catalog.md | grep -E '\b(Sum|Average|Maximum|M
 |---|---|---|---|
 | EC2 `CPUUtilization` | gauge | Average, Maximum | ✅ |
 | EC2 `NetworkIn` / `NetworkOut` / `EBSRead\|WriteBytes` | 计数类 | Sum | ✅ 本轮改正 |
-| EC2 `CPUCreditBalance` | gauge（余额） | Average, Minimum | ✅ 下限型判据要 Minimum |
+| EC2 `CPUCreditBalance` | gauge（余额） | Average, Minimum | ✅ 下限型判据，**已有消费者**（余额触底 ⇒ `upsize-candidate`） |
 | EC2 `CPUCreditUsage` | **计数类** | Average, Maximum | ⚠️ 无判据消费，见该行 |
 | EC2 `CPUSurplusCreditBalance` | gauge（余额） | Maximum | ✅ 无判据消费 |
 | EC2 / RDS `CPUSurplusCreditsCharged` | **计数类** | Maximum | ⚠️ 判据是 `> 0`，max 与 sum 等价 ⇒ 安全；标注已由「窗口累计」改为「单小时最大」 |
@@ -499,12 +499,12 @@ grep -nE '^\|' references/metrics-catalog.md | grep -E '\b(Sum|Average|Maximum|M
 | MSK `BytesInPerSec` / `BytesOutPerSec` | **速率** | Average, Maximum | ✅ **不要动**，`Sum` 无意义 |
 | MSK `CPUCreditUsage` | **计数类** | Average, Maximum | ⚠️ 同 EC2 那行，无判据消费 |
 | RDS `DBLoad` / `CPUUtilization` / `DatabaseConnections` | gauge | Average, Maximum | ✅ |
-| RDS `FreeableMemory` / `FreeStorageSpace` / `CPUCreditBalance` | gauge | 含 Minimum | ✅ 下限型判据 |
+| RDS `FreeableMemory` / `FreeStorageSpace` / `CPUCreditBalance` | gauge | 含 Minimum | ✅ 下限型判据，`CPUCreditBalance` **已有消费者** |
 | RDS `ReadIOPS` / `WriteIOPS` | **速率** | Average, Maximum | ✅ **不要动** |
 | EC `EngineCPUUtilization` / `DatabaseMemoryUsagePercentage` / `ReplicationLag` / `CurrConnections` / `CurrItems` | gauge | Average, Maximum（`ReplicationLag` 取 Maximum） | ✅ |
 | EC `BytesUsedForCache` | **gauge**（瞬时驻留字节） | Average, Maximum | ✅ **不要动**，跨小时求和没有指代 |
 | EC `Evictions` | **计数类** | Maximum | ⚠️ 判据是 `> 0` ⇒ 安全；字段名 `evictions_sum` 是历史命名 |
-| EC `CPUCreditBalance` | gauge | Average, Minimum | ✅ |
+| EC `CPUCreditBalance` | gauge | Average, Minimum | ✅ 刻度无误，但**无判据消费** |
 | NLB `NewFlowCount` / `ProcessedBytes` / `ConsumedLCUs` | 计数类 | Sum | ✅ |
 | NLB `ActiveFlowCount` | **gauge**（并发流） | Maximum | ✅ |
 | NAT `ActiveConnectionCount` | **gauge**（真瞬时，实测 max 541） | Maximum | ✅ 与 ALB 同名不同义 |

@@ -540,10 +540,11 @@ PY
 ```
 Expected: `tests/test_managed_dispatch.py: kwargs 7 处 / dict 字面量 1 处`、
 `tests/test_csv_contract.py: kwargs 0 处 / dict 字面量 1 处`、
-`合计 9 处`（`test_fail_closed_contracts.py` 的 `CACHE` 用的是
+`tests/test_fail_closed_contracts.py: kwargs 0 处 / dict 字面量 1 处`、
+`合计 10 处`（`test_fail_closed_contracts.py` 的 `CACHE` 用的是
 `"service": "elasticache",` 形式，会被第二个正则命中）。
 
-若 `合计` 不是 9，**停下核对** —— 说明 fixture 的写法与预期不同，
+若 `合计` 不是 10，**停下核对** —— 说明 fixture 的写法与预期不同，
 漏掉的那处会在 Step 4 变成一条 `metric-missing` 的假失败。
 
 - [ ] **Step 2: 给 `references/sample-solve.md` 的样例输入补字段**
@@ -734,8 +735,14 @@ jq -s '
 ' raw/inventory/elasticache.json > raw/solver/has-replica.json
 ```
 
-**自检**（复制组数须与 inventory 的 `rg` 去重数一致，否则有节点 id 不符合
-`<rg>-<NNNN>-<MMM>` 形式、被 `capture` 静默丢弃）：
+**注意节点 id 有两种形态**（实测两支机队都同时存在）：cluster mode enabled 是
+`<rg>-<NNNN>-<MMM>`，**disabled 是 `<rg>-<MMM>`、没有分片号**。只认前一种会静默
+丢掉后一种 —— 实测 13 个复制组里有 2 组是非集群模式，单形态正则只得到 11 组。
+所以分片号必须**可选**，缺省当 `0001`；`rg` 直接取 inventory 字段，不从 id 解析。
+以 `references/cli-recipes.md` 里的那份配方为准，**不要照抄本节的早期版本**。
+
+**自检**（复制组数须与 inventory 的 `rg` 去重数一致，且覆盖到的节点数须等于
+inventory 节点总数）：
 
 ```bash
 jq 'length' raw/solver/has-replica.json
