@@ -318,6 +318,13 @@ legacy 族清单 → 用途分类 → region 可用性 → 规格硬约束 → �
 
 ### ElastiCache Redis
 
+- **先判引擎，再判指标。** `EngineCPUUtilization` 与
+  `DatabaseMemoryUsagePercentage` 只有 `redis` / `valkey` 发布。Memcached
+  多线程、两个都不发布 ⇒ `excluded`（本版本不评估），**不是 `metric-missing`** ——
+  后者会让客户去补一个不可能存在的指标，并附带一条对该引擎恰好相反的断言
+  （Memcached 的正确 CPU 指标就是 `CPUUtilization`）。`engine` 缺失 ⇒ fail-closed。
+  白名单在 `core.py` 的 `EC_ENGINES_WITH_ENGINE_CPU`，**改它之前先实测新引擎的
+  指标与刻度**。
 - **必须用 `EngineCPUUtilization`，不得用 `CPUUtilization`。** Redis 单线程，
   整机 CPU 含后台线程，用后者会系统性误判。
 - 内存口径是**乘** `(1 − reserved)`，不是除：
@@ -650,7 +657,7 @@ awk -F, 'NR>1{gsub(/"/,""); print $4}' findings-<profile>.csv | sort | uniq -d
 | **下限型／峰值型指标只取 `biz-hours` 档** | `freeable_mem_min_gib` 取 biz-hours 最小值会漏掉备份/批处理窗口的真实低点（实测两台 RDS 偏高 0.18% 与 1.1%），方向是**把危险实例判成安全**；主判据指标（`sample_n` / `dbload_p95` / `engine_cpu_p95`）才限定 biz-hours | 下限型与峰值型一律取 `agg.jq` 的 **`full-window`** 档 |
 | **给 `agg.jq` 加了 `full-window` 档后仍按 bucket 全量求和** | `§2.6` 的覆盖度一行是 `group_by(.rid+"|"+.stat) \| map(.n)\|add`，新档让 `n` 翻倍（实测 465 → 930），覆盖度看起来充足 ⇒ 正是该节警告的「偏松」失效 | 覆盖度直接读 `bucket == "full-window"` 那一行，不再拿三档相加 |
 | **「仅某子集机型发布」的指标当成「缺失」fail-closed** | `CPUSurplusCreditsCharged` 只有 T 系列发布，非突发机型该序列结构性不存在。无条件卡 `is None` 会让**突发降配路线在生产上永久不可达**（实测 29 台机队里 25 台被压掉，3 行误判成「已合理配置」），且 `burst_na` 让客户去补一个不可能存在的指标。RDS 侧同一缺陷修于 2026-09-04，EC2 侧因文档误称「已做区分」而漏到 2026-09-10 | **先判适用性，再判缺失**：`if cs["burst"] and sc is None`（EC2）/ `_rds_is_burstable()`（RDS）。回归 fixture 必须用真实值（非突发机型填 `null`），填 0 会让整套基线为一个不可能的输入背书 |
-| **「仅某子集资源发布」的指标，判据先判缺失而不先判适用性** | 「不适用」与「缺失」是两件事：前者是**资源形态**的属性，后者是**采集**的属性。混同的两个方向都错——把「不适用」当「缺失」会让整条路径永久不可达（实测 `CPUSurplusCreditsCharged` 让 25/29 台的突发路线关闭）；把「缺失」当「不适用」会让否决项静默消失。已知成员与状态（**状态过期会让这张清单失效，改判据时一并更新**）：`CPUSurplusCreditsCharged`（仅 `t*` / `db.t*`，**已按适用性分流**）、`CPUCreditBalance`（同，**已按适用性分流**）、`ReplicationLag`（仅有副本时，**已按 `has_replica` 分流**）、`EngineCPUUtilization` 与 `DatabaseMemoryUsagePercentage`（仅 Redis/Valkey，Memcached 不发布，**尚未分流** —— `eval_elasticache` 的输入里还没有 `engine` 字段） | **先解析适用性、再判缺失**，并在该判据处写明落在 fail-closed 还是 fail-open 哪一侧及理由。区分二者的依据必须是**输入里已有的形态字段**（`spec["burst"]` / 实例类前缀 / 引擎 / 节点数），**不得靠指标自身的有无去推断**——那是循环论证。新增指标先按这张清单比对 |
+| **「仅某子集资源发布」的指标，判据先判缺失而不先判适用性** | 「不适用」与「缺失」是两件事：前者是**资源形态**的属性，后者是**采集**的属性。混同的两个方向都错——把「不适用」当「缺失」会让整条路径永久不可达（实测 `CPUSurplusCreditsCharged` 让 25/29 台的突发路线关闭）；把「缺失」当「不适用」会让否决项静默消失。已知成员与状态（**状态过期会让这张清单失效，改判据时一并更新**）：`CPUSurplusCreditsCharged`（仅 `t*` / `db.t*`，**已按适用性分流**）、`CPUCreditBalance`（同，**已按适用性分流**）、`ReplicationLag`（仅有副本时，**已按 `has_replica` 分流**）、`EngineCPUUtilization` 与 `DatabaseMemoryUsagePercentage`（仅 redis/valkey 发布，**已按 `engine` 分流**）。**五个已知成员至此全部完成适用性分流**——新增指标时按本清单比对 | **先解析适用性、再判缺失**，并在该判据处写明落在 fail-closed 还是 fail-open 哪一侧及理由。区分二者的依据必须是**输入里已有的形态字段**（`spec["burst"]` / 实例类前缀 / 引擎 / 节点数），**不得靠指标自身的有无去推断**——那是循环论证。新增指标先按这张清单比对 |
 
 ## references
 

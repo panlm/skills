@@ -1688,6 +1688,7 @@ ap-northeast-1 有 1198 个、us-east-1 有 1371 个、us-west-2 有 1350 个，
 | `credit_balance_min` | T 机型必填 | agg 中 `CPUCreditBalance` / `Minimum` / **`full-window`** 档的 `min`。**这是下限型指标，必须取 `full-window`** —— `biz-hours` 会漏掉夜间批处理把信用耗尽的低点（同 `freeable_mem_min_gib` 的坑）。**非突发机型该序列结构性不存在，字段留空即正确，不要补 0** | 当前机型是 T 系列时 `metric-missing`（信用耗尽会把 `CPUUtilization` 压住，放行等于按被限流的持续值定档）；非突发机型不受影响 |
 | `credit_balance_max` | T 机型必填 | 同一行的 `max`（判据按「占窗口内观测最大余额的百分比」判，不依赖信用上限——RDS 的 baseline 百分比不在本 skill 的静态资产里） | 同上 |
 | `has_replica` | ElastiCache 必填 | 由 `raw/inventory/elasticache.json` 的节点 `id`（形如 `<rg>-<NNNN>-<MMM>`）按 `(rg, NNNN)` 分组，**任一分片的成员数 > 1** 即 `true`。**不要用 `count` 代替** —— `3 分片 × 1 节点`（`count=3`、无副本）是合法的 cluster-mode 配置 | `metric-missing`（无法区分「无副本故不适用」与「采集失败」，不得假定无副本） |
+| `engine` | ElastiCache 必填 | `raw/inventory/elasticache.json` 每个节点的 `engine` 字段原值（**小写**，实测 `"redis"`）。引擎是复制组级属性，同组取任一节点即可 | `metric-missing` —— 无法判定两个主判据指标是否适用，**不得假定 Redis**。`memcached` 与未知取值 ⇒ `excluded`（本版本不评估，白名单见 `core.py` 的 `EC_ENGINES_WITH_ENGINE_CPU`） |
 | `off_sus_cpu`、`off_peak_cpu`、`off_net_mb_day` | 桶 C 需要 | 与 `sus_cpu` / `peak_cpu` / `net_mb_day` 同法，但只取 `bucket == "off-hours"` 那一档 | 六个里少一个 ⇒ `stop_candidate = null`（**判不了**，不是"不是候选"） |
 | `weekend_sus_cpu`、`weekend_peak_cpu`、`weekend_net_mb_day` | 桶 C 需要 | 同上，取 `weekend` 档 | 同上 |
 | `metric_coverage` | 是 | 上面哪几项取不到的名字数组 | 报告缺口列不出来 |

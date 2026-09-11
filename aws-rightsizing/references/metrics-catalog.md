@@ -292,8 +292,8 @@ Single-AZ 部署、只读副本。指标名预期相同但未验证。
 
 | 指标 | stat | 用途 | 刻度（实测） |
 |---|---|---|---|
-| **EngineCPUUtilization** | Average, Maximum | cpu_sustained, cpu_peak | **0–100**（实测 max 0.40–0.45） |
-| DatabaseMemoryUsagePercentage | Average, Maximum | mem_sustained, mem_peak | **0–100**（实测 max 0.436–0.445） |
+| **EngineCPUUtilization** | Average, Maximum | cpu_sustained, cpu_peak；**仅 redis / valkey 发布**（单线程引擎特有），Memcached 不发布 ⇒ 判据按 `engine` 分流成 `excluded`，不是 `metric-missing` | **0–100**（实测 max 0.40–0.45） |
+| DatabaseMemoryUsagePercentage | Average, Maximum | mem_sustained, mem_peak；**仅 redis / valkey 发布**（单线程引擎特有），Memcached 不发布 ⇒ 判据按 `engine` 分流成 `excluded`，不是 `metric-missing` | **0–100**（实测 max 0.436–0.445） |
 | BytesUsedForCache | Average, Maximum | 数据量绝对值 | 字节（实测 max ≈ 10.9 MB） |
 | Evictions | **计数类**，Maximum | blocker，**单小时最大 > 0** 即禁止降配（判据是 `> 0`，与窗口累计 > 0 等价）。⚠️ `sample-solve.md` 的字段名叫 `evictions_sum`，那是**历史命名**，采的是 `Maximum` | 计数（实测 0） |
 | ReplicationLag | Maximum | blocker，max >= 1s | **秒**（实测 0–0.009） |
