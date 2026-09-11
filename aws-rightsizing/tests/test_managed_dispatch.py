@@ -47,7 +47,7 @@ RDS_OK = {"rid": "db-T-01", "service": "rds", "type": "db.r6g.large",
           "vcpu": 2, "mem_gib": 16, "surplus_credits": 0, "dbload_p95": 0.4,
           "freeable_mem_min_gib": 9.6, "sample_n": 243,
           "cheaper_candidate_exists": True}
-CACHE_OK = {"rid": "cache-T-01", "service": "elasticache",
+CACHE_OK = {"rid": "cache-T-01", "service": "elasticache", "has_replica": False,
             "type": "cache.r7g.large", "vcpu": 2, "mem_gib": 13.07,
             "evictions_sum": 0, "repl_lag_max": 0.2, "engine_cpu_p95": 12,
             "db_mem_used_pct_max": 35, "sample_n": 243, "cheaper_candidate_exists": True}
@@ -331,7 +331,7 @@ def test_managed_low_sample_downgrades_instead_of_refusing():
         "rds": dict(rid="db-X", service="rds", type="db.r6g.large", vcpu=2,
                     mem_gib=16, surplus_credits=0, dbload_p95=0.1,
                     freeable_mem_min_gib=8.0, cheaper_candidate_exists=True),
-        "elasticache": dict(rid="cc-X", service="elasticache",
+        "elasticache": dict(rid="cc-X", service="elasticache", has_replica=False,
                             type="cache.m6g.large", vcpu=2, mem_gib=6.38,
                             evictions_sum=0, repl_lag_max=0.0,
                             engine_cpu_p95=1.0, db_mem_used_pct_max=2.0,
@@ -402,7 +402,7 @@ def test_vetoes_judge_persistence_not_a_single_spike():
     assert got["verdict"] == "blocked", got
 
     # ElastiCache ReplicationLag：尖峰 23.88s，持续值 0.005s ⇒ 不否决
-    ec = dict(rid="cc-spike", service="elasticache", type="cache.t4g.medium",
+    ec = dict(rid="cc-spike", service="elasticache", has_replica=False, type="cache.t4g.medium",
               vcpu=2, mem_gib=3.09, evictions_sum=0.0, evictions_p95=0.0,
               repl_lag_max=23.882, repl_lag_p95=0.005,
               engine_cpu_p95=0.64, db_mem_used_pct_max=59.24,
@@ -442,7 +442,7 @@ def test_downsize_candidate_flags_unverified_fit():
              mem_gib=16, surplus_credits=0, dbload_p95=0.1,
              freeable_mem_min_gib=8.0, cheaper_candidate_exists=True,
              sample_n=floor),
-        dict(rid="cc-F", service="elasticache", type="cache.m6g.large",
+        dict(rid="cc-F", service="elasticache", has_replica=False, type="cache.m6g.large",
              vcpu=2, mem_gib=6.38, evictions_sum=0, repl_lag_max=0.0,
              engine_cpu_p95=1.0, db_mem_used_pct_max=2.0,
              cheaper_candidate_exists=True, sample_n=floor),
@@ -516,7 +516,7 @@ def test_branch_reasons_precede_appended_notes_on_every_exit():
     floor = t["min_biz_hours_points"]
     cases = {
         "elasticache": dict(
-            rid="cc-ord", service="elasticache", type="cache.t4g.medium",
+            rid="cc-ord", service="elasticache", has_replica=False, type="cache.t4g.medium",
             vcpu=2, mem_gib=3.09, evictions_sum=17.0, evictions_p95=0.0,
             repl_lag_max=23.882, repl_lag_p95=0.005, engine_cpu_p95=0.64,
             db_mem_used_pct_max=59.24, cheaper_candidate_exists=True,
@@ -549,7 +549,7 @@ def test_persistence_fields_absent_keeps_old_behaviour():
                handler_idle_p95=0.99, cpu_total_p95=3.0,
                cheaper_candidate_exists=True, sample_n=floor)
     assert core.dispatch(msk, {"thresholds": t})["verdict"] == "blocked"
-    ec = dict(rid="cc-old", service="elasticache", type="cache.t4g.medium",
+    ec = dict(rid="cc-old", service="elasticache", has_replica=False, type="cache.t4g.medium",
               vcpu=2, mem_gib=3.09, evictions_sum=0.0, repl_lag_max=23.882,
               engine_cpu_p95=0.64, db_mem_used_pct_max=59.24,
               cheaper_candidate_exists=True, sample_n=floor)
@@ -608,6 +608,49 @@ def test_burstable_rds_credit_overage_still_vetoes():
     got = core.dispatch(res, {"thresholds": t})
     assert got["verdict"] == "upsize-candidate", (
         f"CPUSurplusCreditsCharged=3.11 > 0 应判升配候选 —— {got}")
+
+
+def test_replication_lag_absence_splits_by_replica_presence():
+    """`ReplicationLag` 的缺失按副本存在性分流，不再无条件放行。
+
+    Evictions 的 fail-closed 与 ReplicationLag 的分流**不对称是有依据的**：
+    Evictions 每个节点都发布，缺失是真缺失；ReplicationLag 只在存在副本时才有
+    意义。但放行必须有依据 —— 无条件放行会让这条否决项在一个真实复制组上
+    静默消失，而该 skill 已记录「维度名写错时 list-metrics 与 get-metric-data
+    都只返回空、不报错」。
+
+    不用 count 做代理：`3 分片 x 1 节点`（count=3、无副本）是合法的 cluster-mode
+    配置，按 count > 1 会把它误判成「该有副本却缺指标」。
+    """
+    t = core.load_thresholds("aggressive")
+    base = dict(rid="cc-R", service="elasticache", type="cache.r7g.large",
+                vcpu=2, mem_gib=13.07, evictions_sum=0, evictions_p95=0,
+                engine_cpu_p95=12, db_mem_used_pct_max=35, sample_n=243,
+                cheaper_candidate_exists=True)
+
+    # 有副本 + 序列缺失 ⇒ 采集缺口，不得放行
+    gap = core.eval_elasticache(dict(base, has_replica=True), t)
+    assert gap["verdict"] == "metric-missing", gap["verdict"]
+    assert "存在副本却无 ReplicationLag" in gap["blockers"][0], gap["blockers"]
+
+    # 无副本 + 序列缺失 ⇒ 不适用，放行
+    na = core.eval_elasticache(dict(base, has_replica=False), t)
+    assert na["verdict"] == "downsize-candidate", na["verdict"]
+
+    # has_replica 自身缺失 ⇒ fail-closed（不得假定无副本）
+    unknown = core.eval_elasticache(base, t)
+    assert unknown["verdict"] == "metric-missing", unknown["verdict"]
+    assert "has_replica 缺失" in unknown["blockers"][0], unknown["blockers"]
+
+    # 有副本 + 序列有值且越界 ⇒ 否决判定不受本次分流影响
+    veto = core.eval_elasticache(dict(base, has_replica=True, repl_lag_p95=2.0,
+                                      repl_lag_max=5.0), t)
+    assert veto["verdict"] == "blocked", veto["verdict"]
+
+    # 有副本 + 序列有值且正常 ⇒ 照常走降配路径
+    fine = core.eval_elasticache(dict(base, has_replica=True,
+                                      repl_lag_p95=0.0007, repl_lag_max=0.03), t)
+    assert fine["verdict"] == "downsize-candidate", fine["verdict"]
 
 
 def test_rds_credit_floor_and_branch_order():
@@ -680,7 +723,7 @@ def test_no_cheaper_candidate_yields_already_right_sized():
     assert any("最小" in b or "更便宜" in b for b in got.get("blockers") or []), (
         f"blockers 未说明原因是没有更便宜候选 —— {got}")
 
-    cc = dict(rid="cc-MIN", service="elasticache", type="cache.t4g.micro",
+    cc = dict(rid="cc-MIN", service="elasticache", has_replica=False, type="cache.t4g.micro",
               vcpu=2, mem_gib=0.5, sample_n=floor,
               cheaper_candidate_exists=False, evictions_sum=0,
               repl_lag_max=0.0, engine_cpu_p95=None, db_mem_used_pct_max=None)
@@ -751,7 +794,7 @@ def test_cheaper_candidate_check_does_not_suppress_under_provisioning_vetoes():
     t = core.load_thresholds("aggressive")
     floor = t["min_biz_hours_points"]
     # ElastiCache：Evictions > 0 ⇒ 即使已是最小规格也必须判 blocked
-    cc_evict = dict(rid="cc-EVICT", service="elasticache", type="cache.t4g.micro",
+    cc_evict = dict(rid="cc-EVICT", service="elasticache", has_replica=False, type="cache.t4g.micro",
                     vcpu=2, mem_gib=0.5, sample_n=floor,
                     cheaper_candidate_exists=False, evictions_sum=123,
                     repl_lag_max=0.0, engine_cpu_p95=None, db_mem_used_pct_max=None)
@@ -824,6 +867,7 @@ if __name__ == "__main__":
              test_nonburstable_rds_does_not_require_credit_metrics,
              test_burstable_rds_still_requires_credit_metrics,
              test_burstable_rds_credit_overage_still_vetoes,
+             test_replication_lag_absence_splits_by_replica_presence,
              test_rds_credit_floor_and_branch_order,
              test_no_cheaper_candidate_yields_already_right_sized,
              test_missing_cheaper_candidate_flag_is_fail_closed,

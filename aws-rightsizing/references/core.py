@@ -661,7 +661,22 @@ def eval_elasticache(res, t):
     if ev_max is not None and ev_max > 0:
         out["blockers"].append(_spike_note("Evictions", ev_max,
                                            "短时热点 / 批量写入"))
+    # Evictions 的 fail-closed（上面）与 ReplicationLag 的分流（下面）**不对称是
+    # 有依据的**，不是漏改：Evictions 每个节点都发布，缺失是真缺失；
+    # ReplicationLag 只在存在副本时才有意义，缺失可能是「不适用」。
+    # 但放行必须有依据——无条件放行会让这条否决项在一个真实复制组上静默消失。
+    # 不用 count 做代理：`3 分片 x 1 节点`（count=3、无副本）是合法配置。
+    has_replica = res.get("has_replica")
     lag_persist, lag_max = _persistent(res, "repl_lag_p95", "repl_lag_max")
+    if has_replica is None:
+        _verdict(out, "metric-missing",
+                 "has_replica 缺失，无法区分「无副本故不适用」与「采集失败」")
+        return out
+    if has_replica and lag_persist is None:
+        _verdict(out, "metric-missing",
+                 "存在副本却无 ReplicationLag 序列 ⇒ 采集缺口，"
+                 "不得按「无副本」放行")
+        return out
     if lag_persist is not None and lag_persist >= t["redis_repl_lag_max_s"]:
         _verdict(out, "blocked",
                  f"ReplicationLag 持续值 {lag_persist}s >= "
