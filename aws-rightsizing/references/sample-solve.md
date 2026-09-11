@@ -150,7 +150,7 @@ i-EX-05  verdict=insufficient-data  nb=-         save=-      missing=[]
   "surplus_credits":730.6,"dbload_p95":0.547,"freeable_mem_min_gib":1.2,"sample_n":243,
   "cheaper_candidate_exists":true},
 
- {"rid":"cache-EX-01","service": "elasticache", "has_replica": false,"type":"cache.r7g.large","vcpu":2,
+ {"rid":"cache-EX-01","service": "elasticache", "has_replica": false, "engine": "redis","type":"cache.r7g.large","vcpu":2,
   "mem_gib":13.07,"evictions_sum":0,"repl_lag_max":0.2,"engine_cpu_p95":12,
   "db_mem_used_pct_max":35,"reserved_memory_pct":null,"sample_n":243,
   "cheaper_candidate_exists":true},

@@ -47,7 +47,7 @@ RDS_OK = {"rid": "db-T-01", "service": "rds", "type": "db.r6g.large",
           "vcpu": 2, "mem_gib": 16, "surplus_credits": 0, "dbload_p95": 0.4,
           "freeable_mem_min_gib": 9.6, "sample_n": 243,
           "cheaper_candidate_exists": True}
-CACHE_OK = {"rid": "cache-T-01", "service": "elasticache", "has_replica": False,
+CACHE_OK = {"rid": "cache-T-01", "service": "elasticache", "has_replica": False, "engine": "redis",
             "type": "cache.r7g.large", "vcpu": 2, "mem_gib": 13.07,
             "evictions_sum": 0, "repl_lag_max": 0.2, "engine_cpu_p95": 12,
             "db_mem_used_pct_max": 35, "sample_n": 243, "cheaper_candidate_exists": True}
@@ -331,7 +331,7 @@ def test_managed_low_sample_downgrades_instead_of_refusing():
         "rds": dict(rid="db-X", service="rds", type="db.r6g.large", vcpu=2,
                     mem_gib=16, surplus_credits=0, dbload_p95=0.1,
                     freeable_mem_min_gib=8.0, cheaper_candidate_exists=True),
-        "elasticache": dict(rid="cc-X", service="elasticache", has_replica=False,
+        "elasticache": dict(rid="cc-X", service="elasticache", has_replica=False, engine="redis",
                             type="cache.m6g.large", vcpu=2, mem_gib=6.38,
                             evictions_sum=0, repl_lag_max=0.0,
                             engine_cpu_p95=1.0, db_mem_used_pct_max=2.0,
@@ -402,7 +402,7 @@ def test_vetoes_judge_persistence_not_a_single_spike():
     assert got["verdict"] == "blocked", got
 
     # ElastiCache ReplicationLag：尖峰 23.88s，持续值 0.005s ⇒ 不否决
-    ec = dict(rid="cc-spike", service="elasticache", has_replica=False, type="cache.t4g.medium",
+    ec = dict(rid="cc-spike", service="elasticache", has_replica=False, engine="redis", type="cache.t4g.medium",
               vcpu=2, mem_gib=3.09, evictions_sum=0.0, evictions_p95=0.0,
               repl_lag_max=23.882, repl_lag_p95=0.005,
               engine_cpu_p95=0.64, db_mem_used_pct_max=59.24,
@@ -442,7 +442,7 @@ def test_downsize_candidate_flags_unverified_fit():
              mem_gib=16, surplus_credits=0, dbload_p95=0.1,
              freeable_mem_min_gib=8.0, cheaper_candidate_exists=True,
              sample_n=floor),
-        dict(rid="cc-F", service="elasticache", has_replica=False, type="cache.m6g.large",
+        dict(rid="cc-F", service="elasticache", has_replica=False, engine="redis", type="cache.m6g.large",
              vcpu=2, mem_gib=6.38, evictions_sum=0, repl_lag_max=0.0,
              engine_cpu_p95=1.0, db_mem_used_pct_max=2.0,
              cheaper_candidate_exists=True, sample_n=floor),
@@ -516,7 +516,7 @@ def test_branch_reasons_precede_appended_notes_on_every_exit():
     floor = t["min_biz_hours_points"]
     cases = {
         "elasticache": dict(
-            rid="cc-ord", service="elasticache", has_replica=False, type="cache.t4g.medium",
+            rid="cc-ord", service="elasticache", has_replica=False, engine="redis", type="cache.t4g.medium",
             vcpu=2, mem_gib=3.09, evictions_sum=17.0, evictions_p95=0.0,
             repl_lag_max=23.882, repl_lag_p95=0.005, engine_cpu_p95=0.64,
             db_mem_used_pct_max=59.24, cheaper_candidate_exists=True,
@@ -549,7 +549,7 @@ def test_persistence_fields_absent_keeps_old_behaviour():
                handler_idle_p95=0.99, cpu_total_p95=3.0,
                cheaper_candidate_exists=True, sample_n=floor)
     assert core.dispatch(msk, {"thresholds": t})["verdict"] == "blocked"
-    ec = dict(rid="cc-old", service="elasticache", has_replica=False, type="cache.t4g.medium",
+    ec = dict(rid="cc-old", service="elasticache", has_replica=False, engine="redis", type="cache.t4g.medium",
               vcpu=2, mem_gib=3.09, evictions_sum=0.0, repl_lag_max=23.882,
               engine_cpu_p95=0.64, db_mem_used_pct_max=59.24,
               cheaper_candidate_exists=True, sample_n=floor)
@@ -610,6 +610,60 @@ def test_burstable_rds_credit_overage_still_vetoes():
         f"CPUSurplusCreditsCharged=3.11 > 0 应判升配候选 —— {got}")
 
 
+def test_elasticache_engine_gates_the_redis_only_criteria():
+    """两个主判据指标是 Redis/Valkey 独有 ⇒ 必须先判引擎，再判指标缺失。
+
+    Memcached 是多线程的，EngineCPUUtilization 与
+    DatabaseMemoryUsagePercentage 都不发布。此前它会拿到
+    「EngineCPUUtilization 缺失。注意不可用 CPUUtilization 替代——Redis 单线程」
+    —— 那句话对 Memcached 恰好是**反的**：它多线程，CPUUtilization 正是它的
+    正确 CPU 指标。于是报告既给不出结论，又指导客户去补一个不可能存在的指标。
+    与 CPUSurplusCreditsCharged 是同一类缺陷：把「不适用」当「缺失」。
+
+    Valkey 必须与 Memcached 分开：它是 Redis 协议兼容的单线程引擎，两个指标
+    都发布，现有判据对它成立。一起排除会白丢一整个引擎的降配路径。
+    """
+    t = core.load_thresholds("aggressive")
+    base = dict(rid="cc-E", service="elasticache", type="cache.r7g.large",
+                vcpu=2, mem_gib=13.07, evictions_sum=0, evictions_p95=0,
+                repl_lag_p95=0.0007, repl_lag_max=0.03, has_replica=True,
+                engine_cpu_p95=12, db_mem_used_pct_max=35, sample_n=243,
+                cheaper_candidate_exists=True)
+
+    # 反向半：两个单线程引擎都必须照常走到降配路径
+    for eng in ("redis", "valkey"):
+        ok = core.eval_elasticache(dict(base, engine=eng), t)
+        assert ok["verdict"] == "downsize-candidate", (eng, ok["verdict"])
+        assert ok["required_gib_usable"] is not None, (eng, ok)
+
+    # Memcached ⇒ excluded，且说明不得指向那两个指标「缺失」
+    mc = core.eval_elasticache(dict(base, engine="memcached",
+                                    engine_cpu_p95=None,
+                                    db_mem_used_pct_max=None), t)
+    assert mc["verdict"] == "excluded", mc["verdict"]
+    why = " ".join(mc["blockers"])
+    assert "memcached" in why.lower(), mc["blockers"]
+    assert "缺失" not in why, f"Memcached 的说明不得写成指标缺失 —— {mc['blockers']}"
+    # 成本由采集侧填，判据不得插手（否则整个服务从分母消失）
+    assert "cur_cost_mo" not in mc, mc
+
+    # engine 缺失 ⇒ fail-closed，不得假定 Redis
+    unknown = core.eval_elasticache(base, t)
+    assert unknown["verdict"] == "metric-missing", unknown["verdict"]
+    assert "engine 缺失" in unknown["blockers"][0], unknown["blockers"]
+
+    # 未知取值 ⇒ 同样不评估，且理由里带上那个取值
+    weird = core.eval_elasticache(dict(base, engine="dragonfly"), t)
+    assert weird["verdict"] == "excluded", weird["verdict"]
+    assert "dragonfly" in " ".join(weird["blockers"]), weird["blockers"]
+
+    # Evictions 否决项对 Memcached 仍然有效（分流点在它之后）
+    evict = core.eval_elasticache(dict(base, engine="memcached",
+                                       evictions_p95=5, evictions_sum=9), t)
+    assert evict["verdict"] == "blocked", (
+        f"Memcached 也会淘汰键，该否决项不该被引擎分流跳过 —— {evict}")
+
+
 def test_replication_lag_absence_splits_by_replica_presence():
     """`ReplicationLag` 的缺失按副本存在性分流，不再无条件放行。
 
@@ -625,8 +679,8 @@ def test_replication_lag_absence_splits_by_replica_presence():
     t = core.load_thresholds("aggressive")
     base = dict(rid="cc-R", service="elasticache", type="cache.r7g.large",
                 vcpu=2, mem_gib=13.07, evictions_sum=0, evictions_p95=0,
-                engine_cpu_p95=12, db_mem_used_pct_max=35, sample_n=243,
-                cheaper_candidate_exists=True)
+                engine="redis", engine_cpu_p95=12, db_mem_used_pct_max=35,
+                sample_n=243, cheaper_candidate_exists=True)
 
     # 有副本 + 序列缺失 ⇒ 采集缺口，不得放行
     gap = core.eval_elasticache(dict(base, has_replica=True), t)
@@ -723,7 +777,7 @@ def test_no_cheaper_candidate_yields_already_right_sized():
     assert any("最小" in b or "更便宜" in b for b in got.get("blockers") or []), (
         f"blockers 未说明原因是没有更便宜候选 —— {got}")
 
-    cc = dict(rid="cc-MIN", service="elasticache", has_replica=False, type="cache.t4g.micro",
+    cc = dict(rid="cc-MIN", service="elasticache", has_replica=False, engine="redis", type="cache.t4g.micro",
               vcpu=2, mem_gib=0.5, sample_n=floor,
               cheaper_candidate_exists=False, evictions_sum=0,
               repl_lag_max=0.0, engine_cpu_p95=None, db_mem_used_pct_max=None)
@@ -794,7 +848,7 @@ def test_cheaper_candidate_check_does_not_suppress_under_provisioning_vetoes():
     t = core.load_thresholds("aggressive")
     floor = t["min_biz_hours_points"]
     # ElastiCache：Evictions > 0 ⇒ 即使已是最小规格也必须判 blocked
-    cc_evict = dict(rid="cc-EVICT", service="elasticache", has_replica=False, type="cache.t4g.micro",
+    cc_evict = dict(rid="cc-EVICT", service="elasticache", has_replica=False, engine="redis", type="cache.t4g.micro",
                     vcpu=2, mem_gib=0.5, sample_n=floor,
                     cheaper_candidate_exists=False, evictions_sum=123,
                     repl_lag_max=0.0, engine_cpu_p95=None, db_mem_used_pct_max=None)
@@ -867,6 +921,7 @@ if __name__ == "__main__":
              test_nonburstable_rds_does_not_require_credit_metrics,
              test_burstable_rds_still_requires_credit_metrics,
              test_burstable_rds_credit_overage_still_vetoes,
+             test_elasticache_engine_gates_the_redis_only_criteria,
              test_replication_lag_absence_splits_by_replica_presence,
              test_rds_credit_floor_and_branch_order,
              test_no_cheaper_candidate_yields_already_right_sized,

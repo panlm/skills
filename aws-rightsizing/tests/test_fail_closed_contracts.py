@@ -34,7 +34,7 @@ RES = {"rid": "i-T-01", "service": "ec2", "type": "m5.xlarge", "arch": "x86_64",
        "operation": "RunInstances", "sus_cpu": 30, "peak_cpu": 40,
        "sus_mem": 20, "peak_mem": 35, "ebs_need": 5, "surplus_credits": 0,
        "cpu_n": 13, "metric_coverage": []}
-CACHE = {"rid": "cache-T-01", "service": "elasticache", "has_replica": False, "type": "cache.r7g.large",
+CACHE = {"rid": "cache-T-01", "service": "elasticache", "has_replica": False, "engine": "redis", "type": "cache.r7g.large",
          "vcpu": 2, "mem_gib": 13.07, "evictions_sum": 0, "repl_lag_max": 0.2,
          "engine_cpu_p95": 12, "db_mem_used_pct_max": 35,
          "cheaper_candidate_exists": True}

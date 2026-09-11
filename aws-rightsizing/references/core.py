@@ -635,6 +635,13 @@ def eval_rds(res, t):
     return out
 
 
+# 判据侧唯一的引擎白名单：这两个引擎是单线程、发布 EngineCPUUtilization 与
+# DatabaseMemoryUsagePercentage。Memcached 多线程、两个都不发布，本版本不评估
+# （它的 CPU 用 CPUUtilization、内存用 BytesUsedForCache 对上限，都**未实测**，
+# 发明一套未验证的判据比诚实排除更糟）。改这个集合前先实测新引擎的指标与刻度。
+EC_ENGINES_WITH_ENGINE_CPU = frozenset({"redis", "valkey"})
+
+
 def eval_elasticache(res, t):
     """ElastiCache 判据。内存必须用 pricing 的 memory，且要扣 reserved-memory-percent。
 
@@ -686,6 +693,26 @@ def eval_elasticache(res, t):
     if lag_max is not None and lag_max >= t["redis_repl_lag_max_s"]:
         out["blockers"].append(_spike_note("ReplicationLag", f"{lag_max}s",
                                            "failover / 备份快照"))
+    # 引擎分流放在两条否决项**之后**：Evictions 与 ReplicationLag 对 Memcached
+    # 同样成立（都会淘汰键；无副本则由 has_replica 放行），「这个缓存正在淘汰键」
+    # 是有效阻断，与能不能降配无关。放在 cheaper 短路**之前**：excluded 是
+    # 「本版本不评估」，比「没有更便宜候选」靠前——后者暗示已经评估过了。
+    engine = res.get("engine")
+    if engine is None:
+        _verdict(out, "metric-missing",
+                 "engine 缺失，无法判定 EngineCPUUtilization / "
+                 "DatabaseMemoryUsagePercentage 是否适用（不得假定 Redis）")
+        return out
+    if engine not in EC_ENGINES_WITH_ENGINE_CPU:
+        _verdict(out, "excluded",
+                 f"引擎 {engine} 不在本版本的评估范围内："
+                 f"两个主判据指标（EngineCPUUtilization / "
+                 f"DatabaseMemoryUsagePercentage）只有 "
+                 f"{'/'.join(sorted(EC_ENGINES_WITH_ENGINE_CPU))} 发布。"
+                 f"该引擎需另一套判据（Memcached 多线程，CPU 看 CPUUtilization、"
+                 f"内存看 BytesUsedForCache 对节点上限），本 skill **未实测**"
+                 f"那套指标的刻度与维度集，故不产出结论而非猜一个")
+        return out
     # 候选集为空 ⇒ 直接已合理配置,且早于所有前置指标要求。
     # 否则会让客户为一条不可能产出的建议去补指标、再等一个窗口。
     #

@@ -57,7 +57,7 @@ RES_RDS = {"rid": "db-EX", "service": "rds", "type": "db.r6g.large", "vcpu": 2,
            "mem_gib": 16, "surplus_credits": 0, "dbload_p95": 0.4,
            "freeable_mem_min_gib": 9.6, "sample_n": 243,
            "cheaper_candidate_exists": True}
-RES_CACHE = {"rid": "cache-EX", "service": "elasticache", "has_replica": False, "type": "cache.r7g.large",
+RES_CACHE = {"rid": "cache-EX", "service": "elasticache", "has_replica": False, "engine": "redis", "type": "cache.r7g.large",
              "vcpu": 2, "mem_gib": 13.07, "evictions_sum": 0, "repl_lag_max": 0.2,
              "engine_cpu_p95": 12, "db_mem_used_pct_max": 35,
              "reserved_memory_pct": None, "cheaper_candidate_exists": True,
