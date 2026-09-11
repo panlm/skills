@@ -610,6 +610,57 @@ def test_burstable_rds_credit_overage_still_vetoes():
         f"CPUSurplusCreditsCharged=3.11 > 0 应判升配候选 —— {got}")
 
 
+def test_rds_credit_floor_and_branch_order():
+    """RDS 余额触底 ⇒ upsize-candidate；且缺失型 fail-closed 必须晚于 cheaper 短路。
+
+    顺序有两条相反的边界，缺一不可：
+      · **已能评估**的否决项早于 cheaper 短路 —— 候选集为空不该压掉「这台机器
+        已经不够用了」这条警告（与 2026-09-09 那轮采样守卫是同一个教训）。
+      · **缺失型** fail-closed 晚于 cheaper 短路 —— 候选集为空时补指标也换不来
+        建议，要求它就是让客户白等一个窗口。eval_msk / eval_elasticache 的注释
+        早已写明这条原则，eval_rds 此前把两条 fail-closed 放在了前面。
+    """
+    t = core.load_thresholds("aggressive")
+    base = dict(rid="db-C", service="rds", type="db.t4g.medium", vcpu=2,
+                mem_gib=4, sample_n=243, surplus_credits=0, dbload_p95=0.05,
+                freeable_mem_min_gib=3.0, cheaper_candidate_exists=True)
+
+    hit = core.eval_rds(dict(base, credit_balance_min=0.70,
+                             credit_balance_max=576.0), t)
+    assert hit["verdict"] == "upsize-candidate", hit["verdict"]
+    assert any("信用余额窗口内触底" in b for b in hit["blockers"]), hit["blockers"]
+
+    # 反向：健康余额 ⇒ 照常走降配路径
+    ok = core.eval_rds(dict(base, credit_balance_min=575.3,
+                            credit_balance_max=576.0), t)
+    assert ok["verdict"] == "downsize-candidate", ok["verdict"]
+
+    # db.t* 缺余额字段 ⇒ fail-closed
+    miss = core.eval_rds(base, t)
+    assert miss["verdict"] == "metric-missing", miss["verdict"]
+    assert "CPUCreditBalance 缺失" in miss["blockers"][0], miss["blockers"]
+
+    # 非突发有序列 ⇒ 不否决，但留说明
+    changed = core.eval_rds(dict(base, type="db.m6g.xlarge", vcpu=4, mem_gib=16,
+                                 freeable_mem_min_gib=12.0,
+                                 credit_balance_min=0.79,
+                                 credit_balance_max=576.0), t)
+    assert changed["verdict"] == "downsize-candidate", changed["verdict"]
+    assert any("窗口内改过规格" in b for b in changed["blockers"]), changed["blockers"]
+
+    # 顺序：无更便宜候选 + 缺余额字段 ⇒ 已合理配置（不得要求补指标）
+    no_cheaper = core.eval_rds(dict(base, cheaper_candidate_exists=False), t)
+    assert no_cheaper["verdict"] == "已合理配置", (
+        f"候选集为空时仍要求信用指标，会让客户白等一个窗口 —— {no_cheaper}")
+
+    # 顺序：无更便宜候选 + 余额已触底 ⇒ 仍须报 upsize-candidate（警告不可被压掉）
+    veto_wins = core.eval_rds(dict(base, cheaper_candidate_exists=False,
+                                   credit_balance_min=0.70,
+                                   credit_balance_max=576.0), t)
+    assert veto_wins["verdict"] == "upsize-candidate", (
+        f"候选集为空压掉了「规格已不足」的警告 —— {veto_wins}")
+
+
 def test_no_cheaper_candidate_yields_already_right_sized():
     """已是最小/最便宜规格时必须直接判已合理配置，不得要求前置指标。
 
@@ -773,6 +824,7 @@ if __name__ == "__main__":
              test_nonburstable_rds_does_not_require_credit_metrics,
              test_burstable_rds_still_requires_credit_metrics,
              test_burstable_rds_credit_overage_still_vetoes,
+             test_rds_credit_floor_and_branch_order,
              test_no_cheaper_candidate_yields_already_right_sized,
              test_missing_cheaper_candidate_flag_is_fail_closed,
              test_cheaper_candidate_true_still_reaches_downsize,

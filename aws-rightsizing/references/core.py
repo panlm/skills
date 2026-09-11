@@ -555,13 +555,18 @@ def eval_rds(res, t):
     # 否决项优先，且缺失一律 fail-closed —— 但只对 burstable 实例类成立
     burstable = _rds_is_burstable(res["type"])
     sc = res.get("surplus_credits")
-    if burstable and sc is None:
-        _verdict(out, "metric-missing",
-                 "CPUSurplusCreditsCharged 缺失，无法排除信用已超额")
-        return out
     if sc is not None and sc > 0:
         _verdict(out, "upsize-candidate",
                  f"CPUSurplusCreditsCharged={sc} > 0，规格已不足，是升配候选")
+        return out
+    cb_min, cb_max = res.get("credit_balance_min"), res.get("credit_balance_max")
+    if not burstable:
+        if cb_min is not None:
+            out["blockers"].append(CLASS_CHANGED_NOTE)
+    elif cb_min is not None and cb_max is not None and _credit_exhausted(cb_min, cb_max, t):
+        _verdict(out, "upsize-candidate",
+                 f"CPU 信用余额窗口内触底（最小 {cb_min} / 窗口内最大 {cb_max}，"
+                 f"门限 {t['credit_balance_floor_pct']}%），规格已不足，是升配候选")
         return out
     dbload = res.get("dbload_p95")
     if dbload is None:
@@ -601,6 +606,19 @@ def eval_rds(res, t):
                              "本行未评估内存压力（FreeableMemory 阻断在候选集为空时"
                              "不再计算）——"
                              "「已合理配置」说的是没有可降的目标，不是这台机器健康")
+        return out
+    # 缺失型 fail-closed 必须排在 cheaper 短路**之后**：候选集为空时补指标也不会
+    # 产出建议，要求它就是让客户白等一个窗口 —— eval_msk / eval_elasticache 的
+    # 注释早已写明「候选集为空 ⇒ 直接已合理配置，且早于所有前置指标要求」，
+    # eval_rds 此前把这两条放在了前面。而**已能评估**的否决项仍在最前：
+    # 候选集为空不该压掉「这台机器已经不够用了」这条警告。
+    if burstable and sc is None:
+        _verdict(out, "metric-missing",
+                 "CPUSurplusCreditsCharged 缺失，无法排除信用已超额")
+        return out
+    if burstable and (cb_min is None or cb_max is None):
+        _verdict(out, "metric-missing",
+                 "CPUCreditBalance 缺失，无法排除信用已耗尽")
         return out
     freeable_min, mem_gib = res.get("freeable_mem_min_gib"), res.get("mem_gib")
     if freeable_min is None or mem_gib is None:
