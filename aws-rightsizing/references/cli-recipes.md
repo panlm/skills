@@ -1692,6 +1692,7 @@ ap-northeast-1 有 1198 个、us-east-1 有 1371 个、us-west-2 有 1350 个，
 | `off_sus_cpu`、`off_peak_cpu`、`off_net_mb_day` | 桶 C 需要 | 与 `sus_cpu` / `peak_cpu` / `net_mb_day` 同法，但只取 `bucket == "off-hours"` 那一档 | 六个里少一个 ⇒ `stop_candidate = null`（**判不了**，不是"不是候选"） |
 | `weekend_sus_cpu`、`weekend_peak_cpu`、`weekend_net_mb_day` | 桶 C 需要 | 同上，取 `weekend` 档 | 同上 |
 | `metric_coverage` | 是 | 上面哪几项取不到的名字数组 | 报告缺口列不出来 |
+| `partial_coverage` | 否 | 三元组数组 `[[指标名, 该指标点数, 该资源最大点数], …]`。派生规则：同资源 `full-window` 档内，**该资源最大点数 >= 600** 且某指标点数 **< 最大值的 90%**。与 `metric_coverage` 不同——那条列的是**完全缺失**的字段，本条列的是**部分覆盖**的指标 | 不加注记，行为与不传时逐字相同（**可选字段，向后兼容**） |
 
 **`has_replica` 的派生。** 从节点 id 的分片-成员结构推出，**不需要**
 `describe-replication-groups`。
@@ -1743,6 +1744,37 @@ jq '[.[].rg] | unique | length' raw/inventory/elasticache.json
 （唯一的无副本组也正好是单节点），**但那是巧合**：`3 分片×1 节点`
 （`count=3`、无副本）是合法的 cluster-mode 配置，按 `count` 判会把它误报成
 「该有副本却缺指标」。上面的配方在合成用例上验证过这一形态判 `false`。
+
+**`partial_coverage` 的派生。** 信号在已采的 `n` 里，不需要新增任何 API 调用：
+同一资源内某指标的点数明显低于该资源其他指标的点数，说明它只在窗口的一段时间
+里存在 —— 常见成因是**窗口内改过规格**（实测两台 `db.m6g.xlarge` 的信用序列
+只覆盖 178/720，而核心指标 720/720，且信用上限对应一个更小的机型）。
+
+```bash
+for f in raw/metrics/summary-*.csv; do
+  case "$f" in *vpc*) continue;; esac      # ALB/NAT 见下方警告
+  awk -F, 'NR>1 && $5=="\"full-window\"" {
+             gsub(/"/,""); res=$1; met=$2; n=$6+0
+             if (n > mx[res]) mx[res]=n
+             key=res SUBSEP met; pts[key]=n; r[key]=res; m[key]=met }
+           END { for (k in pts)
+                   if (mx[r[k]] >= 600 && pts[k] < mx[r[k]] * 0.9)
+                     printf "%s\t%s\t%d\t%d\n", r[k], m[k], pts[k], mx[r[k]] }' "$f"
+done
+```
+
+**两个门限的理由**：`>= 600`（30 天窗口的 ~83%）确保拿来做基准的「该资源最大
+点数」自己是满覆盖的 —— 否则一个整体新建的资源会让所有指标互相比较、全部通过；
+`< 90%` 留出正常抖动的余量（CloudWatch 偶发缺点、窗口边界）。
+
+**这两个数不进 `thresholds.json`**：它们只在派生时用，`core.py` 只消费结果数组、
+从不读它们。放进去会造出一个判据从不读取的孤儿键，而
+`tests/test_no_duplicated_constants.py` 的键覆盖是**双向**的。
+
+**实测结果**（两支机队）：命中 **2 台 RDS**（各 2 个指标，均 `178/720`）。
+ALB 的 `ActiveConnectionCount` 也会命中，但那属采集侧的 VPC 行、`core.py` 没有
+VPC 判据，且 §2.6 的 ALB/NAT 闲置判据**本来就带覆盖度门槛** ——
+**不要把 ALB/NAT 的行喂进 `partial_coverage`**，那会重复告警（上面的 `case` 已排除）。
 
 **桶 C 的网络口径。** `off_net_mb_day` / `weekend_net_mb_day` 是**该档的 Σ Sum
 ÷ 窗口天数**，即"该时段对全天流量的贡献"，与 `net_mb_day`（三档合计）同一个分母，

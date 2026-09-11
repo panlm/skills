@@ -247,7 +247,7 @@ sample_points, window_profile, blockers, action_type, other_save_mo
 | `service` | 托管判据自带；EC2 行由 `main()` 补齐。**每行都有** |
 | `bucket` | `main()`。取值只有三个，见下方枚举 |
 | `stop_candidate` | `main()` 调 `is_stop_candidate()`。**三态**，见下方枚举。托管服务行恒为 `null`（没有桶 C） |
-| `blockers` | **字符串数组，每行都有**（`main()` 保证，无阻断项时为 `[]`）。三条托管判据填自己的阻断原因；EC2 命中 `idle` 时 `main()` 追加两条。采集侧要补（如 `insufficient-data`）就 append，**不要换成字符串** |
+| `blockers` | **字符串数组，每行都有**（`main()` 保证，无阻断项时为 `[]`）。三条托管判据填自己的阻断原因；EC2 命中 `idle` 时 `main()` 追加两条。采集侧要补（如 `insufficient-data`）就 append，**不要换成字符串**。**覆盖不齐注记（`partial_coverage`）可能出现在任何 verdict 上**，包括 `spec-unknown` / `metric-missing` / `excluded` 这些早退行——它解释的是数据本身可疑，与该行有没有建议无关 |
 | `cur_vcpu`、`cur_gib`、`cur_cat`、`cur_usd`、`cur_cost_mo`、`required_vcpu`、`required_gib`、`nonburst`、`nb_cat`、`nb_save_mo`、`nb_delta_vcpu`、`nb_delta_gib`、`burst`、`b_cat`、`b_save_mo`、`b_delta_vcpu`、`b_delta_gib`、`burst_na`、`az`、`metric_coverage`、`confidence` | 仅 EC2 判据（`evaluate`） |
 | `required_gib_usable` | 仅 `eval_elasticache` |
 
