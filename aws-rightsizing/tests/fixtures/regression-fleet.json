@@ -14,7 +14,8 @@
   "其余过滤（架构/分类/带宽/价格/降幅）都放行。清空 legacy_families 后总额会变，",
   "所以这份 fixture 也能守住「legacy 策展清单」这条 ruling。",
   "不含 sizing_profile：它是必填输入，由测试按 profile 注入。",
-  "非突发机型的 surplus_credits 一律为 null：CPUSurplusCreditsCharged 只有 T 系列发布，真实采集对这些机型不可能产出 0。此前这里填 0，让「把不适用当缺失」的判据缺陷绕过了整套基线，见 docs/specs/2026-09-10-burstable-credit-not-applicable-design.md 的 P4。"
+  "非突发机型的 surplus_credits 一律为 null：CPUSurplusCreditsCharged 只有 T 系列发布，真实采集对这些机型不可能产出 0。此前这里填 0，让「把不适用当缺失」的判据缺陷绕过了整套基线，见 docs/specs/2026-09-10-burstable-credit-not-applicable-design.md 的 P4。",
+  "burstable 实例的 credit_balance_min/max 取健康值（余额几乎满格）：本机队没有信用耗尽的实例，锚定总额因此不受 credit_balance_floor_pct 影响。非突发机型不带这两个字段——CPUCreditBalance 只有 T 系列发布。"
  ],
  "specs": [
   {
@@ -3223,7 +3224,9 @@
    "peak_mem": 5.756015,
    "net_mb_day": 17.811827,
    "ebs_need": 1.60766,
-   "surplus_credits": 0
+   "surplus_credits": 0,
+   "credit_balance_min": 575.34,
+   "credit_balance_max": 576.0
   },
   {
    "rid": "i-EX-02",

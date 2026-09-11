@@ -100,6 +100,30 @@ def _required(cur, sustained, peak, target, ceiling):
     return max(_ceil_div(cur * sustained, target), _ceil_div(cur * peak, ceiling))
 
 
+CLASS_CHANGED_NOTE = (
+    "当前机型非突发，却存在 CPU 信用序列 —— 说明**窗口内改过规格**。"
+    "该余额测自另一个规格，不作为当前规格的否决依据；但本行的利用率百分比"
+    "混合了两个规格的采样（需求量按当前核数反推），须人工复核")
+
+
+def _credit_exhausted(cb_min, cb_max, t):
+    """信用余额在窗口内是否触底。两个入参都必须非 None（由调用方守卫）。
+
+    判「占窗口内观测最大余额的百分比」而不是「占信用上限」：上限
+    = vcpu x baseline_pct x 1440，而 RDS 的 baseline 百分比**不在本 skill 的
+    静态资产里**（baseline-pct.json 只覆盖 EC2 机型）。用观测最大值自归一化，
+    EC2 与 RDS 共用一套算法，且不引入第二张静态表。
+    实测分离度：触底 0.00%-0.14%，健康 85.07%-99.91%，中间无观测点。
+
+    **不判 `cb_min == 0`。** Minimum 是逐小时最小值，真实耗尽时通常落到 0 但
+    不保证——实测两台 RDS 的最小值是 0.79 / 0.70。把判据建在「恰好等于 0」上，
+    会让余额在 0.3 附近徘徊的饿死实例逃掉，而那正是本判据要抓的一类。
+    """
+    if cb_max == 0:
+        return True          # 整窗口恒为 0 = 彻底耗尽；同时兜住除零
+    return cb_min <= cb_max * t["credit_balance_floor_pct"] / 100.0
+
+
 def _eff_vcpu(spec, baseline_pct):
     """交付的持续 vCPU。burstable 机型只交付基线部分。
 
@@ -245,20 +269,42 @@ def evaluate(res, ctx):
             return False
         return True
 
+    # 信用余额触底 = 当前规格已不足，且**会把 CPUUtilization 压住**（限流到基线），
+    # 所以必须在用持续值挑候选之前就把两列候选压掉 —— 否则会对一台饿死的机器
+    # 推荐再降一档。适用性同 surplus_credits：仅当前机型为 T 系列才判。
+    cb_min, cb_max = res.get("credit_balance_min"), res.get("credit_balance_max")
+    if not cs["burst"]:
+        # 非突发机型：缺失属「不适用」；**存在**则说明窗口内改过规格（实测两台
+        # db.m6g.xlarge 有 178/720 的信用序列，上限对应 2 vCPU 机型）。
+        credit_exhausted = False
+        if cb_min is not None:
+            out.setdefault("blockers", []).append(CLASS_CHANGED_NOTE)
+    elif cb_min is None or cb_max is None:
+        # 当前机型是 T 系列 ⇒ 该序列必然存在，缺失是真缺失 ⇒ fail-closed。
+        # 不能放行：信用耗尽会把 CPUUtilization 压住，放行等于对一台可能饿死的
+        # 机器按被压低的持续值定档。
+        out["verdict"] = "metric-missing"
+        out["burst_na"] = "CPUCreditBalance 缺失，无法排除信用已耗尽"
+        return out
+    else:
+        credit_exhausted = _credit_exhausted(cb_min, cb_max, t)
+
     pool = [dict(sp, usd=prices[f"{sp['t']}|{res.get('operation')}"])
             for sp in ctx["specs"] if passes_common(sp)]
 
     nb = sorted((s for s in pool
                  if not s["burst"] and s["vcpu"] >= rv and s["gib"] >= rg),
                 key=lambda s: (s["usd"], s["t"]))
-    out["nonburst"] = nb[0] if nb else None
+    out["nonburst"] = None if credit_exhausted else (nb[0] if nb else None)
 
     # 先判「适用性」再判「缺失」。CPUSurplusCreditsCharged 只有 T 系列发布，
     # 对非突发当前机型它是「不适用」而不是「缺失」——
     # 无条件 fail-closed 会让突发降配路线在生产上永久不可达（实测 25/29 台）。
     # 与 eval_rds 的 _rds_is_burstable 守卫同构。
     sc = res.get("surplus_credits")
-    if cs["burst"] and sc is None:
+    if credit_exhausted:
+        out["burst_na"] = "CPU 信用余额窗口内触底，当前规格已不足"
+    elif cs["burst"] and sc is None:
         out["burst_na"] = "CPUSurplusCreditsCharged 缺失，无法确认是否已超额消费信用"
     elif sc is not None and sc > 0:
         out["burst_na"] = "CPUSurplusCreditsCharged>0，当前规格已不足"
@@ -312,7 +358,17 @@ def evaluate(res, ctx):
     # 规格），拿它反推「内存不足」是替实例做假设。
     rg_sus = (_ceil_div(cs["gib"] * res["sus_mem"], t["target_mem_p95"])
               if mem_known else 0)
-    if out["nonburst"] or out["burst"]:
+    if credit_exhausted:
+        # 与「持续项超」是同一结论（当前规格已不足）的两条独立证据。信用触底须
+        # 排在持续项之前：被限流的实例持续值必然偏低，先判持续项会让它落进
+        # 「已合理配置」。两者同时成立时 blocker 都写，它们解释的是不同事实。
+        out["verdict"] = "upsize-candidate"
+        out.setdefault("blockers", []).insert(
+            0, f"CPU 信用余额窗口内触底（最小 {cb_min} / 窗口内最大 {cb_max}，"
+               f"门限 {t['credit_balance_floor_pct']}%）⇒ 当前规格已不足。"
+               f"注意此时 CPUUtilization 被限流压住，持续值不可用于定档。"
+               f"本 skill 不产出升配目标机型——选型需容量规划输入")
+    elif out["nonburst"] or out["burst"]:
         # 候选池已要求 vcpu >= rv and gib >= rg（rv/rg 是两项取 max 的全量需求），
         # 所以选出了候选就说明它满足全量需求 —— 合法降配，不是规格不足。
         # 实测存在这种形态且现行行为正确：某 c7i.8xlarge 的 required 内存

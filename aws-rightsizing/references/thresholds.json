@@ -22,7 +22,8 @@
       "rds_freeable_mem_floor_pct": 15,
       "redis_repl_lag_max_s": 1,
       "msk_disk_used_max": 50,
-      "msk_handler_idle_min": 0.7
+      "msk_handler_idle_min": 0.7,
+      "credit_balance_floor_pct": 10
     },
     "conservative": {
       "target_cpu_p95": 40,
@@ -44,7 +45,8 @@
       "rds_freeable_mem_floor_pct": 15,
       "redis_repl_lag_max_s": 1,
       "msk_disk_used_max": 50,
-      "msk_handler_idle_min": 0.7
+      "msk_handler_idle_min": 0.7,
+      "credit_balance_floor_pct": 10
     }
   }
 }

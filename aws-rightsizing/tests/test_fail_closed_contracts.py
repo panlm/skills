@@ -52,6 +52,7 @@ T_FIXTURE = dict(specs=T_SPECS, prices=T_PRICES, cats=T_CATS, baseline=T_BASELIN
 T_RES = {"rid": "i-T-11", "service": "ec2", "type": "t3.xlarge", "arch": "x86_64",
          "operation": "RunInstances", "sus_cpu": 10, "peak_cpu": 25,
          "sus_mem": 20, "peak_mem": 35, "ebs_need": 5,
+         "credit_balance_min": 575.34, "credit_balance_max": 576.0,
          "cpu_n": 243, "metric_coverage": []}
 
 
@@ -346,6 +347,71 @@ def test_peak_only_demand_stays_right_sized_but_says_why():
     assert not [b for b in (fits.get("blockers") or []) if "峰值项" in b], fits
 
 
+def test_credit_balance_floor_makes_a_throttled_instance_visible():
+    """信用余额触底 ⇒ `upsize-candidate`，且必须压掉两列候选。
+
+    CPUSurplusCreditsCharged 是个**窄**信号：只在 unlimited 模式且透支超期未偿还
+    时为真。standard 模式触底只会被限流到基线、不产生 surplus 计费；unlimited
+    模式 24 小时内偿还也不计费。两种情形下实例都已把持续需求跑到超出基线，
+    而**限流会把 CPUUtilization 压住** —— 实测一台 t3.xlarge 余额跑到 0.00、
+    surplus 四档全 0、cpu_p95 仅 1.62%，被报成「已合理配置」。
+
+    压掉两列候选是本条的关键：不压掉就会对一台饿死的机器按被限流压低的持续值
+    再推荐降一档，而 upsize-candidate 行带节省额还会破坏「该行不得有金额」的不变式。
+    """
+    t = core.load_thresholds("aggressive")
+    hit = _evaluate(dict(T_RES, rid="i-C-01", credit_balance_min=0.0,
+                         credit_balance_max=2304.0), t, **T_FIXTURE)
+    assert hit["verdict"] == "upsize-candidate", hit["verdict"]
+    assert hit["nonburst"] is None and hit["burst"] is None, hit
+    assert hit["nb_save_mo"] is None and hit["b_save_mo"] is None, hit
+    why = [b for b in hit["blockers"] if "信用余额窗口内触底" in b]
+    assert why and "不产出升配目标机型" in why[0], hit["blockers"]
+
+    # 反向：同一台机器给健康余额 ⇒ 不判规格不足（否则分不清规则生效与池子为空）
+    ok = _evaluate(dict(T_RES, rid="i-C-02", credit_balance_min=490.0,
+                        credit_balance_max=576.0), t, **T_FIXTURE)
+    assert ok["verdict"] != "upsize-candidate", ok["verdict"]
+    assert not [b for b in (ok.get("blockers") or []) if "信用余额" in b], ok
+
+    # 整窗口恒为 0 ⇒ 彻底耗尽（同时是除零的兜底）
+    zero = _evaluate(dict(T_RES, rid="i-C-03", credit_balance_min=0.0,
+                          credit_balance_max=0.0), t, **T_FIXTURE)
+    assert zero["verdict"] == "upsize-candidate", zero["verdict"]
+
+
+def test_credit_balance_applicability_splits_by_current_type():
+    """余额字段的「缺失」与「不适用」按当前机型分流，两个方向都要锁住。
+
+    ① 当前是 T 系列 ⇒ 该序列必然存在，缺失是真缺失 ⇒ fail-closed。放行等于对一台
+       可能饿死的机器按被限流压低的持续值定档。只缺 max 也算缺失。
+    ② 当前非突发 ⇒ 缺失属「不适用」，什么都不做。
+    ③ 当前非突发**却有**序列 ⇒ 窗口内改过规格（实测两台 db.m6g.xlarge 有
+       178/720 的信用序列，余额上限对应 2 vCPU 机型）。不作为否决依据，
+       但必须留一条说明 —— 那份余额测自另一个规格。
+    """
+    t = core.load_thresholds("aggressive")
+    for missing in ({"credit_balance_min": None, "credit_balance_max": None},
+                    {"credit_balance_max": None}):
+        out = _evaluate(dict(T_RES, rid="i-C-04", **missing), t, **T_FIXTURE)
+        assert out["verdict"] == "metric-missing", (missing, out["verdict"])
+        assert "CPUCreditBalance 缺失" in out["burst_na"], out["burst_na"]
+
+    # ② 非突发 + 缺失 ⇒ 不适用（RES 是 m5.xlarge）
+    na = _evaluate(dict(RES, rid="i-C-05", cpu_n=243, surplus_credits=0,
+                        sus_cpu=10, peak_cpu=20), t)
+    assert na["verdict"] == "downsize", na["verdict"]
+    assert not [b for b in (na.get("blockers") or []) if "改过规格" in b], na
+
+    # ③ 非突发 + 有序列 ⇒ 加说明，不否决
+    changed = _evaluate(dict(RES, rid="i-C-06", cpu_n=243, surplus_credits=0,
+                             sus_cpu=10, peak_cpu=20,
+                             credit_balance_min=0.79, credit_balance_max=576.0), t)
+    assert changed["verdict"] == "downsize", changed["verdict"]
+    note = [b for b in changed["blockers"] if "窗口内改过规格" in b]
+    assert note, changed["blockers"]
+
+
 def test_overspent_credits_suppress_the_burstable_candidate():
     """信用已超额 ⇒ 当前规格已不足，更不能推 burstable。
 
@@ -488,6 +554,8 @@ if __name__ == "__main__":
              test_non_burstable_current_type_gets_a_burstable_candidate_without_credits,
              test_sustained_demand_above_current_spec_is_upsize_candidate,
              test_peak_only_demand_stays_right_sized_but_says_why,
+             test_credit_balance_floor_makes_a_throttled_instance_visible,
+             test_credit_balance_applicability_splits_by_current_type,
              test_overspent_credits_suppress_the_burstable_candidate,
              test_serverless_rds_is_excluded_not_spec_unknown]
     failed = 0
