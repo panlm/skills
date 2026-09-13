@@ -35,6 +35,7 @@
 | [2026-09-11-window-uniformity.md](./plans/2026-09-11-window-uniformity.md) | `_coverage_note()` 在四个判据的每条出口留注记;`partial_coverage` 为可选字段,既有 fixture 不改 |
 | [2026-09-13-managed-target-selection.md](./plans/2026-09-13-managed-target-selection.md) | 托管服务判出「可以降」时给出初选目标机型与月省;RDS 加 CPU 并行第二判据(峰值项改判持续态)、`upsize` 出口、`FreeStorageSpace` 耐久度、`DBLoad` 峰值反转校验 |
 | [2026-09-13-managed-target-selection-replay.md](./plans/2026-09-13-managed-target-selection-replay.md) | 上条的真实回放门禁结果:34 项断言逐条对账、三处 spec 初稿算错的数字、回放暴露而单元测试没抓到的两个顺序缺陷 |
+| [2026-09-13-managed-target-selection-two-fleet-diff.md](./plans/2026-09-13-managed-target-selection-two-fleet-diff.md) | 两支机队(776 / 322 判据行)新旧产出三方对照:EC2 路径逐字段未动、托管头条从 \$0 到 24-30%、3 处 verdict 变化(净 −2 假阳性 +1 真实欠配)、第二机队抓出的引擎相关文案缺陷与 Aurora 取价碰撞 |
 
 ## 脱敏
 
