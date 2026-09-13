@@ -377,3 +377,17 @@ def test_storage_exhaustion_outranks_the_oom_block():
     assert out["verdict"] == "blocked"
     assert "存储被耗尽过" in out["blockers"][0]
     assert not any("降配会 OOM" in b for b in out["blockers"])
+
+
+def test_memory_derivation_blocker_is_engine_neutral():
+    """第二支机队实测抓到：一台 PostgreSQL 被告知去调
+    `innodb_buffer_pool_size`，而 InnoDB 是 MySQL 专有。
+
+    RDS 行不带 `engine` 字段（`core.py` 只从 `type` 判 burstable），
+    所以不猜引擎，两个参数名都列出来。
+    """
+    out = core.eval_rds(_rds(), T_AG, BASE)
+    joined = " ".join(out["blockers"])
+    assert "shared_buffers" in joined, "PostgreSQL 的参数名缺失"
+    assert "innodb_buffer_pool_size" in joined
+    assert "InnoDB buffer pool 会占满" not in joined, "文案仍假定 MySQL"

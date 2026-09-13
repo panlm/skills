@@ -318,9 +318,11 @@ legacy 族清单 → 用途分类 → region 可用性 → 规格硬约束 → �
   实测一台 CPU 持续 69.64% 的 `db.m6g.xlarge` 因 DBLoad 差 0.328 未跨阈值
   而被判「已合理配置」。
 - 内存用 `FreeableMemory` 反推：`已用 ≈ 实例内存 − FreeableMemory`。
-  越地板 ⇒ `blocked`（**不是** `upsize-candidate`）：InnoDB buffer pool 有意
-  占满可分配内存，低 freeable 对配置正确的库是常态，这条证据支持「缩不了」
-  而非「需要更大的实例」。
+  越地板 ⇒ `blocked`（**不是** `upsize-candidate`）：数据库引擎的缓冲区
+  （MySQL `innodb_buffer_pool_size`、PostgreSQL `shared_buffers`）有意占满
+  可分配内存，低 freeable 对配置正确的库是常态，这条证据支持「缩不了」
+  而非「需要更大的实例」。**相关文案一律引擎中立** —— 实测抓到一台
+  PostgreSQL 被告知去调 InnoDB 参数。
 - **`FreeStorageSpace` 是容量耐久度判据**：`Minimum` 触 0 ⇒ `blocked`，
   且文案明写这是**可用性事故而非成本项**；按 `Average` 首末差外推剩余天数
   低于 `rds_storage_days_floor` 同样 `blocked`。它排在信用与内存两条**之前** ——

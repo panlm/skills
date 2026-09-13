@@ -999,7 +999,8 @@ def eval_rds(res, t, base=None):
     # ---- FreeableMemory：OOM 阻断 ----
     # **判 `blocked` 而不是 `upsize-candidate`。** 本轮 spec 曾提议升级它，
     # 而既有守卫测试（test_managed_vetoes_actually_fire_and_block）反对，
-    # 且它是对的：MySQL / PostgreSQL 的 InnoDB buffer pool 有意占满可分配内存，
+    # 且它是对的：数据库引擎的缓冲区（MySQL `innodb_buffer_pool_size`、
+    # PostgreSQL `shared_buffers` 加 OS page cache）有意占满可分配内存，
     # `FreeableMemory` 报的是 MemAvailable —— 一个 buffer pool 配置正确的库
     # **按设计**就是低 freeable。实测一台可用内存剩 9.7%，但 DBLoad p95
     # 1.211（8 vCPU）、CPU 14.87%，完全不缺算力。这条证据支持"缩不了"，
@@ -1024,10 +1025,14 @@ def eval_rds(res, t, base=None):
     # 一个候选"装得下"的定义就是"降配后 FreeableMemory 仍高于那道地板"，
     # 故不再叠加额外余量。
     #
-    # 已知局限（写进 blocker）：InnoDB buffer pool 会占满可分配内存，
+    # 已知局限（写进 blocker）：数据库引擎的缓冲区会占满可分配内存，
     # 所以 mem_gib − freeable_min 是真实工作集的**上界**。方向保守
-    # （不会推荐过小的机型），代价是系统性少省。要修需要
-    # innodb_buffer_pool_* 计数器，CloudWatch 不发布。
+    # （不会推荐过小的机型），代价是系统性少省。要修需要引擎内部的缓冲池
+    # 命中率/驻留页计数器，CloudWatch 不发布。
+    #
+    # **文案必须引擎中立。** 第二支机队实测抓到：一台 PostgreSQL 被告知去调
+    # `innodb_buffer_pool_size`，而 InnoDB 是 MySQL 专有。RDS 行不带 engine
+    # 字段，所以不猜引擎，两个参数名都列出来。
     req_gib = round((mem_gib - freeable_min)
                     / (1 - t["rds_freeable_mem_floor_pct"] / 100), 3)
     out.update(required_vcpu=req_vcpu, required_gib=req_gib)
@@ -1061,9 +1066,10 @@ def eval_rds(res, t, base=None):
              f"{t['rds_freeable_mem_floor_pct']}% 余量），"
              f"须人工确认变更窗口与回滚预案",
              "存储不可缩容，过度预配只能 next-rebuild",
-             "内存需求由 FreeableMemory 反推，而 InnoDB buffer pool 会占满"
+             "内存需求由 FreeableMemory 反推，而数据库引擎的缓冲区会占满"
              "可分配内存 ⇒ 该值是真实工作集的**上界**，方向保守但会系统性少省。"
-             "若变更时同步下调 innodb_buffer_pool_size，可选更小的实例类")
+             "若变更时同步下调缓冲区参数（MySQL `innodb_buffer_pool_size` / "
+             "PostgreSQL `shared_buffers`），可选更小的实例类")
     return out
 
 

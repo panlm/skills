@@ -277,12 +277,17 @@ req_gib  = (cur_mem_gib − freeable_mem_min_gib) / (1 − rds_freeable_mem_floo
 用的是同一个阈值，自洽 —— 一个候选"装得下"的定义就是"降配后 FreeableMemory
 仍高于那道地板"。
 
-已知局限，须写进 blocker：MySQL / PostgreSQL 的 InnoDB buffer pool 会占满
+已知局限，须写进 blocker：数据库引擎的缓冲区会占满
 可分配内存，所以 `cur_mem_gib − freeable_mem_min_gib` 是真实工作集的**上界**。
 方向保守（不会推荐过小的机型），代价是系统性少省。实测
 `db-sit-06`：实占算出 18.4 GiB（32 GiB 节点），据此需 21.61 GiB ⇒ 选到
 `db.r6g.xlarge`(32 GiB) 而非 `db.m6g.xlarge`(16 GiB)。要修需要
-`innodb_buffer_pool_*` 计数器，CloudWatch 不发布，**本轮不修**。
+引擎内部的缓冲池命中率 / 驻留页计数器，CloudWatch 不发布，**本轮不修**。
+
+**文案必须引擎中立。** 第二支机队（`123456789012`，15 台 RDS 含 1 台
+PostgreSQL）实测抓到：那台 PostgreSQL 被告知去调 `innodb_buffer_pool_size`，
+而 InnoDB 是 MySQL 专有。RDS 行不带 `engine` 字段，所以不猜引擎，
+MySQL 的 `innodb_buffer_pool_size` 与 PostgreSQL 的 `shared_buffers` 都列出来。
 
 **ElastiCache**
 
@@ -383,8 +388,7 @@ Redis 的 `ReplicationLag` 同类 —— 那两条已经因为同一个理由改
 
 3. ~~**`FreeableMemory` 跌破地板 ⇒ 从 `blocked` 升为 `upsize-candidate`。**~~
    **实现期撤回。** 既有守卫测试 `test_managed_vetoes_actually_fire_and_block`
-   反对这条，而它是对的：MySQL / PostgreSQL 的 InnoDB buffer pool **有意**
-   占满可分配内存，`FreeableMemory` 报的是 `MemAvailable` —— 一个 buffer pool
+   反对这条，而它是对的：数据库引擎的缓冲区**有意**占满可分配内存，`FreeableMemory` 报的是 `MemAvailable` —— 一个 buffer pool
    配置正确的库按设计就是低 freeable。
 
    反证就在本机队：`db-uat-04` 可用内存剩 9.7%，但 DBLoad p95 1.211（8 vCPU、
