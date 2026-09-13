@@ -19,6 +19,7 @@
 | [2026-09-10-credit-floor-and-veto-applicability-design.md](./specs/2026-09-10-credit-floor-and-veto-applicability-design.md) | `CPUCreditBalance` 在四个服务节声明为 blocker 却无判据消费,被限流的实例因此隐形;`ReplicationLag` 的 fail-open 改按副本存在性分流 |
 | [2026-09-11-elasticache-engine-applicability-design.md](./specs/2026-09-11-elasticache-engine-applicability-design.md) | ElastiCache 的两个主判据指标仅 redis/valkey 发布,Memcached 此前得到指向不存在指标的 `metric-missing` 且说明与该引擎相反 |
 | [2026-09-11-window-uniformity-design.md](./specs/2026-09-11-window-uniformity-design.md) | 判据假定规格在窗口内不变却一处未校验;用「部分指标短覆盖」这个已有信号标注,只标注不校正 |
+| [2026-09-13-managed-target-selection-design.md](./specs/2026-09-13-managed-target-selection-design.md) | 三条托管判据判出「可以降」却不说降到哪;候选池被压成布尔值扔掉。RDS 主判据缺失即整行消失,而 PI 在部分实例类上结构性不支持。附 `max_mem_reduction_ratio` 在 ElastiCache 内存阶梯上不可满足、RDS CPU 峰值项须改判持续态 |
 
 ## plans
 
