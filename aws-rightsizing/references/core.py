@@ -467,6 +467,165 @@ _FIT_UNVERIFIED = ("更便宜候选是否装得下当前需求未经校验"
                    "（cheaper_candidate_exists 只按价格判定）；"
                    "目标规格须人工确认，可能不存在满足需求的更便宜机型")
 
+_MANAGED_PREFIX_RE = re.compile(r"^(?:db|cache|kafka)\.")
+
+
+def _managed_ec2_name(itype):
+    """`db.t4g.medium` -> `t4g.medium`。
+
+    **只用于查 `baseline_pct` 与 `arch`，绝不用于查内存。**
+    实测 `cache.t3.medium` 真实 3.09 GiB，映射到 EC2 `t3.medium` 得 4.00 GiB，
+    偏 +29%；而 `DatabaseMemoryUsagePercentage` 是相对真实节点内存的百分比，
+    基数错则绝对量全错。内存一律取 pricing 的 `memory` 属性。
+    后人若想把这个映射"顺手统一"到内存上，先读这段注释。
+    """
+    return _MANAGED_PREFIX_RE.sub("", itype)
+
+
+def _managed_baseline(itype, base):
+    """托管突发机型的基线百分比。复用 EC2 的 `baseline-pct.json`。
+
+    `_credit_exhausted` 的 docstring 写过「RDS 的 baseline 百分比不在本 skill
+    的静态资产里」—— 那句话对**当前**机型的信用上限判定成立（那里改用观测
+    最大值自归一化，避免引入第二张静态表）。但候选机型没有观测数据，
+    只能查表。可验证性：信用上限 = vcpu x baseline x 1440。已确认吻合两例 ——
+    `cache.t3.medium` 576 = 2 x 0.20 x 1440、`cache.t4g.micro` 288 = 2 x 0.10 x 1440。
+
+    查不到 ⇒ 返回 None ⇒ 该候选被排除在突发列之外，与 EC2 侧
+    `base.get(s["t"]) is not None` 那道过滤同构（fail-closed：信用余量
+    无从校验时不得推荐突发机型）。
+    """
+    return base.get(_managed_ec2_name(itype)) if base else None
+
+
+# 候选池为空的五种成因。动作相同（都不降配）但可操作性完全不同：
+# 「已在价目地板」补指标也没用，「被降幅地板挡住」是策略选择，
+# 「需求量超过候选」要容量规划。改动前五种给同一句话
+# （「同形态下没有更便宜的候选机型」），而那句话在后三种下是**错的**。
+_EMPTY_NO_CHEAPER = ("同形态下更便宜的候选数为 0（已在价目地板上）；"
+                     "补充指标或延长窗口都不会改变结论")
+_EMPTY_CROSS_ARCH = ("更便宜的候选存在但全部跨 CPU 架构（{types}）；"
+                     "跨架构迁移是本 skill 的硬约束禁止项，不是可调阈值")
+_EMPTY_VCPU = ("需求量 {req} vCPU 超过所有更便宜候选（最接近的 {best} 只有 "
+               "{best_vcpu} vCPU）")
+_EMPTY_MEM = "更便宜的候选都装不下当前需求（最接近的是 {best}）"
+_EMPTY_FLOOR = ("被降幅地板挡住而非适配失败：max_reduction_ratio={mrr} 要求候选"
+                "至少 {floor} vCPU，更便宜的候选都低于它")
+
+# 距当前规格几档起算「深度降配」。不进 thresholds.json：它是可读性护栏
+# （提示读者绝对量已很小），不是利用率策略量，与 VETO_TOLERANCE_PCT 同类。
+MANAGED_DEEP_STEPS = 4
+
+
+def _pick_managed_target(res, t, req_vcpu, mem_fit, base, exclude=frozenset()):
+    """从 `res["candidates"]` 各选一个非突发 / 突发目标。
+
+    返回 dict：`nonburst` / `burst`（选中的候选或 None）、`cheaper_exists`
+    （派生，取代采集侧同名布尔值）、`empty_reason`（两列都空时的成因）、
+    `excluded_best`（因 `exclude` 被剔除的最便宜候选，供调用方量化放弃的金额）。
+
+    `candidates` 缺失 ⇒ 返回 `None`，调用方走改动前的旧路径（读采集侧的
+    `cheaper_candidate_exists` 布尔值、不出目标）。**不得 fail-closed** ——
+    实测教训（客户 123456789012）：旧契约缺必填字段时 86 条托管行全部
+    fail-closed，比不升级更差。
+
+    `mem_fit` 是各服务自己的内存条件（RDS 比 `gib`、ElastiCache 比扣掉
+    reserved-memory-percent 之后的可用内存、MSK 无内存轴恒 True）。判据留在
+    各 evaluator，本函数只做筛选与排序 —— 与 EC2 侧 `passes_common` / `pool`
+    同一分工。
+    """
+    cands = res.get("candidates")
+    if cands is None:
+        return None
+    cur_usd, cur_vcpu = res.get("cur_usd"), res.get("vcpu")
+    if cur_usd is None or cur_vcpu is None:
+        # candidates 存在却没有当前单价/核数：这是采集侧的契约违反，不是指标
+        # 缺口。回退旧路径，避免拿不到基准价却"选出"一个目标。
+        return None
+    cur_arch = res.get("arch")
+    cheaper = [c for c in cands if c["usd"] < cur_usd]
+    out = {"nonburst": None, "burst": None, "cheaper_exists": bool(cheaper),
+           "empty_reason": None, "excluded_best": None}
+    if not cheaper:
+        out["empty_reason"] = _EMPTY_NO_CHEAPER
+        return out
+    same_arch = [c for c in cheaper if c.get("arch") == cur_arch]
+    if not same_arch:
+        out["empty_reason"] = _EMPTY_CROSS_ARCH.format(
+            types="、".join(f"{c['t']}({c.get('arch')})"
+                            for c in sorted(cheaper, key=lambda c: c["usd"])))
+        return out
+    excl = [c for c in same_arch if c["t"] in exclude]
+    if excl:
+        out["excluded_best"] = min(excl, key=lambda c: c["usd"])
+    same_arch = [c for c in same_arch if c["t"] not in exclude]
+    floor_vcpu = _ceil_div(cur_vcpu, t["max_reduction_ratio"])
+    by_vcpu = [c for c in same_arch if c["vcpu"] >= max(req_vcpu, floor_vcpu)]
+    if not by_vcpu:
+        if not same_arch:
+            out["empty_reason"] = _EMPTY_NO_CHEAPER
+            return out
+        best = max(same_arch, key=lambda c: c["vcpu"])
+        # 两条成因必须分开：需求量超过候选（补容量规划无解）vs 降幅地板挡住
+        # （策略选择，调 profile 即可）。读者的下一步动作不同。
+        if req_vcpu > floor_vcpu:
+            out["empty_reason"] = _EMPTY_VCPU.format(
+                req=req_vcpu, best=best["t"], best_vcpu=best["vcpu"])
+        else:
+            out["empty_reason"] = _EMPTY_FLOOR.format(
+                mrr=t["max_reduction_ratio"], floor=floor_vcpu)
+        return out
+    fitting = [c for c in by_vcpu if mem_fit(c)]
+    if not fitting:
+        out["empty_reason"] = _EMPTY_MEM.format(
+            best=max(by_vcpu, key=lambda c: c["gib"])["t"])
+        return out
+
+    def _key(c):
+        return (c["usd"], c["t"])
+
+    nb = sorted((c for c in fitting if not c.get("burst")), key=_key)
+    bu = sorted((c for c in fitting if c.get("burst")
+                 and _managed_baseline(c["t"], base) is not None), key=_key)
+    out["nonburst"] = nb[0] if nb else None
+    out["burst"] = bu[0] if bu else None
+    return out
+
+
+def _managed_steps_down(res, chosen):
+    """目标距当前规格几档（同架构、更便宜的候选里排位）。供深度降配护栏用。"""
+    ladder = sorted(c["usd"] for c in res["candidates"]
+                    if c.get("arch") == res.get("arch")
+                    and c["usd"] < res["cur_usd"])
+    return len(ladder) - ladder.index(chosen["usd"])
+
+
+def _apply_managed_pick(out, res, pick, base):
+    """把选中的两列与派生金额写进 `out`。
+
+    `*_delta_vcpu` 用 `_eff_vcpu` 而不是标称核数，与 EC2 侧同口径 ——
+    否则 `db.m6g.large` -> `db.t4g.large`（同为 2 vCPU）会算出 delta=0，
+    看起来毫无意义。突发候选查不到 baseline 时已在 `_pick_managed_target`
+    里被排除，所以这里不会拿到 None baseline 的突发目标。
+    """
+    cnt = res.get("count", 1)
+    cur_usd, cur_gib = res["cur_usd"], res.get("mem_gib")
+    cur_base = _managed_baseline(res["type"], base)
+    eff_cur = res["vcpu"] * (cur_base if cur_base is not None else 1.0)
+    for key, p in (("nb", pick["nonburst"]), ("b", pick["burst"])):
+        if not p:
+            out[f"{key}_save_mo"] = None
+            continue
+        out[f"{key}_save_mo"] = round(
+            (cur_usd - p["usd"]) * HOURS_PER_MONTH * cnt, 2)
+        pb = _managed_baseline(p["t"], base)
+        out[f"{key}_delta_vcpu"] = round(
+            eff_cur - p["vcpu"] * (pb if pb is not None else 1.0), 3)
+        if cur_gib is not None:
+            out[f"{key}_delta_gib"] = round(cur_gib - p["gib"], 3)
+    out["nonburst"] = pick["nonburst"]
+    out["burst"] = pick["burst"]
+
 
 def _persistent(res, p95_key, max_key):
     """返回 (用于否决的持续值, 尖峰值)。
