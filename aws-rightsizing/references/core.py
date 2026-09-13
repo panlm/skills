@@ -945,6 +945,44 @@ def eval_rds(res, t, base=None):
                  f"会占满可分配内存，低 freeable 对配置正确的库是常态")
         return out
 
+    # ---- FreeStorageSpace：容量耐久度 ----
+    # 采集侧从一开始就采了它（含 Minimum 统计），agg.jq 也聚合了，而
+    # core.py / report-template.md / sample-solve.md 一次都没提 ——
+    # `grep -rn FreeStorageSpace references/` 在本轮之前返回空。
+    #
+    # 这条与 rightsizing 的命题确实不同（可用性事故，不是成本项），但采集成本
+    # 已经付了，且它的严重度高于本 skill 的全部节省项。位置在候选池探针
+    # **之后**：候选集为空时它同样属于"补了也产不出建议"。
+    st_min = res.get("storage_free_min_gib")
+    st_first, st_last = (res.get("storage_free_first_gib"),
+                         res.get("storage_free_last_gib"))
+    if st_min is None:
+        out["blockers"].append(
+            "FreeStorageSpace 缺失，未评估容量耐久度（该指标对所有引擎都发布，"
+            "缺失是采集缺口而非不适用）")
+    elif st_min == 0:
+        _verdict(out, "blocked",
+                 "FreeStorageSpace 最小值 = 0 GiB ⇒ 窗口内存储被耗尽过。"
+                 "**这是可用性事故，不是成本项**，优先级高于本行任何降配讨论。"
+                 "先查 binlog / 事务日志保留与大临时表，并开启 storage "
+                 "autoscaling；处理完再重采评估降配")
+        return out
+    elif st_first is not None and st_last is not None:
+        # 速率用 Average 序列首尾差，**不用 Minimum** —— Minimum 含 binlog
+        # 轮转造成的锯齿，会把速率算成负数或虚高。
+        days = res.get("window_days") or 30
+        rate = (st_first - st_last) / days
+        if rate > 0:
+            runway = st_last / rate
+            if runway < t["rds_storage_days_floor"]:
+                _verdict(out, "blocked",
+                         f"按窗口内消耗速率 {round(rate, 3)} GiB/日外推，剩余 "
+                         f"{round(runway, 1)} 天触顶（门限 "
+                         f"{t['rds_storage_days_floor']} 天）⇒ 先开启 storage "
+                         f"autoscaling 再谈降配。存储只能扩不能缩，"
+                         f"降实例类不改变这条")
+                return out
+
     req_vcpu = max(x for x in (rv_cpu, rv_dbload, 1) if x is not None)
     # 内存需求按 FreeableMemory 反推，留与 OOM 否决同一道地板的余量 ——
     # 一个候选"装得下"的定义就是"降配后 FreeableMemory 仍高于那道地板"，

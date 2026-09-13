@@ -260,3 +260,69 @@ def test_pi_unsupported_list_is_loaded_from_json():
     classes = core.load_pi_unsupported()
     assert "db.t4g.small" in classes and "db.t3.micro" in classes
     assert "db.t4g.medium" not in classes
+
+
+# --------------------------------------------------- FreeStorageSpace 耐久度
+
+def _rds_storage(**kw):
+    """db-sit-01 的存储观测：200 GB gp2，free 191.588–191.613 GiB，
+    30 天只涨了 25 MB。"""
+    defaults = {"storage_free_min_gib": 191.588,
+                "storage_free_first_gib": 191.613,
+                "storage_free_last_gib": 191.589, "window_days": 30}
+    defaults.update(kw)
+    return _rds(**defaults)
+
+
+def test_rds_storage_exhausted_in_window_is_blocked_as_availability_incident():
+    """P6：`FreeStorageSpace` 被采集、被聚合，全代码库零引用。
+
+    db-sit-05 实测 Minimum 序列最小值 = 0.000 GB（400 GB gp3），
+    Average 序列最小值 0.919 GB，窗口内 free 在 0–103 GB 间摆动。
+    这台在报告里唯一的结论是「FreeableMemory < 15%，降配会 OOM」——
+    磁盘被写满过这件事不存在。
+    """
+    out = core.eval_rds(
+        _rds_storage(type="db.m6g.2xlarge", vcpu=8, mem_gib=32.0,
+                     cur_usd=0.9190, sus_cpu=14.26, peak_cpu_p95=19.02,
+                     dbload_p95=1.070, dbload_max_p95=10.0,
+                     freeable_mem_min_gib=12.0,
+                     storage_free_min_gib=0.0,
+                     storage_free_first_gib=103.763,
+                     storage_free_last_gib=67.827), T_AG, BASE)
+    assert out["verdict"] == "blocked"
+    assert "可用性事故" in out["blockers"][0]
+    assert "storage autoscaling" in out["blockers"][0]
+
+
+def test_rds_storage_runway_below_floor_blocks():
+    # 30 天消耗 191.613 − 11.613 = 180 GiB ⇒ 6 GiB/日，剩 11.613/6 = 1.9 天
+    low = core.eval_rds(_rds_storage(storage_free_last_gib=11.613,
+                                     storage_free_min_gib=11.613), T_AG, BASE)
+    assert low["verdict"] == "blocked"
+    assert "storage autoscaling" in " ".join(low["blockers"])
+    # 30 天消耗 50 GiB ⇒ 1.667 GiB/日，剩 141.613/1.667 = 85 天 ⇒ 不触发
+    ok = core.eval_rds(_rds_storage(storage_free_last_gib=141.613,
+                                    storage_free_min_gib=141.613), T_AG, BASE)
+    assert ok["verdict"] == "downsize-candidate"
+
+
+def test_rds_storage_flat_or_growing_free_space_does_not_extrapolate():
+    """free 不减（速率 <= 0）时不外推 —— 否则会算出负天数。"""
+    out = core.eval_rds(_rds_storage(storage_free_first_gib=180.0,
+                                     storage_free_last_gib=191.589), T_AG, BASE)
+    assert out["verdict"] == "downsize-candidate"
+
+
+def test_rds_storage_fields_missing_does_not_fail_closed():
+    out = core.eval_rds(_rds(), T_AG, BASE)          # 不带任何 storage_* 字段
+    assert out["verdict"] == "downsize-candidate"
+    assert any("FreeStorageSpace 缺失" in b for b in out["blockers"])
+
+
+def test_rds_storage_check_runs_after_the_pool_probe():
+    """存储判据也不得早于候选池探针：候选集为空时它同样是"补了也没用"。"""
+    out = core.eval_rds(
+        _rds_storage(candidates=[], cheaper_candidate_exists=False,
+                     storage_free_min_gib=0.0), T_AG, BASE)
+    assert out["verdict"] == "已合理配置"
