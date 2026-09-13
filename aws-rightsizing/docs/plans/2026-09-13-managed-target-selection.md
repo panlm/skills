@@ -1229,10 +1229,10 @@ FIXTURE = ROOT / "tests" / "fixtures" / "regression-managed.json"
 # kafka.m7g.large 全区更便宜的 broker 机型只有 kafka.t3.small(x86)，
 # 跨架构为硬约束禁止项；6 个 kafka.t3.small 集群在价目地板上。
 EXPECTED = {
-    "aggressive": {"rds_route1": 261.34, "rds_route2": 635.10,
+    "aggressive": {"rds_route1": 261.34, "rds_route2": 875.27,
                    "ec_route1": 0.0, "ec_route2": 1235.89,
                    "msk_route1": 0.0, "msk_route2": 0.0},
-    "conservative": {"rds_route1": 261.34, "rds_route2": 635.10,
+    "conservative": {"rds_route1": 261.34, "rds_route2": 875.27,
                      "ec_route1": 0.0, "ec_route2": 1158.51,
                      "msk_route1": 0.0, "msk_route2": 0.0},
 }
@@ -1522,7 +1522,7 @@ Expected（与 spec 的「本机队实测」表逐格一致）：
 | 12 RDS：选出目标 | 9 行 |
 | 12 RDS：`FreeableMemory` 越地板 ⇒ upsize | 2 行 |
 | 12 RDS：CPU 持续超 ⇒ upsize | 1 行 |
-| RDS 路线一 / 路线二 | $261.34 / $635.10（两 profile 同值） |
+| RDS 路线一 / 路线二 | $261.34 / $875.27（两 profile 同值） |
 | 11 Redis：选出目标 | 5 组 |
 | 11 Redis：在价目地板 | 4 组 |
 | 11 Redis：指标越目标 | 2 组 |

@@ -943,6 +943,49 @@ def eval_rds(res, t, base=None):
                  "——「已合理配置」说的是没有可降的目标，不是这台机器健康")
         return out
 
+    # ---- FreeStorageSpace：容量耐久度 ----
+    # 采集侧从一开始就采了它（含 Minimum 统计），agg.jq 也聚合了，而
+    # core.py / report-template.md / sample-solve.md 一次都没提 ——
+    # `grep -rn FreeStorageSpace references/` 在本轮之前返回空。
+    #
+    # 这条与 rightsizing 的命题确实不同（可用性事故，不是成本项），但采集成本
+    # 已经付了，且它的严重度高于本 skill 的全部节省项。
+    #
+    # 位置：候选池探针**之后**（候选集为空时它同样属于"补了也产不出建议"），
+    # 但在信用与 FreeableMemory 两条之**前**。实测回放暴露过反例：
+    # 磁盘写满那台（Minimum 最小值 0 GiB）先撞上 FreeableMemory 的 OOM 阻断，
+    # 于是报告只写「降配会 OOM」，磁盘被写满这件事从不出现 —— 而按本条自己的
+    # 措辞它「优先级高于本行任何降配讨论」。
+    st_min = res.get("storage_free_min_gib")
+    st_first, st_last = (res.get("storage_free_first_gib"),
+                         res.get("storage_free_last_gib"))
+    if st_min is None:
+        out["blockers"].append(
+            "FreeStorageSpace 缺失，未评估容量耐久度（该指标对所有引擎都发布，"
+            "缺失是采集缺口而非不适用）")
+    elif st_min == 0:
+        _verdict(out, "blocked",
+                 "FreeStorageSpace 最小值 = 0 GiB ⇒ 窗口内存储被耗尽过。"
+                 "**这是可用性事故，不是成本项**，优先级高于本行任何降配讨论。"
+                 "先查 binlog / 事务日志保留与大临时表，并开启 storage "
+                 "autoscaling；处理完再重采评估降配")
+        return out
+    elif st_first is not None and st_last is not None:
+        # 速率用 Average 序列首尾差，**不用 Minimum** —— Minimum 含 binlog
+        # 轮转造成的锯齿，会把速率算成负数或虚高。
+        days = res.get("window_days") or 30
+        rate = (st_first - st_last) / days
+        if rate > 0:
+            runway = st_last / rate
+            if runway < t["rds_storage_days_floor"]:
+                _verdict(out, "blocked",
+                         f"按窗口内消耗速率 {round(rate, 3)} GiB/日外推，剩余 "
+                         f"{round(runway, 1)} 天触顶（门限 "
+                         f"{t['rds_storage_days_floor']} 天）⇒ 先开启 storage "
+                         f"autoscaling 再谈降配。存储只能扩不能缩，"
+                         f"降实例类不改变这条")
+                return out
+
     if burstable and sc is None:
         _verdict(out, "metric-missing",
                  "CPUSurplusCreditsCharged 缺失，无法排除信用已超额")
@@ -974,44 +1017,6 @@ def eval_rds(res, t, base=None):
                  f"注意这条说的是**缩不了**，不是规格不足 —— buffer pool "
                  f"会占满可分配内存，低 freeable 对配置正确的库是常态")
         return out
-
-    # ---- FreeStorageSpace：容量耐久度 ----
-    # 采集侧从一开始就采了它（含 Minimum 统计），agg.jq 也聚合了，而
-    # core.py / report-template.md / sample-solve.md 一次都没提 ——
-    # `grep -rn FreeStorageSpace references/` 在本轮之前返回空。
-    #
-    # 这条与 rightsizing 的命题确实不同（可用性事故，不是成本项），但采集成本
-    # 已经付了，且它的严重度高于本 skill 的全部节省项。位置在候选池探针
-    # **之后**：候选集为空时它同样属于"补了也产不出建议"。
-    st_min = res.get("storage_free_min_gib")
-    st_first, st_last = (res.get("storage_free_first_gib"),
-                         res.get("storage_free_last_gib"))
-    if st_min is None:
-        out["blockers"].append(
-            "FreeStorageSpace 缺失，未评估容量耐久度（该指标对所有引擎都发布，"
-            "缺失是采集缺口而非不适用）")
-    elif st_min == 0:
-        _verdict(out, "blocked",
-                 "FreeStorageSpace 最小值 = 0 GiB ⇒ 窗口内存储被耗尽过。"
-                 "**这是可用性事故，不是成本项**，优先级高于本行任何降配讨论。"
-                 "先查 binlog / 事务日志保留与大临时表，并开启 storage "
-                 "autoscaling；处理完再重采评估降配")
-        return out
-    elif st_first is not None and st_last is not None:
-        # 速率用 Average 序列首尾差，**不用 Minimum** —— Minimum 含 binlog
-        # 轮转造成的锯齿，会把速率算成负数或虚高。
-        days = res.get("window_days") or 30
-        rate = (st_first - st_last) / days
-        if rate > 0:
-            runway = st_last / rate
-            if runway < t["rds_storage_days_floor"]:
-                _verdict(out, "blocked",
-                         f"按窗口内消耗速率 {round(rate, 3)} GiB/日外推，剩余 "
-                         f"{round(runway, 1)} 天触顶（门限 "
-                         f"{t['rds_storage_days_floor']} 天）⇒ 先开启 storage "
-                         f"autoscaling 再谈降配。存储只能扩不能缩，"
-                         f"降实例类不改变这条")
-                return out
 
     req_vcpu = max(x for x in (rv_cpu, rv_dbload, 1) if x is not None)
     # 内存需求按 FreeableMemory 反推，留与 OOM 否决同一道地板的余量 ——
@@ -1161,6 +1166,18 @@ def eval_elasticache(res, t, base=None):
     if not cheaper:
         _verdict(out, "已合理配置", _EMPTY_NO_CHEAPER)
         return out
+    # ---- 候选池可行性探针。**必须早于所有 metric fail-closed** ----
+    # 结构性不可能的两种情形（没有更便宜的候选、更便宜的全部跨架构）与任何
+    # 指标无关，先判掉。实测回放：两个 kafka.m7g.large 集群的
+    # RequestHandlerAvgIdlePercent 因 EnhancedMonitoring=DEFAULT 而缺失，
+    # 若先判缺失，报告会写「缺 RequestHandlerAvgIdlePercent」——
+    # 于客户看来是「去开 enhanced monitoring 就能拿到建议」，
+    # 而唯一更便宜的机型跨架构、建议根本不可能产出。
+    probe = _pick_managed_target(res, t, 1, lambda c: True, base or {})
+    if probe is not None and probe["empty_reason"]:
+        _verdict(out, "已合理配置", probe["empty_reason"])
+        return out
+
     cpu = res.get("engine_cpu_p95")
     if cpu is None:
         _verdict(out, "metric-missing",
@@ -1270,6 +1287,18 @@ def eval_msk(res, t, base=None):
     if not cheaper:
         _verdict(out, "已合理配置", _EMPTY_NO_CHEAPER)
         return out
+    # ---- 候选池可行性探针。**必须早于所有 metric fail-closed** ----
+    # 结构性不可能的两种情形（没有更便宜的候选、更便宜的全部跨架构）与任何
+    # 指标无关，先判掉。实测回放：两个 kafka.m7g.large 集群的
+    # RequestHandlerAvgIdlePercent 因 EnhancedMonitoring=DEFAULT 而缺失，
+    # 若先判缺失，报告会写「缺 RequestHandlerAvgIdlePercent」——
+    # 于客户看来是「去开 enhanced monitoring 就能拿到建议」，
+    # 而唯一更便宜的机型跨架构、建议根本不可能产出。
+    probe = _pick_managed_target(res, t, 1, lambda c: True, base or {})
+    if probe is not None and probe["empty_reason"]:
+        _verdict(out, "已合理配置", probe["empty_reason"])
+        return out
+
     disk, idle, cpu = (res.get("disk_used_max"), res.get("handler_idle_p95"),
                        res.get("cpu_total_p95"))
     if None in (disk, idle, cpu):

@@ -361,3 +361,19 @@ def test_dbload_peak_reversal_absent_field_does_not_fire():
     out = core.eval_rds(_rds(dbload_max_p95=None), T_AG, BASE)
     assert out["verdict"] == "downsize-candidate"
     assert not any("Performance Insights 控制台" in b for b in out["blockers"])
+
+
+def test_storage_exhaustion_outranks_the_oom_block():
+    """回放实测暴露的顺序缺陷：磁盘写满那台先撞上 FreeableMemory 的 OOM 阻断，
+    于是报告只写「降配会 OOM」，磁盘被写满这件事从不出现 —— 而按存储判据
+    自己的措辞它「优先级高于本行任何降配讨论」。
+    """
+    out = core.eval_rds(
+        _rds_storage(type="db.m6g.2xlarge", vcpu=8, mem_gib=32.0,
+                     cur_usd=0.9190, sus_cpu=14.26, peak_cpu_p95=19.02,
+                     dbload_p95=1.070, dbload_max_p95=7.0,
+                     freeable_mem_min_gib=2.978,      # 9.3%，低于 15% 地板
+                     storage_free_min_gib=0.0), T_AG, BASE)
+    assert out["verdict"] == "blocked"
+    assert "存储被耗尽过" in out["blockers"][0]
+    assert not any("降配会 OOM" in b for b in out["blockers"])
