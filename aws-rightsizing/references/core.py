@@ -50,6 +50,18 @@ GP_CATS = {"General purpose", "Compute optimized", "Memory optimized"}
 HOURS_PER_MONTH = 730
 
 _THRESHOLDS_PATH = pathlib.Path(__file__).with_name("thresholds.json")
+_PI_UNSUPPORTED_PATH = pathlib.Path(__file__).with_name("rds-pi-unsupported.json")
+
+
+def load_pi_unsupported(path=None):
+    """不支持 Performance Insights 的 RDS 实例类。**唯一真值源。**
+
+    不在本文件内写字面量：写死等于第二个真值源，AWS 扩了支持范围后
+    报告仍会向客户断言旧列表。同 `load_thresholds` 的理由。
+    `tests/test_no_duplicated_constants.py` 锁死 `core.py` 里不得出现这些类名。
+    """
+    p = pathlib.Path(path) if path else _PI_UNSUPPORTED_PATH
+    return frozenset(json.loads(p.read_text(encoding="utf-8"))["classes"])
 
 
 def load_thresholds(profile="aggressive", path=None, override=None):
@@ -511,6 +523,8 @@ _EMPTY_VCPU = ("需求量 {req} vCPU 超过所有更便宜候选（最接近的 
 _EMPTY_MEM = "更便宜的候选都装不下当前需求（最接近的是 {best}）"
 _EMPTY_FLOOR = ("被降幅地板挡住而非适配失败：max_reduction_ratio={mrr} 要求候选"
                 "至少 {floor} vCPU，更便宜的候选都低于它")
+_EMPTY_EXCLUDED = ("唯一装得下的更便宜候选（{best}）已被排除（见本行其他 blocker "
+                   "说明的排除理由），故无可用目标")
 
 # 「触底」护栏：目标是同架构阶梯里最便宜的那一档。
 #
@@ -563,10 +577,6 @@ def _pick_managed_target(res, t, req_vcpu, mem_fit, base, exclude=frozenset()):
             types="、".join(f"{c['t']}({c.get('arch')})"
                             for c in sorted(cheaper, key=lambda c: c["usd"])))
         return out
-    excl = [c for c in same_arch if c["t"] in exclude]
-    if excl:
-        out["excluded_best"] = min(excl, key=lambda c: c["usd"])
-    same_arch = [c for c in same_arch if c["t"] not in exclude]
     floor_vcpu = _ceil_div(cur_vcpu, t["max_reduction_ratio"])
     by_vcpu = [c for c in same_arch if c["vcpu"] >= max(req_vcpu, floor_vcpu)]
     if not by_vcpu:
@@ -587,6 +597,19 @@ def _pick_managed_target(res, t, req_vcpu, mem_fit, base, exclude=frozenset()):
     if not fitting:
         out["empty_reason"] = _EMPTY_MEM.format(
             best=max(by_vcpu, key=lambda c: c["gib"])["t"])
+        return out
+    # `exclude` 在**适配筛选之后**才应用，且 `excluded_best` 只取「本来装得下、
+    # 只因排除才没选中」的那一个。放在筛选之前会量化一笔本来也拿不到的钱：
+    # 实测 req 1.765 GiB 时最便宜的被排除候选是 db.t4g.micro(1.0 GiB)，
+    # 它压根装不下，报「可额外省 $147.46」是误导；正确答案是
+    # db.t4g.small(2.0 GiB) 的 $127.02。
+    excl = [c for c in fitting if c["t"] in exclude]
+    if excl:
+        out["excluded_best"] = min(excl, key=lambda c: c["usd"])
+    fitting = [c for c in fitting if c["t"] not in exclude]
+    if not fitting:
+        out["empty_reason"] = _EMPTY_EXCLUDED.format(
+            best=out["excluded_best"]["t"])
         return out
 
     def _key(c):
@@ -765,11 +788,23 @@ def _rds_is_burstable(itype):
 
 
 def eval_rds(res, t, base=None):
-    """RDS 判据。第一判据是 Performance Insights 的 db.load.avg，不是 CPUUtilization。
+    """RDS 判据。DBLoad 与 CPUUtilization 是**并行两轴**，不是主备。
 
-    实测教训：某 db.t4g.medium 的 DBLoad p95 = 0.547 < 0.5×2vCPU ⇒ 前置"满足"，
-    但 CPUSurplusCreditsCharged 单小时最大 730.6（采 Maximum）、CPUCreditBalance 最小值 0
-    ⇒ 规格已不足，实际是升配候选。故信用超额是**独立否决项**，优先级高于 DBLoad。
+    实测教训（保留）：某 db.t4g.medium 的 DBLoad p95 = 0.547 < 0.5x2vCPU
+    ⇒ 前置"满足"，但 CPUSurplusCreditsCharged 单小时最大 730.6、
+    CPUCreditBalance 最小值 0 ⇒ 规格已不足。故信用超额是**独立否决项**。
+
+    本轮新增的两个 upsize 出口（CPU 持续项超当前规格、FreeableMemory 越地板）
+    与那条同类：它们说的是「这台机器已经不够用」，必须排在候选池判定之前 ——
+    候选集为空不该压掉这条警告。分支顺序见
+    docs/specs/2026-09-13-managed-target-selection-design.md 的 C5。
+
+    峰值项取 `peak_cpu_p95`（`Maximum` 序列的 p95），**不是 max**。
+    RDS 的 CPU 尖峰可证明来自托管平面的维护动作（备份窗口、自动小版本升级）：
+    实测一台常态 4.00% 的库单峰 88.33%，按 max 反推需 3 vCPU 而它只有 2。
+    与 MSK 的 UnderReplicatedPartitions、Redis 的 ReplicationLag 同类，
+    故走 `_persistent()` 的口径。**EC2 侧 `peak_cpu` 保持取 max 不动** ——
+    那里的尖峰是真实业务负载，`_required` 的注释已论证「峰值项不可省」。
     """
     out = {"rid": res["rid"], "service": "rds", "cur": res["type"],
            "blockers": [], "nonburst": None, "burst": None,
@@ -795,55 +830,89 @@ def eval_rds(res, t, base=None):
     if not burstable:
         if cb_min is not None:
             out["blockers"].append(CLASS_CHANGED_NOTE)
-    elif cb_min is not None and cb_max is not None and _credit_exhausted(cb_min, cb_max, t):
+    elif (cb_min is not None and cb_max is not None
+          and _credit_exhausted(cb_min, cb_max, t)):
         _verdict(out, "upsize-candidate",
                  f"CPU 信用余额窗口内触底（最小 {cb_min} / 窗口内最大 {cb_max}，"
                  f"门限 {t['credit_balance_floor_pct']}%），规格已不足，是升配候选")
         return out
+
+    # ---- CPU 轴。与 DBLoad 并行，任一可用即可评估 ----
+    sus_cpu, peak_cpu = res.get("sus_cpu"), res.get("peak_cpu_p95")
     dbload = res.get("dbload_p95")
+    if sus_cpu is None and dbload is None:
+        _verdict(out, "metric-missing",
+                 "DBLoad 与 CPUUtilization 两轴都缺，无从反推需求量")
+        return out
+    rv_cpu = rv_cpu_sus = None
+    if sus_cpu is not None:
+        rv_cpu_sus = _ceil_div(vcpu * sus_cpu, t["target_cpu_p95"])
+        # peak 缺失 ⇒ 只用持续项并写明。不当 0（那是替实例做假设），
+        # 也不 fail-closed（另一轴可能可用，且持续项本身已有意义）。
+        rv_cpu = (max(rv_cpu_sus,
+                      _ceil_div(vcpu * peak_cpu, t["ceiling_cpu_max"]))
+                  if peak_cpu is not None else rv_cpu_sus)
+        if peak_cpu is None:
+            out["blockers"].append(
+                "CPUUtilization Maximum 序列缺失，CPU 轴只用持续项 —— "
+                "降配后峰值是否越 ceiling 未校验")
+    # 只按**持续项**判规格不足。峰值项是为降配方向设计的安全约束，
+    # 拿它反推「当前规格不足」会把闲置小机器判成不足
+    # （2026-09-10-ec2-underprovisioned-verdict-design.md 的裁定）。
+    if rv_cpu_sus is not None and rv_cpu_sus > vcpu:
+        _verdict(out, "upsize-candidate",
+                 f"CPU 持续 p95 {sus_cpu}% ⇒ 按目标 {t['target_cpu_p95']}% "
+                 f"反推需 {rv_cpu_sus} vCPU，当前仅 {vcpu}。"
+                 f"本 skill 不产出升配目标机型——选型需容量规划输入"
+                 f"（增长率 / SLA / 峰值形态）")
+        return out
+
+    # ---- DBLoad 轴 ----
+    rv_dbload = None
     if dbload is None:
-        _verdict(out, "metric-missing",
-                 "db.load.avg 缺失，RDS 降配的第一判据不可得")
+        out["blockers"].append(
+            f"该实例类结构性不支持 Performance Insights"
+            f"（{res['type']} 在 rds-pi-unsupported.json 列表内），"
+            f"DBLoad 不可得 ⇒ 本行只用 CPUUtilization 轴。"
+            f"换用支持 PI 的实例类才能拿到第一判据"
+            if res["type"] in load_pi_unsupported() else
+            "Performance Insights 未开启，DBLoad 不可得 ⇒ 本行只用 "
+            "CPUUtilization 轴。开启后重采即可得第一判据")
+    else:
+        if dbload >= vcpu:
+            _verdict(out, "blocked",
+                     f"DBLoad p95 {dbload} >= vCPU {vcpu}，CPU 已是瓶颈")
+            return out
+        if dbload >= t["rds_dbload_ratio"] * vcpu:
+            _verdict(out, "已合理配置",
+                     f"DBLoad p95 {dbload} 未低于 {t['rds_dbload_ratio']}x"
+                     f"vCPU({t['rds_dbload_ratio'] * vcpu})")
+            return out
+        rv_dbload = max(1, _ceil_div(dbload, t["rds_dbload_ratio"]))
+
+    # ---- 候选池可行性探针。**必须早于所有剩余的 fail-closed** ----
+    # 结构性不可能的两种情形（没有更便宜的候选、更便宜的全部跨架构）与任何
+    # 指标无关，先判掉。否则会让客户为一条**不可能产出**的建议去开 PI、
+    # 补 FreeableMemory、再等一个完整窗口。
+    # 这是本函数原有的裁定（`cheaper` 短路早于所有前置指标要求），本轮只是把
+    # 它从一个采集侧布尔值换成带成因的探针 —— 顺序不变。
+    probe = _pick_managed_target(res, t, 1, lambda c: True, base or {})
+    if probe is None:
+        cheaper = res.get("cheaper_candidate_exists")
+        if cheaper is None:
+            _verdict(out, "metric-missing",
+                     "cheaper_candidate_exists 缺失，无法确认是否存在"
+                     "更便宜的同形态候选（不得假定存在）")
+            return out
+        if not cheaper:
+            _verdict(out, "已合理配置", _EMPTY_NO_CHEAPER)
+            return out
+    elif probe["empty_reason"]:
+        _verdict(out, "已合理配置", probe["empty_reason"],
+                 "本行未评估内存压力（FreeableMemory 阻断在候选集为空时不再计算）"
+                 "——「已合理配置」说的是没有可降的目标，不是这台机器健康")
         return out
-    if dbload >= vcpu:
-        _verdict(out, "blocked",
-                 f"DBLoad p95 {dbload} >= vCPU {vcpu}，CPU 已是瓶颈")
-        return out
-    if dbload >= t["rds_dbload_ratio"] * vcpu:
-        _verdict(out, "已合理配置",
-                 f"DBLoad p95 {dbload} 未低于 {t['rds_dbload_ratio']}×vCPU({t['rds_dbload_ratio']*vcpu})")
-        return out
-    # 候选集为空 ⇒ 直接已合理配置，早于剩下的前置指标要求（同 eval_elasticache /
-    # eval_msk）。否则会让客户为一条不可能产出的建议去补 FreeableMemory 再等一个窗口。
-    #
-    # **位置是判据的一部分。** 放在两个欠配否决项**之后**：信用超额
-    # （sc > 0 ⇒ upsize-candidate）与 DBLoad 瓶颈（dbload >= vCPU ⇒ blocked）。
-    # 那两条说的是"这台机器太小了"，客户必须看到，不能被"没有更便宜的候选"盖掉。
-    # 代价（刻意接受）：下面 FreeableMemory 的 OOM 阻断会被本条短路掉——但那条
-    # 说的是"缩不了"，与"没有可缩的目标"给出的动作完全一致（都不降配），
-    # 而把它放在本条之前就等于为一条不可达的建议要求 FreeableMemory 数据。
-    cheaper = res.get("cheaper_candidate_exists")
-    if cheaper is None:
-        _verdict(out, "metric-missing",
-                 "cheaper_candidate_exists 缺失，无法确认是否存在"
-                             "更便宜的同形态候选（不得假定存在）")
-        return out
-    if not cheaper:
-        # 第二条 blocker：本条短路掉了下面 FreeableMemory 的 OOM 阻断，
-        # 所以必须说明"没查内存压力"，否则读者会把「已合理配置」读成「这台机器很健康」。
-        # 前者是关于候选集的结论，后者是关于机器的结论，两回事。
-        _verdict(out, "已合理配置",
-                 "同形态下没有更便宜的候选实例类；"
-                             "补充指标或延长窗口都不会改变结论",
-                             "本行未评估内存压力（FreeableMemory 阻断在候选集为空时"
-                             "不再计算）——"
-                             "「已合理配置」说的是没有可降的目标，不是这台机器健康")
-        return out
-    # 缺失型 fail-closed 必须排在 cheaper 短路**之后**：候选集为空时补指标也不会
-    # 产出建议，要求它就是让客户白等一个窗口 —— eval_msk / eval_elasticache 的
-    # 注释早已写明「候选集为空 ⇒ 直接已合理配置，且早于所有前置指标要求」，
-    # eval_rds 此前把这两条放在了前面。而**已能评估**的否决项仍在最前：
-    # 候选集为空不该压掉「这台机器已经不够用了」这条警告。
+
     if burstable and sc is None:
         _verdict(out, "metric-missing",
                  "CPUSurplusCreditsCharged 缺失，无法排除信用已超额")
@@ -852,18 +921,75 @@ def eval_rds(res, t, base=None):
         _verdict(out, "metric-missing",
                  "CPUCreditBalance 缺失，无法排除信用已耗尽")
         return out
+
+    # ---- FreeableMemory：OOM 阻断 ----
+    # **判 `blocked` 而不是 `upsize-candidate`。** 本轮 spec 曾提议升级它，
+    # 而既有守卫测试（test_managed_vetoes_actually_fire_and_block）反对，
+    # 且它是对的：MySQL / PostgreSQL 的 InnoDB buffer pool 有意占满可分配内存，
+    # `FreeableMemory` 报的是 MemAvailable —— 一个 buffer pool 配置正确的库
+    # **按设计**就是低 freeable。实测一台可用内存剩 9.7%，但 DBLoad p95
+    # 1.211（8 vCPU）、CPU 14.87%，完全不缺算力。这条证据支持"缩不了"，
+    # 不支持"需要更大的实例"。欠配的判定交给 CPU 持续项那条出口。
     freeable_min, mem_gib = res.get("freeable_mem_min_gib"), res.get("mem_gib")
     if freeable_min is None or mem_gib is None:
         _verdict(out, "metric-missing",
                  "FreeableMemory 或实例内存未知，无法判断降配是否 OOM")
         return out
-    if freeable_min < (t["rds_freeable_mem_floor_pct"] / 100) * mem_gib:
+    floor_gib = (t["rds_freeable_mem_floor_pct"] / 100) * mem_gib
+    if freeable_min < floor_gib:
         _verdict(out, "blocked",
-                 f"FreeableMemory 最小值 {freeable_min} GiB < 实例内存 {t['rds_freeable_mem_floor_pct']}%，降配会 OOM")
+                 f"FreeableMemory 最小值 {freeable_min} GiB < 实例内存 "
+                 f"{t['rds_freeable_mem_floor_pct']}%"
+                 f"（{round(floor_gib, 3)} GiB），降配会 OOM。"
+                 f"注意这条说的是**缩不了**，不是规格不足 —— buffer pool "
+                 f"会占满可分配内存，低 freeable 对配置正确的库是常态")
         return out
-    _verdict(out, "downsize-candidate",
+
+    req_vcpu = max(x for x in (rv_cpu, rv_dbload, 1) if x is not None)
+    # 内存需求按 FreeableMemory 反推，留与 OOM 否决同一道地板的余量 ——
+    # 一个候选"装得下"的定义就是"降配后 FreeableMemory 仍高于那道地板"，
+    # 故不再叠加额外余量。
+    #
+    # 已知局限（写进 blocker）：InnoDB buffer pool 会占满可分配内存，
+    # 所以 mem_gib − freeable_min 是真实工作集的**上界**。方向保守
+    # （不会推荐过小的机型），代价是系统性少省。要修需要
+    # innodb_buffer_pool_* 计数器，CloudWatch 不发布。
+    req_gib = round((mem_gib - freeable_min)
+                    / (1 - t["rds_freeable_mem_floor_pct"] / 100), 3)
+    out.update(required_vcpu=req_vcpu, required_gib=req_gib)
+
+    exclude = load_pi_unsupported() if res.get("pi_enabled") else frozenset()
+    pick = _pick_managed_target(res, t, req_vcpu, lambda c: c["gib"] >= req_gib,
+                                base or {}, exclude=exclude)
+    if pick is None:
+        # 采集侧未升级（无 candidates）：可行性已由上面的探针按布尔值判过，
+        # 到这里说明"存在更便宜的候选"，逐字保持改动前行为。
+        _verdict(out, "downsize-candidate",
                  "需变更窗口 + 回滚预案；存储不可缩容，过度预配只能 next-rebuild",
-                         _FIT_UNVERIFIED)
+                 _FIT_UNVERIFIED)
+        return out
+    if pick["excluded_best"]:
+        eb = pick["excluded_best"]
+        forgone = round((res["cur_usd"] - eb["usd"]) * HOURS_PER_MONTH
+                        * res.get("count", 1), 2)
+        out["blockers"].append(
+            f"更便宜的 {eb['t']} 已排除：该实例类不支持 Performance Insights，"
+            f"而 DBLoad 是本判据的第一依据。若业务接受丢失 PI，可额外省 "
+            f"${forgone}/mo，但下一轮本行的 DBLoad 轴将不可得")
+    if pick["empty_reason"]:
+        _verdict(out, "已合理配置", pick["empty_reason"])
+        return out
+    _apply_managed_pick(out, res, pick, base or {})
+    _managed_deep_note(out, res, pick)
+    _verdict(out, "downsize-candidate",
+             f"目标实例类为本 skill 初选（需 {req_vcpu} vCPU / {req_gib} GiB，"
+             f"后者按 FreeableMemory 最小值反推并留 "
+             f"{t['rds_freeable_mem_floor_pct']}% 余量），"
+             f"须人工确认变更窗口与回滚预案",
+             "存储不可缩容，过度预配只能 next-rebuild",
+             "内存需求由 FreeableMemory 反推，而 InnoDB buffer pool 会占满"
+             "可分配内存 ⇒ 该值是真实工作集的**上界**，方向保守但会系统性少省。"
+             "若变更时同步下调 innodb_buffer_pool_size，可选更小的实例类")
     return out
 
 

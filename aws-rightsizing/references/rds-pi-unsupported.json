@@ -1,0 +1,14 @@
+{
+  "_source": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_DatabaseInsights.Engines.html",
+  "_recheck": "该页 'RDS for MySQL' / 'Amazon RDS for MariaDB' 行的「Instance class restrictions」栏。同一列表也出现在 https://repost.aws/knowledge-center/rds-aurora-performance-db-insights 的 'Instance type' 小节（列 db.t2 / db.t3 / db.t4g.micro and db.t4g.small）。两处都要复查——旧的 MySQL 专页只列到 db.t3.small，漏了 db.t4g 两档。",
+  "_why": "DBLoad 是 RDS 降配的第一判据。推荐一个保证下一轮变成 metric-missing 的目标，与本 skill「缺判据即 fail-closed」的整体设计矛盾。故当前实例已开 PI 时把这些实例类从候选池硬排除，并在 blocker 里量化放弃的金额，让人工自己决定要不要拿判据换钱。",
+  "_scope": "只在 res[\"pi_enabled\"] 为真时生效。PI 本来没开的实例不受影响——它已经没有 DBLoad 可失去。",
+  "classes": [
+    "db.t2.micro",
+    "db.t2.small",
+    "db.t3.micro",
+    "db.t3.small",
+    "db.t4g.micro",
+    "db.t4g.small"
+  ]
+}

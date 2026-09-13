@@ -378,16 +378,20 @@ Redis 的 `ReplicationLag` 同类 —— 那两条已经因为同一个理由改
    与 EC2 侧一致，只按**持续项**判，不用峰值项反推规格不足
    （`2026-09-10-ec2-underprovisioned-verdict-design.md` 的裁定）。
 
-3. **`FreeableMemory` 跌破地板 ⇒ 从 `blocked` 升为 `upsize-candidate`。**
-   现行文案「降配会 OOM」只说了不能降，没说已经不够。
-   `db-uat-04` 可用内存剩 9.7%、`db-sit-05` 剩 9.3%，这是欠配。
+3. ~~**`FreeableMemory` 跌破地板 ⇒ 从 `blocked` 升为 `upsize-candidate`。**~~
+   **实现期撤回。** 既有守卫测试 `test_managed_vetoes_actually_fire_and_block`
+   反对这条，而它是对的：MySQL / PostgreSQL 的 InnoDB buffer pool **有意**
+   占满可分配内存，`FreeableMemory` 报的是 `MemAvailable` —— 一个 buffer pool
+   配置正确的库按设计就是低 freeable。
 
-   **注意这条会与 P2 的 `cheaper` 短路交互**：现行代码把 `cheaper` 判定放在
-   FreeableMemory 之前，注释明写这是刻意的（候选集为空时不该为一条不可达的
-   建议要求 FreeableMemory 数据）。改成 `upsize-candidate` 后，这条不再是
-   「缩不了」而是「太小了」，按 `eval_rds` 已有的裁定
-   （「那两条说的是这台机器太小了，客户必须看到，不能被没有更便宜的候选盖掉」）
-   **必须前移到 `cheaper` 短路之前**。
+   反证就在本机队：`db-uat-04` 可用内存剩 9.7%，但 DBLoad p95 1.211（8 vCPU、
+   占 15%）、CPU 持续 15%，完全不缺算力。这条证据支持「**缩不了**」，
+   不支持「需要更大的实例」。欠配的判定归 C5-2 的 CPU 持续项出口 ——
+   那一条读的是与内存分配策略无关的指标。
+
+   保留 `blocked`，只改文案补一句「这条说的是缩不了，不是规格不足」。
+   位置也不动（仍在候选池判定之后）：既然它不是欠配断言，原有裁定
+   「候选集为空时不该为一条不可达的建议要求 FreeableMemory 数据」继续成立。
 
 三个出口都**不产出升配目标机型**，沿用 EC2 侧措辞：选型需容量规划输入
 （增长率 / SLA / 峰值形态）。
@@ -400,19 +404,25 @@ Redis 的 `ReplicationLag` 同类 —— 那两条已经因为同一个理由改
  3. surplus_credits > 0                      ⇒ upsize-candidate   ← 已有
  4. 信用触底（burstable 且两端非 None）        ⇒ upsize-candidate   ← 已有
  5. CPU 持续项 > cur_vcpu                     ⇒ upsize-candidate   ← 新增(C5-2)
- 6. FreeableMemory 最小值 < 地板               ⇒ upsize-candidate   ← 新增(C5-3)，前移
- 7. FreeStorageSpace Minimum 触 0             ⇒ blocked            ← 新增(C6)
- 8. 主判据全缺（dbload 与 CPU 都无）           ⇒ metric-missing
- 9. dbload_p95 >= vcpu                        ⇒ blocked            ← 已有
-10. dbload_p95 >= rds_dbload_ratio × vcpu     ⇒ 已合理配置          ← 已有
-11. 候选池为空                                ⇒ 已合理配置 + C3 成因
-12. 选出目标                                  ⇒ downsize-candidate
+ 6. 主判据全缺（dbload 与 CPU 都无）           ⇒ metric-missing     ← 改(C5-1)
+ 7. dbload_p95 >= vcpu                        ⇒ blocked            ← 已有
+ 8. dbload_p95 >= rds_dbload_ratio × vcpu     ⇒ 已合理配置          ← 已有
+ 9. 候选池可行性探针（无更便宜 / 全跨架构）     ⇒ 已合理配置 + C3 成因
+10. burstable 信用指标缺失                    ⇒ metric-missing     ← 已有
+11. FreeableMemory 缺失 / 越地板               ⇒ metric-missing / blocked ← 已有，仅改文案
+12. FreeStorageSpace Minimum 触 0             ⇒ blocked            ← 新增(C6)
+13. 选出目标                                  ⇒ downsize-candidate
 ```
 
-第 6 步前移的依据：它从「缩不了」变成了「太小了」，而 `eval_rds` 已有的裁定是
-「那两条说的是这台机器太小了，客户必须看到，不能被没有更便宜的候选盖掉」。
-第 8 步取代原先「`dbload_p95` 缺失即 `metric-missing`」—— 现在只有**两轴都缺**
-才判不了。第 11 步不再需要 FreeableMemory 相关的免责说明（第 6 步已经过了）。
+第 6 步取代原先「`dbload_p95` 缺失即 `metric-missing`」—— 现在只有**两轴都缺**
+才判不了。
+
+**第 9 步的位置是原有裁定，本轮不动。** 它必须早于第 10–12 步的所有
+fail-closed：结构性不可能的两种情形（没有更便宜的候选、更便宜的全部跨架构）
+与任何指标无关，先判掉，否则会让客户为一条不可能产出的建议去开 PI、
+补 FreeableMemory、再等一个完整窗口。本轮只是把这一步从读采集侧布尔值
+换成带成因的探针（`_pick_managed_target(res, t, 1, lambda c: True, base)`），
+顺序与免责说明都保持原样。
 
 ### C6：容量与跨 stat 校验
 
@@ -560,7 +570,6 @@ dbload_max_p95 / rds_dbload_ratio > cur_vcpu
    - `db-sit-05` 的 `FreeStorageSpace` 触 0 被报出
    - `DBLoad` 峰值反转校验**只命中 `db-uat-01` 与 `db-infra-01`**（不是 9 台）
    - `db-uat-05` 从「已合理配置」变为 `upsize-candidate`
-   - `db-uat-04` / `db-sit-05` 从 `blocked` 变为 `upsize-candidate`
 3. 头条金额与 §预期收益的表逐格对账。
 4. 安全自检：只读、无 `ce:*`、无 mutating 调用（三条 grep 照旧）。
 
