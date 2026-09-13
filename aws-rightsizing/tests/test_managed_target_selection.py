@@ -145,3 +145,110 @@ def test_apply_managed_pick_uses_effective_vcpu_for_delta():
     assert out["b_delta_vcpu"] == 1.4
     assert out["b_delta_gib"] == 0.0
     assert out["b_save_mo"] == round((0.2300 - 0.2220) * 730, 2)
+
+
+# ---------------------------------------------------------------- ElastiCache
+# ap-east-1 Redis 真实价目。内存取 pricing 的 memory 属性 —— 相邻档比值
+# 2.74 / 2.26 / 2.07 全部 > 2，这正是 max_mem_reduction_ratio=2 在这条阶梯上
+# 结构性不可满足的原因。
+EC_CANDS = [
+    {"t": "cache.t4g.micro", "usd": 0.0270, "vcpu": 2, "gib": 0.50,
+     "arch": "arm64", "burst": True},
+    {"t": "cache.t4g.small", "usd": 0.0520, "vcpu": 2, "gib": 1.37,
+     "arch": "arm64", "burst": True},
+    {"t": "cache.t4g.medium", "usd": 0.1050, "vcpu": 2, "gib": 3.09,
+     "arch": "arm64", "burst": True},
+    {"t": "cache.m5.large", "usd": 0.2130, "vcpu": 2, "gib": 6.38,
+     "arch": "x86_64", "burst": False},
+]
+EC_BASE = {"t4g.micro": 0.10, "t4g.small": 0.20, "t4g.medium": 0.20}
+
+
+def _ec(**kw):
+    r = {"rid": "redis-test-01", "service": "elasticache", "engine": "redis",
+         "type": "cache.m6g.large", "vcpu": 2, "mem_gib": 6.38,
+         "cur_usd": 0.2030, "arch": "arm64", "count": 3,
+         "has_replica": True, "evictions_sum": 0, "evictions_p95": 0,
+         "repl_lag_p95": 0.001, "repl_lag_max": 0.0,
+         "engine_cpu_p95": 0.231, "db_mem_used_pct_max": 6.54,
+         "cheaper_candidate_exists": True, "candidates": EC_CANDS}
+    r.update(kw)
+    return r
+
+
+def test_elasticache_ladder_step_is_not_blocked_by_a_ratio_floor():
+    """P8：ElastiCache 内存阶梯相邻档比值 2.74 / 2.26 / 2.07 全部 > 2。
+
+    把 EC2 的 max_mem_reduction_ratio=2 原样搬过来，conservative 下从
+    cache.m6g.large(6.38 GiB) 往下要求候选 >= 3.19 GiB，而下一档
+    cache.t4g.medium 只有 3.09 GiB —— 差 3%，永久挡死。实测该做法下
+    conservative 的 11 个复制组全部选不出目标，合计 $0。
+    """
+    for profile in ("aggressive", "conservative"):
+        out = core.eval_elasticache(_ec(), core.load_thresholds(profile), EC_BASE)
+        assert out["verdict"] == "downsize-candidate", (profile, out["blockers"])
+        assert out["burst"] is not None, profile
+
+
+def test_elasticache_fit_requirement_derives_from_target_mem_p95():
+    """`required_gib_usable` 保持纯已用量口径（键名说 usable，值就是可用内存）；
+    候选须满足的下限由 target_mem_p95 反推，随 profile 变化。
+
+    形式与 EC2 侧 `_required` 的内存项逐字一致
+    （`ceil(cur_gib * sus_mem / target_mem_p95)`），**不新增阈值**。
+    先写的版本引入了 managed_mem_headroom（1.5 / 2.0），有两个问题：
+    它把 required_gib_usable 乘成了非 usable 口径（撞上
+    test_required_gib_usable_is_actually_usable_memory 那条裁定），
+    且值 `2.0` 在散文里与「§2.0」满篇冲突，撞上
+    test_distinctive_threshold_values_not_restated_in_prose。
+    """
+    ag = core.eval_elasticache(_ec(), core.load_thresholds("aggressive"), EC_BASE)
+    co = core.eval_elasticache(_ec(), core.load_thresholds("conservative"), EC_BASE)
+    # 已用可用内存 = 6.38 x 0.75 x 6.54/100 = 0.313 GiB，两档相同
+    assert ag["required_gib_usable"] == 0.313
+    assert co["required_gib_usable"] == 0.313
+    # 候选下限：0.313 / 0.70 = 0.447（ag）、0.313 / 0.50 = 0.626（co）
+    assert any("0.447 GiB" in b for b in ag["blockers"]), ag["blockers"]
+    assert any("0.626 GiB" in b for b in co["blockers"]), co["blockers"]
+    # 两档都排除 cache.t4g.micro（可用 0.375 < 0.447）⇒ 落在 cache.t4g.small
+    assert ag["burst"]["t"] == "cache.t4g.small"
+    assert co["burst"]["t"] == "cache.t4g.small"
+
+
+def test_elasticache_savings_multiplied_by_node_count():
+    out = core.eval_elasticache(_ec(), core.load_thresholds("aggressive"), EC_BASE)
+    assert out["b_save_mo"] == round((0.2030 - 0.0520) * 730 * 3, 2)   # 330.69
+
+
+def test_elasticache_cross_arch_only_reports_that_reason():
+    out = core.eval_elasticache(
+        _ec(candidates=[{"t": "cache.m5.large", "usd": 0.1000, "vcpu": 2,
+                         "gib": 6.38, "arch": "x86_64", "burst": False}]),
+        core.load_thresholds("aggressive"), EC_BASE)
+    assert out["verdict"] == "已合理配置"
+    assert "跨 CPU 架构" in " ".join(out["blockers"])
+
+
+def test_elasticache_without_candidates_keeps_old_behaviour():
+    r = _ec()
+    del r["candidates"]
+    out = core.eval_elasticache(r, core.load_thresholds("aggressive"), EC_BASE)
+    assert out["verdict"] == "downsize-candidate"
+    assert out["nonburst"] is None and out["burst"] is None
+    assert any("未经校验" in b for b in out["blockers"])
+
+
+def test_bottom_of_ladder_forces_low_confidence():
+    """乘性余量在极小基数上会给出激进目标：实测一个复制组实占 0.013 GiB，
+    x1.5 后仍选到最底档 cache.t4g.micro。倍数余量 19x，绝对量只有
+    0.375 GiB 可用 —— 任何数据量增长都会立刻淘汰键。
+
+    护栏判「是否落在同架构阶梯最底档」而不是「距当前几档」：后者要挑一个
+    阈值，而同架构比 cache.m6g.large 便宜的候选总共只有 3 档，取 4 等于
+    把护栏关掉、取 3 又是为这条阶梯凑的数。
+    """
+    out = core.eval_elasticache(
+        _ec(db_mem_used_pct_max=0.28), core.load_thresholds("aggressive"), EC_BASE)
+    assert out["burst"]["t"] == "cache.t4g.micro"
+    assert out["confidence"] == "low"
+    assert any("最底档" in b for b in out["blockers"])

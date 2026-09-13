@@ -512,9 +512,17 @@ _EMPTY_MEM = "更便宜的候选都装不下当前需求（最接近的是 {best
 _EMPTY_FLOOR = ("被降幅地板挡住而非适配失败：max_reduction_ratio={mrr} 要求候选"
                 "至少 {floor} vCPU，更便宜的候选都低于它")
 
-# 距当前规格几档起算「深度降配」。不进 thresholds.json：它是可读性护栏
-# （提示读者绝对量已很小），不是利用率策略量，与 VETO_TOLERANCE_PCT 同类。
-MANAGED_DEEP_STEPS = 4
+# 「触底」护栏：目标是同架构阶梯里最便宜的那一档。
+#
+# 这里刻意**不用档数阈值**。先写的版本是「距当前规格 >= 4 档」，实测在
+# ElastiCache 上永不触发 —— 同架构比 cache.m6g.large 便宜的候选总共只有 3 档
+# （t4g.micro / t4g.small / t4g.medium），阈值取 4 等于把护栏关掉，而取 3
+# 又是为凑这条阶梯挑的数，换个 region 或服务就失效。
+#
+# 「落在阶梯最底部」是结构性属性而非调出来的数：底部意味着估错了没有退路
+# （不能再降），且任何数据量增长都只能升配。乘性余量在极小基数上正是在这里
+# 失去意义 —— 实测一个复制组实占 0.013 GiB，x1.5 余量后仍选到最底档，
+# 倍数余量 19x 而绝对量只有 0.375 GiB 可用。
 
 
 def _pick_managed_target(res, t, req_vcpu, mem_fit, base, exclude=frozenset()):
@@ -592,12 +600,39 @@ def _pick_managed_target(res, t, req_vcpu, mem_fit, base, exclude=frozenset()):
     return out
 
 
-def _managed_steps_down(res, chosen):
-    """目标距当前规格几档（同架构、更便宜的候选里排位）。供深度降配护栏用。"""
-    ladder = sorted(c["usd"] for c in res["candidates"]
-                    if c.get("arch") == res.get("arch")
-                    and c["usd"] < res["cur_usd"])
-    return len(ladder) - ladder.index(chosen["usd"])
+def _cheaper_exists(res):
+    """是否存在更便宜的同形态候选。
+
+    `candidates` 存在时以派生值为准，消掉一个重复真值源；缺失才读采集侧的
+    `cheaper_candidate_exists` 布尔值（向后兼容）。两者都缺 ⇒ None ⇒ 调用方
+    fail-closed（不得假定存在）。
+    """
+    cands = res.get("candidates")
+    if cands is not None and res.get("cur_usd") is not None:
+        return any(c["usd"] < res["cur_usd"] for c in cands)
+    return res.get("cheaper_candidate_exists")
+
+
+def _managed_deep_note(out, res, pick, usable_ratio=1.0):
+    """目标落在同架构阶梯最底部 ⇒ 强制 confidence=low 并写明绝对量风险。
+
+    理由与「不用档数阈值」的取舍见上方 `_cheaper_exists` 之前那段注释。
+    两列各自判：非突发列与突发列的阶梯不同，只有一列触底也要报。
+    """
+    ladder = sorted({c["usd"] for c in res["candidates"]
+                     if c.get("arch") == res.get("arch")})
+    if len(ladder) < 2:
+        return
+    for col, p in (("nonburst", pick["nonburst"]), ("burst", pick["burst"])):
+        if p is None or p["usd"] != ladder[0]:
+            continue
+        out["confidence"] = "low"
+        out.setdefault("blockers", []).append(
+            f"{col} 目标 {p['t']} 是同架构价目阶梯的**最底档**"
+            f"（可用内存 {round(p['gib'] * usable_ratio, 3)} GiB）——"
+            f"倍数余量看着充足但绝对量极小，且触底后估错了没有退路"
+            f"（不能再降，任何数据量增长只能升配）。须人工按业务增长预期复核")
+        return
 
 
 def _apply_managed_pick(out, res, pick, base):
@@ -729,14 +764,16 @@ def _rds_is_burstable(itype):
     return itype.split(".")[1].startswith("t") if "." in itype else False
 
 
-def eval_rds(res, t):
+def eval_rds(res, t, base=None):
     """RDS 判据。第一判据是 Performance Insights 的 db.load.avg，不是 CPUUtilization。
 
     实测教训：某 db.t4g.medium 的 DBLoad p95 = 0.547 < 0.5×2vCPU ⇒ 前置"满足"，
     但 CPUSurplusCreditsCharged 单小时最大 730.6（采 Maximum）、CPUCreditBalance 最小值 0
     ⇒ 规格已不足，实际是升配候选。故信用超额是**独立否决项**，优先级高于 DBLoad。
     """
-    out = {"rid": res["rid"], "service": "rds", "cur": res["type"], "blockers": []}
+    out = {"rid": res["rid"], "service": "rds", "cur": res["type"],
+           "blockers": [], "nonburst": None, "burst": None,
+           "required_vcpu": None, "required_gib": None}
     _coverage_note(out, res)
     if res["type"] == "db.serverless":
         _verdict(out, "excluded",
@@ -837,13 +874,15 @@ def eval_rds(res, t):
 EC_ENGINES_WITH_ENGINE_CPU = frozenset({"redis", "valkey"})
 
 
-def eval_elasticache(res, t):
+def eval_elasticache(res, t, base=None):
     """ElastiCache 判据。内存必须用 pricing 的 memory，且要扣 reserved-memory-percent。
 
     实测：cache.t3.medium 真实 3.09 GiB，映射到 EC2 t3.medium 得 4.00 GiB，偏 +29%。
     DatabaseMemoryUsagePercentage 是相对真实节点内存的百分比，基数错则绝对量错。
     """
-    out = {"rid": res["rid"], "service": "elasticache", "cur": res["type"], "blockers": []}
+    out = {"rid": res["rid"], "service": "elasticache", "cur": res["type"],
+           "blockers": [], "nonburst": None, "burst": None,
+           "required_vcpu": None, "required_gib": None}
     _coverage_note(out, res)
     if res.get("mem_gib") is None or res.get("vcpu") is None:
         _verdict(out, "spec-unknown",
@@ -919,16 +958,14 @@ def eval_elasticache(res, t):
     # 与 MSK 不同的是这条阶梯在底部很密（次便宜 cache.t2.micro $0.017/hr，
     # 仅 1.06 倍，且跨 CPU 架构本 skill 不允许），**不要把 MSK 的 4.5 倍
     # 断崖套到这里**：ElastiCache 只有在绝对地板上才会命中本分支。
-    cheaper = res.get("cheaper_candidate_exists")
+    cheaper = _cheaper_exists(res)
     if cheaper is None:
         _verdict(out, "metric-missing",
                  "cheaper_candidate_exists 缺失，无法确认是否存在"
                              "更便宜的同形态候选（不得假定存在）")
         return out
     if not cheaper:
-        _verdict(out, "已合理配置",
-                 "同形态下没有更便宜的候选机型；"
-                             "补充指标或延长窗口都不会改变结论")
+        _verdict(out, "已合理配置", _EMPTY_NO_CHEAPER)
         return out
     cpu = res.get("engine_cpu_p95")
     if cpu is None:
@@ -956,24 +993,62 @@ def eval_elasticache(res, t):
         _verdict(out, "已合理配置",
                  f"EngineCPU p95 {cpu}% / 内存 max {memp}% 未低于目标")
         return out
+    # 候选须满足的可用内存下限：把已用量按 target_mem_p95 反推，
+    # 即「降配后内存利用率不超过本 profile 声明的目标」。形式与 EC2 侧
+    # `_required` 的内存项逐字一致（`ceil(cur_gib * sus_mem / target_mem_p95)`），
+    # 不新增阈值。
+    #
+    # **不用 max_mem_reduction_ratio。** 那道地板在这条阶梯上结构性不可满足：
+    # ElastiCache 的节点内存不是 2 的幂（0.50 / 1.37 / 3.09 / 6.38 GiB，
+    # 相邻比值 2.74 / 2.26 / 2.07 全部 > 2），conservative 的
+    # max_mem_reduction_ratio=2 从 cache.m6g.large 往下要求候选 >= 3.19 GiB，
+    # 而下一档只有 3.09 GiB —— 差 3%，永久挡死。实测按比值地板筛，
+    # conservative 下 11 个复制组全部选不出目标、合计 $0，且失败原因会被写成
+    # 「装不下」而真正的约束是降幅地板，诊断信息指向错误方向。
+    #
+    # 那道地板的立论（`mem_used_percent` 不含可回收 page cache、会压低内存 p95）
+    # 在这里也不成立 —— DatabaseMemoryUsagePercentage 是相对 maxmemory 的
+    # 权威利用率，没有那个盲区，所以可以直接用利用率目标表达。
+    req = round(out["required_gib_usable"] / (t["target_mem_p95"] / 100.0), 3)
+    pick = _pick_managed_target(
+        res, t,
+        req_vcpu=max(1, _ceil_div(res["vcpu"] * cpu, t["target_cpu_p95"])),
+        mem_fit=lambda c: c["gib"] * (1 - reserved) >= req,
+        base=base or {})
+    if pick is None:
+        # 采集侧未升级（无 candidates）：逐字保持改动前行为
+        return _verdict(
+            out, "downsize-candidate",
+            f"候选 node type 扣掉 reserved-memory-percent "
+            f"{reserved * 100:.0f}% 后的可用内存须 >= {req} GiB"
+            f"（当前已用可用内存 {out['required_gib_usable']} GiB 按目标利用率 "
+            f"{t['target_mem_p95']}% 反推）",
+            "不产出减副本/减 shard 建议（降可用性等级 / 需数据重分布）",
+            _FIT_UNVERIFIED)
+    if pick["empty_reason"]:
+        _verdict(out, "已合理配置", pick["empty_reason"])
+        return out
+    _apply_managed_pick(out, res, pick, base or {})
+    _managed_deep_note(out, res, pick, usable_ratio=1 - reserved)
     return _verdict(
         out, "downsize-candidate",
-        f"候选 node type 扣掉 reserved-memory-percent "
-        f"{reserved * 100:.0f}% 后的可用内存须 >= "
-        f"{out['required_gib_usable']} GiB"
-        f"（该值＝当前节点已用的可用内存，未含增长余量）",
-        "不产出减副本/减 shard 建议（降可用性等级 / 需数据重分布）",
-        _FIT_UNVERIFIED)
+        f"目标 node type 为本 skill 初选：扣掉 reserved-memory-percent "
+        f"{reserved * 100:.0f}% 后的可用内存须 >= {req} GiB"
+        f"（当前已用可用内存 {out['required_gib_usable']} GiB 按目标利用率 "
+        f"{t['target_mem_p95']}% 反推）。须人工确认变更窗口与回滚预案",
+        "不产出减副本/减 shard 建议（降可用性等级 / 需数据重分布）")
 
 
-def eval_msk(res, t):
+def eval_msk(res, t, base=None):
     """MSK 判据。CPU 用 metric math 的 CpuUser+CpuSystem 逐点相加。
 
     刻度陷阱（同 namespace 内不统一，实测）：
         KafkaDataLogsDiskUsed        0-100
         RequestHandlerAvgIdlePercent 0-1     ← 判据写 >70% 会永不成立
     """
-    out = {"rid": res["rid"], "service": "msk", "cur": res["type"], "blockers": []}
+    out = {"rid": res["rid"], "service": "msk", "cur": res["type"],
+           "blockers": [], "nonburst": None, "burst": None,
+           "required_vcpu": None, "required_gib": None}
     _coverage_note(out, res)
     urp_persist, urp_max = _persistent(res, "under_replicated_p95",
                                        "under_replicated_max")
@@ -1155,7 +1230,7 @@ def dispatch(res, ctx):
                              f"{'点数未知' if n is None else '0 点'}"
                              f"（门限 {floor_pts}），p95 无从计算，"
                              f"不产出任何建议"]}
-    out = MANAGED_EVALUATORS[svc](res, t)
+    out = MANAGED_EVALUATORS[svc](res, t, ctx.get("baseline_pct") or {})
     if n < floor_pts:
         out["confidence"] = "low"
         out.setdefault("blockers", []).append(

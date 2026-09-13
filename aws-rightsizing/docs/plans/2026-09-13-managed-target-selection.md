@@ -29,7 +29,7 @@
 | 文件 | 职责 |
 |---|---|
 | `references/core.py` | 新增 `_managed_ec2_name()` / `_managed_baseline()` / `_pick_managed_target()` / `_apply_managed_pick()` 四个 helper；三个 evaluator 接选型；`eval_rds` 分支重排 + 三个新出口 |
-| `references/thresholds.json` | 新增 `managed_mem_headroom`、`rds_storage_days_floor` |
+| `references/thresholds.json` | 新增 `rds_storage_days_floor`（唯一新增阈值；`managed_mem_headroom` 实现期作废，改用已有 `target_mem_p95` 反推） |
 | `references/rds-pi-unsupported.json` | 新建。PI 不支持的实例类列表 + 来源 URL + 复查方式 |
 | `tests/test_managed_target_selection.py` | 新建。选型正确性、fit 边界、候选池为空的五种成因、向后兼容 |
 | `tests/test_rds_criteria.py` | 新建。CPU 第二判据、`_persistent` 峰值项、三个新出口、分支保序、`FreeStorageSpace`、峰值反转校验 |
@@ -354,226 +354,102 @@ sentence for all five, and that sentence is wrong for three of them."
 
 ---
 
-### Task 2: `eval_elasticache` 接选型 + `managed_mem_headroom`
+### Task 2: `eval_elasticache` 接选型（内存下限由 `target_mem_p95` 反推）
+
+> **实现期偏离本计划初稿。** 初稿新增阈值 `managed_mem_headroom`
+> （ag 1.5 / co 2.0）作乘性余量，被两条既有守卫测试各否掉一半：
+> `test_required_gib_usable_is_actually_usable_memory` 锁死「键名说 usable，
+> 值就必须是可用内存口径」，乘上余量后不是；
+> `test_distinctive_threshold_values_not_restated_in_prose` 报出值 `2.0`
+> 与散文里满篇的「§2.0」冲突（11 处命中）。
+> 改用已有的 `target_mem_p95` 反推后两条都自然满足，**且不新增任何阈值**。
+> 「深度降配」护栏同样改了：初稿「距当前 >= 4 档」在 ElastiCache 上永不触发
+> （同架构更便宜的候选只有 3 档），改判「落在同架构阶梯最底档」。
 
 **Files:**
-- Modify: `references/core.py:681-807`（`eval_elasticache`）
-- Modify: `references/thresholds.json`
-- Modify: `references/core.py`（`MANAGED_EVALUATORS` 调用点，加 `base` 形参）
+- Modify: `references/core.py`（`eval_elasticache`；`MANAGED_EVALUATORS` 调用点加 `base`）
 - Test: `tests/test_managed_target_selection.py`
 
 **Interfaces:**
-- Consumes: `_pick_managed_target` / `_apply_managed_pick`（Task 1）
-- Produces: `eval_elasticache(res, t, base=None)`；`out["required_gib_usable"]` 语义不变但新增 headroom 因子
+- Consumes: `_pick_managed_target` / `_apply_managed_pick` / `_cheaper_exists` /
+  `_managed_deep_note`（Task 1）
+- Produces: `eval_elasticache(res, t, base=None)`；`out["required_gib_usable"]`
+  口径**不变**（纯已用可用内存）
 
-- [ ] **Step 1: 写失败测试 —— headroom 取代内存降幅地板**
-
-```python
-EC_CANDS = [
-    {"t": "cache.t4g.micro",  "usd": 0.0270, "vcpu": 2, "gib": 0.50, "arch": "arm64", "burst": True},
-    {"t": "cache.t4g.small",  "usd": 0.0520, "vcpu": 2, "gib": 1.37, "arch": "arm64", "burst": True},
-    {"t": "cache.t4g.medium", "usd": 0.1050, "vcpu": 2, "gib": 3.09, "arch": "arm64", "burst": True},
-    {"t": "cache.m5.large",   "usd": 0.2130, "vcpu": 2, "gib": 6.38, "arch": "x86_64", "burst": False},
-]
-EC_BASE = {"t4g.micro": 0.10, "t4g.small": 0.20, "t4g.medium": 0.20}
-
-
-def _ec(**kw):
-    r = {"rid": "redis-test-01", "service": "elasticache", "engine": "redis",
-         "type": "cache.m6g.large", "vcpu": 2, "mem_gib": 6.38,
-         "cur_usd": 0.2030, "arch": "arm64", "count": 3,
-         "has_replica": True, "evictions_sum": 0, "evictions_p95": 0,
-         "repl_lag_p95": 0.001, "repl_lag_max": 0.0,
-         "engine_cpu_p95": 0.231, "db_mem_used_pct_max": 6.54,
-         "candidates": EC_CANDS}
-    r.update(kw)
-    return r
-
-
-def test_elasticache_ladder_step_is_not_blocked_by_a_ratio_floor():
-    """P8：ElastiCache 内存阶梯相邻档比值 2.74/2.26/2.07 全部 >2。
-
-    把 EC2 的 max_mem_reduction_ratio=2 原样搬过来，conservative 下从
-    cache.m6g.large(6.38) 往下要求候选 >= 3.19 GiB，而下一档
-    cache.t4g.medium 只有 3.09 GiB —— 差 3%，永久挡死。实测该做法下
-    conservative 的 11 个复制组全部选不出目标，合计 $0。
-    """
-    for profile in ("aggressive", "conservative"):
-        out = core.eval_elasticache(_ec(), core.load_thresholds(profile), EC_BASE)
-        assert out["verdict"] == "downsize-candidate", profile
-        assert out["burst"] is not None, profile
-
-
-def test_elasticache_headroom_multiplier_differs_by_profile():
-    # 实占可用内存 = 6.38 x 0.75 x 6.54/100 = 0.3129 GiB
-    ag = core.eval_elasticache(_ec(), core.load_thresholds("aggressive"), EC_BASE)
-    co = core.eval_elasticache(_ec(), core.load_thresholds("conservative"), EC_BASE)
-    assert round(ag["required_gib_usable"], 3) == 0.469   # x1.5
-    assert round(co["required_gib_usable"], 3) == 0.625   # x2.0
-    # 两档都只有 cache.t4g.small(1.028 可用) 起装得下，t4g.micro(0.375) 装不下
-    assert ag["burst"]["t"] == "cache.t4g.small"
-    assert co["burst"]["t"] == "cache.t4g.small"
-
-
-def test_elasticache_savings_multiplied_by_node_count():
-    out = core.eval_elasticache(_ec(), core.load_thresholds("aggressive"), EC_BASE)
-    assert out["b_save_mo"] == round((0.2030 - 0.0520) * 730 * 3, 2)   # 330.69
-```
+- [ ] **Step 1: 写失败测试**（见 `tests/test_managed_target_selection.py` 的
+  `test_elasticache_*` 与 `test_bottom_of_ladder_forces_low_confidence` 五条）
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `python -m pytest tests/test_managed_target_selection.py -x -q -k elasticache`
+Run: `uvx --from pytest pytest tests/test_managed_target_selection.py -q -k elasticache`
 Expected: FAIL — `eval_elasticache() takes 2 positional arguments but 3 were given`
 
-- [ ] **Step 3: 加阈值**
-
-`references/thresholds.json` 的两个 profile 各加一行：
-
-```json
-"managed_mem_headroom": 1.5
-```
-（aggressive）
-```json
-"managed_mem_headroom": 2.0
-```
-（conservative）
-
-- [ ] **Step 4: 改 `eval_elasticache` 与 dispatch**
-
-`references/core.py`：
-
-1. 签名改 `def eval_elasticache(res, t, base=None):`（同样给 `eval_rds` / `eval_msk` 加 `base=None`，本任务先改这一个，另两个在 Task 3/4）。默认 `None` 是为了不破坏既有直接调用方。
-2. `required_gib_usable` 乘上 headroom：
+- [ ] **Step 3: 三个 evaluator 签名加 `base=None`，`dispatch()` 传 baseline**
 
 ```python
-    # DatabaseMemoryUsagePercentage 是 maxmemory（可用内存 = 节点内存 x
-    # (1-reserved)）的百分比。乘 managed_mem_headroom 得到候选须满足的下限。
-    #
-    # **为什么这里能用显式余量、而 EC2 侧要用降幅地板**：那道地板的立论是
-    # `mem_used_percent` 不含可回收 page cache、会把内存 p95 压低，所以只能
-    # 用一个粗糙的比值兜住。ElastiCache 这条不成立 ——
-    # DatabaseMemoryUsagePercentage 是相对 maxmemory 的权威利用率，没有那个
-    # 盲区，可以直接表达余量。且它真正随 profile 变化，不是孤儿键式假承诺。
-    used_usable = res["mem_gib"] * (1 - reserved) * memp / 100.0
-    out["required_gib_usable"] = round(used_usable * t["managed_mem_headroom"], 3)
+def eval_rds(res, t, base=None):
+def eval_elasticache(res, t, base=None):
+def eval_msk(res, t, base=None):
+```
+```python
+    out = MANAGED_EVALUATORS[svc](res, t, ctx.get("baseline_pct") or {})
 ```
 
-3. 末尾的 `downsize-candidate` 出口改为先选型：
+默认 `None` 是为了不破坏既有直接调用方（`tests/test_fail_closed_contracts.py`
+用两参调用）。三个 evaluator 的 `out` 初始化同时补上目标列，
+否则未升级路径上 `out["nonburst"]` 会 `KeyError`：
 
 ```python
-    req = out["required_gib_usable"]
+    out = {"rid": res["rid"], "service": "elasticache", "cur": res["type"],
+           "blockers": [], "nonburst": None, "burst": None,
+           "required_vcpu": None, "required_gib": None}
+```
+
+- [ ] **Step 4: `cheaper` 读取改走 `_cheaper_exists()`，候选池为空改报具体成因**
+
+```python
+    cheaper = _cheaper_exists(res)
+    if cheaper is None:
+        _verdict(out, "metric-missing",
+                 "cheaper_candidate_exists 缺失，无法确认是否存在"
+                 "更便宜的同形态候选（不得假定存在）")
+        return out
+    if not cheaper:
+        _verdict(out, "已合理配置", _EMPTY_NO_CHEAPER)
+        return out
+```
+
+- [ ] **Step 5: 内存下限按 `target_mem_p95` 反推并接选型**
+
+```python
+    req = round(out["required_gib_usable"] / (t["target_mem_p95"] / 100.0), 3)
     pick = _pick_managed_target(
         res, t,
         req_vcpu=max(1, _ceil_div(res["vcpu"] * cpu, t["target_cpu_p95"])),
         mem_fit=lambda c: c["gib"] * (1 - reserved) >= req,
         base=base or {})
     if pick is None:
-        # 采集侧未升级：逐字保持改动前行为
-        return _verdict(
-            out, "downsize-candidate",
-            f"候选 node type 扣掉 reserved-memory-percent "
-            f"{reserved * 100:.0f}% 后的可用内存须 >= {req} GiB"
-            f"（该值＝当前节点已用的可用内存 x "
-            f"{t['managed_mem_headroom']} 倍增长余量）",
-            "不产出减副本/减 shard 建议（降可用性等级 / 需数据重分布）",
-            _FIT_UNVERIFIED)
-    if not pick["cheaper_exists"] or pick["empty_reason"]:
-        return _verdict(out, "已合理配置", pick["empty_reason"])
+        return _verdict(out, "downsize-candidate", <旧文案 + req>, ..., _FIT_UNVERIFIED)
+    if pick["empty_reason"]:
+        _verdict(out, "已合理配置", pick["empty_reason"])
+        return out
     _apply_managed_pick(out, res, pick, base or {})
-    return _verdict(
-        out, "downsize-candidate",
-        f"目标 node type 为本 skill 初选（可用内存须 >= {req} GiB = 当前已用 "
-        f"{round(used_usable, 3)} GiB x {t['managed_mem_headroom']} 倍余量），"
-        f"须人工确认变更窗口与回滚预案",
-        "不产出减副本/减 shard 建议（降可用性等级 / 需数据重分布）")
+    _managed_deep_note(out, res, pick, usable_ratio=1 - reserved)
+    return _verdict(out, "downsize-candidate", <初选文案>,
+                    "不产出减副本/减 shard 建议（降可用性等级 / 需数据重分布）")
 ```
 
-4. `dispatch()` 里的调用改为传 baseline：
+- [ ] **Step 6: 跑全套，确认 EC2 基线逐分不变**
 
-```python
-    out = MANAGED_EVALUATORS[svc](res, t, ctx.get("baseline_pct") or {})
-```
+Run: `uvx --from pytest pytest tests/ -q`
+然后 `git stash` 前后各跑 `tests/test_regression_fleet.py` 对比。
 
-5. 把 `cheaper_candidate_exists` 的读取改为「`candidates` 优先」。在 `eval_elasticache` 原先那段：
-
-```python
-    # candidates 存在时以派生值为准，消掉一个重复真值源；缺失才读采集侧布尔值。
-    cheaper = res.get("cheaper_candidate_exists")
-    if res.get("candidates") is not None:
-        cheaper = any(c["usd"] < (res.get("cur_usd") or 0)
-                      for c in res["candidates"])
-    if cheaper is None:
-        ...
-```
-
-- [ ] **Step 5: 跑测试确认通过**
-
-Run: `python -m pytest tests/test_managed_target_selection.py -q`
-Expected: PASS
-
-- [ ] **Step 6: 补「降幅超 4 档强制 low」测试**
-
-```python
-def test_deep_downgrade_forces_low_confidence():
-    """redis-infra-01 实测：实占 0.013 GiB ⇒ 目标 cache.t4g.micro。
-
-    倍数余量 19x 但绝对量只有 0.375 GiB 可用 —— 乘性余量在极小基数上
-    会给出激进目标，必须降置信度并写明绝对量风险。
-    """
-    out = core.eval_elasticache(
-        _ec(db_mem_used_pct_max=0.28), core.load_thresholds("aggressive"), EC_BASE)
-    assert out["burst"]["t"] == "cache.t4g.micro"
-    assert out["confidence"] == "low"
-    assert any("绝对内存量极小" in b for b in out["blockers"])
-```
-
-实现（加在 `_apply_managed_pick` 之后的 `eval_elasticache` 出口前）：
-
-```python
-    # 乘性余量在极小基数上会给出激进目标：实测一个复制组实占 0.013 GiB，
-    # x1.5 得 0.020 GiB，于是从 6.38 GiB 一路选到 0.5 GiB 节点。倍数上余量
-    # 19x，绝对量只有 0.375 GiB 可用 —— 任何数据量增长都会立刻淘汰键。
-    _MANAGED_DEEP_STEPS = 4
-    steps = sum(1 for c in res["candidates"]
-                if c["usd"] < res["cur_usd"] and c.get("arch") == res.get("arch"))
-    chosen = pick["burst"] or pick["nonburst"]
-    rank = sorted((c["usd"] for c in res["candidates"]
-                   if c.get("arch") == res.get("arch")))
-    if steps >= _MANAGED_DEEP_STEPS and rank.index(chosen["usd"]) <= 1:
-        out["confidence"] = "low"
-        out["blockers"].append(
-            f"目标 {chosen['t']} 距当前规格 {steps} 档以上，绝对内存量极小"
-            f"（可用 {round(chosen['gib'] * (1 - reserved), 3)} GiB）——"
-            f"任何数据量增长都会立刻淘汰键 / OOM，须人工按业务增长预期复核")
-```
-
-`_MANAGED_DEEP_STEPS = 4` 提到模块级常量，与 `VETO_TOLERANCE_PCT` 同处，
-并在注释里写明「不进 thresholds.json：它是可读性护栏而非利用率策略」。
-
-- [ ] **Step 7: 跑全套**
-
-Run: `python -m pytest tests/ -q`
-Expected: 全绿，EC2 基线不变
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add references/core.py references/thresholds.json tests/test_managed_target_selection.py
-git commit -m "feat(aws-rightsizing): eval_elasticache picks a target node type
-
-Replaces the memory reduction-ratio floor with an explicit growth
-headroom. The floor is structurally unsatisfiable here: adjacent
-ElastiCache memory steps are 2.74x/2.26x/2.07x apart, so
-max_mem_reduction_ratio=2 blocks even a single step down, and all 11
-replication groups in the validation fleet came out at \$0 under
-conservative.
-
-The floor exists because EC2's mem_used_percent omits reclaimable page
-cache. DatabaseMemoryUsagePercentage has no such blind spot, so headroom
-can be stated directly."
+git add references/core.py tests/test_managed_target_selection.py
+git commit -m "feat(aws-rightsizing): eval_elasticache picks a target node type"
 ```
-
----
 
 ### Task 3: `eval_msk` 接选型
 
@@ -1441,7 +1317,8 @@ in one number permanently."
 - Modify: `tests/test_no_duplicated_constants.py`
 
 **Interfaces:**
-- Consumes: `managed_mem_headroom`（Task 2）、`load_pi_unsupported`（Task 4）
+- Consumes: `load_pi_unsupported`（Task 4）。`managed_mem_headroom` 实现期作废，
+  本轮只有一个新真值源需要守卫
 - Produces: 无（守卫测试）
 
 - [ ] **Step 1: 读现有约定**
@@ -1451,16 +1328,6 @@ Run: `sed -n '1,50p' tests/test_no_duplicated_constants.py`
 - [ ] **Step 2: 写失败测试**
 
 ```python
-def test_managed_mem_headroom_has_no_hardcoded_twin():
-    """1.5 / 2.0 只能来自 thresholds.json。写死在 core.py 就等于第二个真值源
-    —— 调低阈值后报告仍会向客户断言旧余量。"""
-    src = (ROOT / "references" / "core.py").read_text(encoding="utf-8")
-    assert "managed_mem_headroom" in src
-    body = "\n".join(l for l in src.splitlines()
-                     if "managed_mem_headroom" not in l and not l.strip().startswith("#"))
-    assert " * 1.5" not in body and " * 2.0" not in body
-
-
 def test_pi_unsupported_list_lives_in_exactly_one_file():
     src = (ROOT / "references" / "core.py").read_text(encoding="utf-8")
     for cls in ("db.t4g.micro", "db.t4g.small", "db.t3.micro", "db.t3.small",
@@ -1572,9 +1439,9 @@ git commit -m "test(aws-rightsizing): guard the two new sources of truth"
 
 - [ ] **Step 6: `thresholds.md` 加两个阈值的标定段**
 
-`managed_mem_headroom`：写明它取代 `max_mem_reduction_ratio` 在托管内存轴上的
-职责，附 ElastiCache 阶梯比值表（2.74 / 2.26 / 2.07）与「conservative 下
-11 组全部 $0」的实测结论。
+ElastiCache 内存轴：写明 `target_mem_p95` 反推取代 `max_mem_reduction_ratio` 的
+职责，附阶梯比值表（2.74 / 2.26 / 2.07）与「按比值地板筛，conservative 下
+11 组全部 $0」的实测结论。**不新增阈值。**
 
 `rds_storage_days_floor`：写明两个 profile 同值的理由（运维安全边界而非
 利用率策略），以及为什么仍要在两个 profile 都写（`load_thresholds` 按 profile
@@ -1703,7 +1570,7 @@ git commit -m "docs(aws-rightsizing): record the managed-target replay gate"
 | P5 / C5-2、C5-3 两个新 upsize 出口 | Task 4 |
 | P6 / C6 `FreeStorageSpace` | Task 5 |
 | P7 / C6 峰值反转校验 | Task 6 |
-| P8 / C2 `managed_mem_headroom` | Task 2 |
+| P8 / C2 内存下限改由 `target_mem_p95` 反推 | Task 2 |
 | P9 / C4 RDS 峰值项走 `_persistent` | Task 4 |
 | C3 候选池为空的五种成因 | Task 1 Step 5 |
 | C7 PI 不支持列表 + baseline 反推 | Task 4 Step 3、Task 1 Step 6、Task 8 |
@@ -1735,5 +1602,5 @@ git commit -m "docs(aws-rightsizing): record the managed-target replay gate"
   `storage_free_min_gib` / `storage_free_first_gib` / `storage_free_last_gib`、
   `pi_enabled`、`cur_usd`、`count`、`arch`、`candidates` —— Task 4/5/6 的测试与
   Task 9 的字段表一致。
-- 阈值键：`managed_mem_headroom`、`rds_storage_days_floor` —— Task 2/5/8 一致。
-- 常量：`_MANAGED_DEEP_STEPS`、`DBLOAD_MINUTE_SAMPLES` —— 各只出现一次定义。
+- 阈值键：`rds_storage_days_floor` —— Task 5/8 一致。`managed_mem_headroom` 实现期作废。
+- 常量：`DBLOAD_MINUTE_SAMPLES` 只出现一次定义。`_MANAGED_DEEP_STEPS` 实现期作废（护栏改判「落在阶梯最底档」，无阈值）。

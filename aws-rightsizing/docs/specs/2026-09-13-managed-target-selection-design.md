@@ -284,20 +284,28 @@ req_gib  = (cur_mem_gib − freeable_mem_min_gib) / (1 − rds_freeable_mem_floo
 **ElastiCache**
 
 ```
-req_usable = cur_mem_gib × (1 − reserved) × db_mem_used_pct_max/100
-             × managed_mem_headroom
+used_usable = cur_mem_gib × (1 − reserved) × db_mem_used_pct_max/100   # required_gib_usable，口径不变
+req_usable  = used_usable / (target_mem_p95 / 100)
 候选可用内存 = cand_mem_gib × (1 − reserved) ≥ req_usable
-req_vcpu = max(1, ceil(cur_vcpu × engine_cpu_p95 / target_cpu_p95))
+req_vcpu    = max(1, ceil(cur_vcpu × engine_cpu_p95 / target_cpu_p95))
 ```
 
-`managed_mem_headroom` 是本轮唯一新增阈值（aggressive 1.5 / conservative 2.0）。
+**本轮不新增任何阈值。** 候选下限由已有的 `target_mem_p95` 反推，语义是
+「降配后内存利用率不超过本 profile 已声明的目标」，形式与 EC2 侧 `_required`
+的内存项逐字一致（`ceil(cur_gib × sus_mem / target_mem_p95)`）。
 
-它替代 P8 那道不可满足的内存降幅地板。**为什么可以换**：那道地板是
-「保留余量」的代理量，而这里可以直接表达余量 —— `DatabaseMemoryUsagePercentage`
-是相对 `maxmemory` 的权威利用率，不存在 EC2 侧 `mem_used_percent`
-「不含可回收 page cache」的盲区（那正是当初设内存地板的立论）。
-且它**是真正随 profile 变化的量**，放进 `thresholds.json` 不构成
-`test_no_duplicated_constants.py` 要防的那种孤儿键式假承诺。
+它替代 P8 那道不可满足的内存降幅地板。**为什么可以换**：那道地板的立论是
+`mem_used_percent` 不含可回收 page cache、会把内存 p95 压低，所以只能用一个
+粗糙的比值兜住。ElastiCache 这条不成立 —— `DatabaseMemoryUsagePercentage`
+是相对 `maxmemory` 的权威利用率，没有那个盲区，可以直接用利用率目标表达。
+
+**实现期作废的第一版**：先写的是新增 `managed_mem_headroom`（aggressive 1.5 /
+conservative 2.0）作乘性余量。两条既有守卫测试各否掉它一半 ——
+`test_required_gib_usable_is_actually_usable_memory` 锁死「键名说 usable，
+值就必须是可用内存口径」，而乘上余量后不是；
+`test_distinctive_threshold_values_not_restated_in_prose` 报出值 `2.0` 与散文里
+满篇的「§2.0」冲突（11 处命中）。改用 `target_mem_p95` 反推后两条都自然满足，
+且少一个阈值。**这两条守卫测试比我先写的设计更对。**
 
 CPU 侧的 `max_reduction_ratio` **保留**：vCPU 阶梯是干净的 2 倍，比值表达等价于档数。
 
@@ -463,10 +471,16 @@ dbload_max_p95 / rds_dbload_ratio > cur_vcpu
   `dispatch()` 现行逻辑）。**永不 `high`** —— 适配校验建在观测稳态上，
   不含业务增长输入，而 `high` 在 EC2 侧的含义是「CPU 与内存两轴都有实测数据」，
   语义不同，不可套用。
-- 降幅超过 4 档 ⇒ 强制 `confidence = low` + blocker
-  「绝对内存量极小，任何数据量增长都会立刻淘汰键 / OOM」。
+- **目标落在同架构价目阶梯最底档** ⇒ 强制 `confidence = low` + blocker
+  「绝对量极小，且触底后估错了没有退路（不能再降，任何增长只能升配）」。
   实测触发行：`redis-infra-01` 实占 0.013 GiB ⇒ 目标 `cache.t4g.micro`
   （0.375 GiB 可用），倍数余量 19x 但绝对量只有 0.375 GiB。
+
+  **实现期作废的第一版**：先写的是「距当前规格 ≥ 4 档」。实测在 ElastiCache 上
+  **永不触发** —— 同架构比 `cache.m6g.large` 便宜的候选总共只有 3 档
+  （`t4g.micro` / `t4g.small` / `t4g.medium`），阈值取 4 等于把护栏关掉，
+  取 3 又是为这条阶梯挑的数、换 region 或服务即失效。
+  「落在最底档」是结构性属性而非调出来的数。
 
 **PI 不支持的实例类**：当前实例 `pi_enabled = true` 时，从候选池中**硬排除**
 `db.t2.micro` / `db.t2.small` / `db.t3.micro` / `db.t3.small` /
@@ -502,13 +516,13 @@ dbload_max_p95 / rds_dbload_ratio > cur_vcpu
 | 文件 | 改动 |
 |---|---|
 | `references/core.py` | 新增 `_pick_managed_target()`；三个 evaluator 接候选池并选型；RDS 加 CPU 轴与两个 upsize 出口、`FreeStorageSpace` 判据、跨 stat 校验；删 `_FIT_UNVERIFIED`；`eval_rds` 分支重排（FreeableMemory 前移到 `cheaper` 之前） |
-| `references/thresholds.json` | 新增 `managed_mem_headroom`（ag 1.5 / co 2.0）、`rds_storage_days_floor` |
+| `references/thresholds.json` | 新增 `rds_storage_days_floor`（唯一新增阈值；`managed_mem_headroom` 实现期作废，见 C2） |
 | `references/rds-pi-unsupported.json` | 新建：PI 不支持的实例类列表 + 来源 URL |
 | `references/cli-recipes.md` | 托管行组装加 `candidates` / `pi_enabled` / CPU 与 FreeStorageSpace 字段；`arch` 查法（只查 arch 不查 memory 的告警） |
 | `references/sample-solve.md` | 字段契约表；修掉「`dbload_p95` 缺失 ⇒ `metric-missing`」与 `sample_n` 行 CPUUtilization 兜底承诺的自相矛盾 |
 | `references/report-template.md` | 托管小节加目标列；删「托管节省结构性不进头条」那段裁定，改为进路线一/二并要求 confidence breakout |
 | `references/metrics-catalog.md` | `DBLoad` 行补 StatisticSet 稀释说明与跨 stat 校验；`FreeStorageSpace` 行补消费者 |
-| `references/thresholds.md` | 两个新阈值的实测标定证据；`managed_mem_headroom` 取代内存降幅地板的立论 |
+| `references/thresholds.md` | `rds_storage_days_floor` 的标定证据；ElastiCache 内存轴改用 `target_mem_p95` 反推、取代内存降幅地板的立论 |
 | `SKILL.md` | 托管服务小节：从「不自选目标」改为「初选目标 + 人工审核」；硬约束清单不变 |
 | `tests/` | 见下 |
 
@@ -523,11 +537,17 @@ dbload_max_p95 / rds_dbload_ratio > cur_vcpu
 - 两个新 upsize 出口；`eval_rds` 分支重排后的逐出口 blocker 保序
   （`_verdict()` 覆盖坑已踩过三次，新出口必须逐个验）
 - `baseline-pct.json` 反推校验，含不符时 burst 列 fail-closed
-- `managed_mem_headroom` 与 PI 列表纳入 `test_no_duplicated_constants.py`
+- PI 不支持列表纳入 `test_no_duplicated_constants.py`（`managed_mem_headroom` 已作废，无需守卫）
 
-重算：`test_regression_fleet.py` 的 `EXPECTED` 基线。按仓库纪律，
-**旧值不删 + 写明成因 + 逐条对账**；本轮的判别式是「托管行 `nonburst`/`burst`
-不再为空」——不写清楚，下一个人会以为头条百分比的跳变是 bug。
+**`test_regression_fleet.py` 的 `EXPECTED` 基线一分不动。** 已核实
+`tests/fixtures/regression-fleet.json` 是 **EC2 独占的 13 行，零托管行**，
+而 `route1_nb` / `route2_max` 只对 `bucket == "downsize"` 的行求和 ——
+本轮不碰 EC2 路径，所以那两个数字必须**逐分不变**，任何变动都是回归。
+
+改为新增独立的托管回归 fixture（`tests/fixtures/regression-managed.json`）
+与独立 `EXPECTED`。两条基线分开的理由：EC2 基线的数字在仓库历史里带着
+「旧值不删 + 写明成因」的长注释链（`527.15` 那段），把托管金额并进去
+会让两类改动的成因永久纠缠在同一个数字上。
 
 ## 验证方式
 
