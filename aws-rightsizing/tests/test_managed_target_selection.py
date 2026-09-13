@@ -252,3 +252,69 @@ def test_bottom_of_ladder_forces_low_confidence():
     assert out["burst"]["t"] == "cache.t4g.micro"
     assert out["confidence"] == "low"
     assert any("最底档" in b for b in out["blockers"])
+
+
+# ----------------------------------------------------------------------- MSK
+# ap-east-1 非 Express broker 真实价目。kafka.m7g 是 Graviton3、kafka.t3 是 x86
+# —— 全区比 kafka.m7g.large 便宜的 broker 机型只有 kafka.t3.small 一个，
+# 而它跨架构，故 Graviton 集群一个目标都选不出。
+MSK_CANDS_ARM_FLEET = [
+    {"t": "kafka.t3.small", "usd": 0.0639, "vcpu": 2, "gib": 2.0,
+     "arch": "x86_64", "burst": True},
+]
+MSK_CANDS_X86 = [
+    {"t": "kafka.t3.small", "usd": 0.0639, "vcpu": 2, "gib": 2.0,
+     "arch": "x86_64", "burst": True},
+    {"t": "kafka.m5.large", "usd": 0.2100, "vcpu": 2, "gib": 8.0,
+     "arch": "x86_64", "burst": False},
+]
+
+
+def _msk(**kw):
+    r = {"rid": "msk-test-01", "service": "msk", "type": "kafka.m7g.large",
+         "vcpu": 2, "mem_gib": 8.0, "cur_usd": 0.2805, "arch": "arm64",
+         "count": 2, "under_replicated_p95": 0, "under_replicated_max": 0,
+         "disk_used_max": 18, "handler_idle_p95": 0.94, "cpu_total_p95": 15,
+         "cheaper_candidate_exists": True, "candidates": MSK_CANDS_ARM_FLEET}
+    r.update(kw)
+    return r
+
+
+def test_msk_graviton_cluster_reports_cross_arch_as_the_reason():
+    """实测：kafka.m7g.large 在 ap-east-1 的非 Express broker 价目里更便宜的
+    机型只有 kafka.t3.small，而它是 x86。8 个集群一个目标都选不出，但理由从
+    「同形态下没有更便宜的候选机型」变成可审计的具体成因。
+    """
+    out = core.eval_msk(_msk(), core.load_thresholds("aggressive"), {})
+    assert out["verdict"] == "已合理配置"
+    assert out["nonburst"] is None and out["burst"] is None
+    joined = " ".join(out["blockers"])
+    assert "kafka.t3.small(x86_64)" in joined
+    assert "硬约束禁止项" in joined
+
+
+def test_msk_at_price_floor_reports_no_cheaper_candidate():
+    out = core.eval_msk(
+        _msk(type="kafka.t3.small", cur_usd=0.0639, arch="x86_64", candidates=[]),
+        core.load_thresholds("aggressive"), {})
+    assert out["verdict"] == "已合理配置"
+    assert "价目地板" in " ".join(out["blockers"])
+
+
+def test_msk_picks_target_when_same_arch_cheaper_exists():
+    out = core.eval_msk(
+        _msk(type="kafka.m5.xlarge", cur_usd=0.4200, vcpu=4, mem_gib=16.0,
+             arch="x86_64", candidates=MSK_CANDS_X86),
+        core.load_thresholds("aggressive"), {})
+    assert out["verdict"] == "downsize-candidate"
+    assert out["nonburst"]["t"] == "kafka.m5.large"
+    assert out["nb_save_mo"] == round((0.4200 - 0.2100) * 730 * 2, 2)
+
+
+def test_msk_without_candidates_keeps_old_behaviour():
+    r = _msk()
+    del r["candidates"]
+    out = core.eval_msk(r, core.load_thresholds("aggressive"), {})
+    assert out["verdict"] == "downsize-candidate"
+    assert out["nonburst"] is None and out["burst"] is None
+    assert any("未经校验" in b for b in out["blockers"])

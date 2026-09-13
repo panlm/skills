@@ -1067,16 +1067,14 @@ def eval_msk(res, t, base=None):
     # 候选集为空 ⇒ 直接已合理配置，且早于所有前置指标要求。
     # 否则会让客户为一条不可能产出的建议去补指标、再等一个窗口。
     # 实测：kafka.t3.small 是两 region 最便宜的 broker 机型，次便宜的贵约 4.5 倍。
-    cheaper = res.get("cheaper_candidate_exists")
+    cheaper = _cheaper_exists(res)
     if cheaper is None:
         _verdict(out, "metric-missing",
                  "cheaper_candidate_exists 缺失，无法确认是否存在"
                              "更便宜的同形态候选（不得假定存在）")
         return out
     if not cheaper:
-        _verdict(out, "已合理配置",
-                 "同形态下没有更便宜的候选机型；"
-                             "补充指标或延长窗口都不会改变结论")
+        _verdict(out, "已合理配置", _EMPTY_NO_CHEAPER)
         return out
     disk, idle, cpu = (res.get("disk_used_max"), res.get("handler_idle_p95"),
                        res.get("cpu_total_p95"))
@@ -1099,11 +1097,32 @@ def eval_msk(res, t, base=None):
         _verdict(out, "已合理配置",
                  f"CpuUser+CpuSystem p95 {cpu}% >= {t['msk_target_cpu_p95']}%")
         return out
+    # MSK 无内存轴：AWS/Kafka 不发布 broker 内存利用率。存储也不参与候选筛选
+    # —— 卷大小与 broker 机型无关，msk_disk_used_max 是上面那条独立的
+    # 「已合理配置」出口，不是候选约束。
+    req_vcpu = max(1, _ceil_div(res["vcpu"] * cpu, t["msk_target_cpu_p95"])) \
+        if res.get("vcpu") else 1
+    pick = _pick_managed_target(res, t, req_vcpu, lambda c: True, base or {})
+    if pick is None:
+        # 采集侧未升级（无 candidates）：逐字保持改动前行为
+        return _verdict(
+            out, "downsize-candidate",
+            "存储只能扩不能缩 ⇒ 过度预配走 next-rebuild-only",
+            "不产出减 broker 数建议（需 partition 重分配，属架构级）",
+            _FIT_UNVERIFIED)
+    if pick["empty_reason"]:
+        _verdict(out, "已合理配置", pick["empty_reason"])
+        return out
+    out["required_vcpu"] = req_vcpu
+    _apply_managed_pick(out, res, pick, base or {})
+    _managed_deep_note(out, res, pick)
     return _verdict(
         out, "downsize-candidate",
+        f"目标 broker 机型为本 skill 初选（CpuUser+CpuSystem p95 {cpu}% ⇒ "
+        f"按目标 {t['msk_target_cpu_p95']}% 反推需 {req_vcpu} vCPU），"
+        f"须人工确认变更窗口与回滚预案",
         "存储只能扩不能缩 ⇒ 过度预配走 next-rebuild-only",
-        "不产出减 broker 数建议（需 partition 重分配，属架构级）",
-        _FIT_UNVERIFIED)
+        "不产出减 broker 数建议（需 partition 重分配，属架构级）")
 
 
 # ============================================================
