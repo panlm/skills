@@ -1520,8 +1520,11 @@ Expected（与 spec 的「本机队实测」表逐格一致）：
 | 断言 | 期望 |
 |---|---|
 | 12 RDS：选出目标 | 9 行 |
-| 12 RDS：`FreeableMemory` 越地板 ⇒ upsize | 2 行 |
+| RDS `verdict` 分布 | `downsize-candidate` 9 / `blocked` 2 / `upsize-candidate` 1 |
+| 12 RDS：存储触 0 ⇒ blocked | 1 行 |
+| 12 RDS：`FreeableMemory` 越地板 ⇒ blocked | 1 行 |
 | 12 RDS：CPU 持续超 ⇒ upsize | 1 行 |
+| 阶梯最底档告警命中 | 3 组（两 profile 同） |
 | RDS 路线一 / 路线二 | $261.34 / $875.27（两 profile 同值） |
 | 11 Redis：选出目标 | 5 组 |
 | 11 Redis：在价目地板 | 4 组 |
@@ -1529,7 +1532,7 @@ Expected（与 spec 的「本机队实测」表逐格一致）：
 | Redis 路线二 | ag $1,235.89 / co $1,158.51 |
 | 8 MSK：全部「同架构下更便宜候选数 0」且 blocker 指明成因 | 8 行 |
 | `FreeStorageSpace` 触 0 被报出 | 1 行（`db-sit-05`） |
-| `DBLoad` 峰值反转校验命中 | **2 行**（`db-uat-01` / `db-infra-01`），不是 9 行 |
+| `DBLoad` 峰值反转校验命中 | **4 行**（`db-uat-01` / `db-infra-01` / `db-sit-05` / `db-uat-04`），不是 9 行 |
 | 托管行 `confidence` 为 `high` | **0 行** |
 
 - [ ] **Step 3: 安全自检（三条 grep 照旧）**
