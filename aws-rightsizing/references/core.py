@@ -600,9 +600,10 @@ def _pick_managed_target(res, t, req_vcpu, mem_fit, base, exclude=frozenset()):
         return out
     # `exclude` 在**适配筛选之后**才应用，且 `excluded_best` 只取「本来装得下、
     # 只因排除才没选中」的那一个。放在筛选之前会量化一笔本来也拿不到的钱：
-    # 实测 req 1.765 GiB 时最便宜的被排除候选是 db.t4g.micro(1.0 GiB)，
-    # 它压根装不下，报「可额外省 $147.46」是误导；正确答案是
-    # db.t4g.small(2.0 GiB) 的 $127.02。
+    # 实测 req 1.765 GiB 时最便宜的被排除候选只有 1.0 GiB，压根装不下，
+    # 报它的差价 $147.46 是误导；正确答案是下一档 2.0 GiB 的 $127.02。
+    # （具体机型名不写在这里 —— 那份清单的唯一真值源是
+    #   rds-pi-unsupported.json，见 load_pi_unsupported 的 docstring。）
     excl = [c for c in fitting if c["t"] in exclude]
     if excl:
         out["excluded_best"] = min(excl, key=lambda c: c["usd"])

@@ -182,3 +182,35 @@ if __name__ == "__main__":
             failed += 1
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(failed)
+
+
+def test_pi_unsupported_list_lives_in_exactly_one_file():
+    """PI 不支持的实例类只能来自 rds-pi-unsupported.json。
+
+    写死在 core.py 里等于第二个真值源：AWS 扩了 PI 的支持范围后，
+    报告仍会向客户断言旧列表，并继续把本可选的更便宜机型排除在外。
+    """
+    data = json.loads((REF / "rds-pi-unsupported.json").read_text(encoding="utf-8"))
+    classes = data["classes"]
+    assert classes == sorted(classes), "列表须排序，便于 diff"
+    assert len(classes) == len(set(classes)), "列表有重复项"
+    assert data["_source"].startswith("https://"), "须留来源 URL"
+    for k in ("_recheck", "_why", "_scope"):
+        assert data[k].strip(), f"{k} 不得为空——这张表是人工维护的，须写清怎么复查"
+
+    src = (REF / "core.py").read_text(encoding="utf-8")
+    for cls in classes:
+        assert cls not in src, (
+            f"{cls} 硬编码进了 core.py；唯一真值源是 rds-pi-unsupported.json，"
+            f"读它用 load_pi_unsupported()")
+
+
+def test_pi_unsupported_list_is_not_restated_in_prose():
+    """散文里可以解释这条规则，但不得把类名清单再抄一份。"""
+    bad = []
+    data = json.loads((REF / "rds-pi-unsupported.json").read_text(encoding="utf-8"))
+    for name, i, line in _lines(prose_only=True):
+        hits = [c for c in data["classes"] if c in line]
+        if len(hits) >= 3:
+            bad.append(f"{name}:{i} 复述了 PI 不支持清单 {hits}: {line.strip()[:70]}")
+    assert not bad, "散文复述了 rds-pi-unsupported.json 的清单：\n" + "\n".join(bad)

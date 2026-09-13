@@ -461,8 +461,19 @@ dbload_max_p95 / rds_dbload_ratio > cur_vcpu
 `mean(Maximum) > 60 × mean(Average)`（否证 1 分钟发布周期）。
 实测 12 台命中 **9 台** —— 它测的是 PI 在这个 region 的发布语义，
 是**全机队一致的属性**，逐行报出只是噪声。而上面这条按「是否翻转结论」判，
-实测精确命中 **2 台**（`db-uat-01`：Maximum p95 2.0 ⇒ 需 4 vCPU > 2；
-`db-infra-01`：23.0 ⇒ 需 46 vCPU > 2），其余 10 台不触发。
+实测命中 **4 台**，其余 8 台不触发：
+
+| 实例 | Maximum p95 | / `rds_dbload_ratio` | 当前 vCPU | 触发 |
+|---|---:|---:|---:|:--:|
+| `db-uat-01` | 2.0 | 4 | 2 | ✓ |
+| `db-infra-01` | 23.0 | 46 | 2 | ✓ |
+| `db-sit-05` | 7.0 | 14 | 8 | ✓ |
+| `db-uat-04` | 7.0 | 14 | 8 | ✓ |
+| `db-sit-06` | 2.0 | 4 | 8 | — |
+| `db-sit-01` | 1.0 | 2 | 2 | —（不是 `>`） |
+
+后两台（`db-sit-05` / `db-uat-04`）最终是 `blocked`，注记仍然要留 ——
+阻断被解决后读者会回到这一行。
 
 `mean(Maximum) > 60 × mean(Average)` 这个观测仍然要留 —— 但作为
 **run 级注记**写进 `metric-validation.json`（"本次采集中 N/M 个 RDS 实例的
@@ -572,7 +583,7 @@ dbload_max_p95 / rds_dbload_ratio > cur_vcpu
    - 11 Redis 复制组：5 组选出目标；4 组在价目地板；2 组指标越目标
    - 8 MSK：全部「同架构下更便宜候选数 0」，且 blocker 指明成因
    - `db-sit-05` 的 `FreeStorageSpace` 触 0 被报出
-   - `DBLoad` 峰值反转校验**只命中 `db-uat-01` 与 `db-infra-01`**（不是 9 台）
+   - `DBLoad` 峰值反转校验命中 **4 台**（`db-uat-01` / `db-infra-01` / `db-sit-05` / `db-uat-04`），不是 9 台
    - `db-uat-05` 从「已合理配置」变为 `upsize-candidate`
 3. 头条金额与 §预期收益的表逐格对账。
 4. 安全自检：只读、无 `ce:*`、无 mutating 调用（三条 grep 照旧）。
