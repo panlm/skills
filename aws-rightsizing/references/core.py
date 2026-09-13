@@ -100,6 +100,15 @@ def _letters(itype):
     return m.group(1) if m else ""
 
 
+def _n(v):
+    """整数值不带小数点。采集侧的 vcpu 常是浮点（`4.0`），直接插进 blocker
+    会让客户读到「当前仅 4.0」。金额不走这里 —— 那些要保留两位小数。
+    """
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    return v
+
+
 def _ceil_div(numer, denom):
     return math.ceil(numer / denom)
 
@@ -876,7 +885,7 @@ def eval_rds(res, t, base=None):
     if rv_cpu_sus is not None and rv_cpu_sus > vcpu:
         _verdict(out, "upsize-candidate",
                  f"CPU 持续 p95 {sus_cpu}% ⇒ 按目标 {t['target_cpu_p95']}% "
-                 f"反推需 {rv_cpu_sus} vCPU，当前仅 {vcpu}。"
+                 f"反推需 {rv_cpu_sus} vCPU，当前仅 {_n(vcpu)}。"
                  f"本 skill 不产出升配目标机型——选型需容量规划输入"
                  f"（增长率 / SLA / 峰值形态）")
         return out
@@ -895,7 +904,7 @@ def eval_rds(res, t, base=None):
     else:
         if dbload >= vcpu:
             _verdict(out, "blocked",
-                     f"DBLoad p95 {dbload} >= vCPU {vcpu}，CPU 已是瓶颈")
+                     f"DBLoad p95 {dbload} >= vCPU {_n(vcpu)}，CPU 已是瓶颈")
             return out
         if dbload >= t["rds_dbload_ratio"] * vcpu:
             _verdict(out, "已合理配置",
@@ -917,7 +926,7 @@ def eval_rds(res, t, base=None):
                 f"DBLoad 两条序列跨度极大：Average p95 {dbload} 判为可降，而 "
                 f"Maximum 序列 p95 {dbl_max} 单独反推需 "
                 f"{max(1, _ceil_div(dbl_max, t['rds_dbload_ratio']))} vCPU"
-                f"（当前 {vcpu}）。降配前须在 Performance Insights 控制台核对 "
+                f"（当前 {_n(vcpu)}）。降配前须在 Performance Insights 控制台核对 "
                 f"Average Active Sessions 实际曲线 —— 本 skill 无法判定 Average "
                 f"是细粒度均值还是被 SampleCount 稀释，两者与观测同样自洽")
 

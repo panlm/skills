@@ -391,3 +391,15 @@ def test_memory_derivation_blocker_is_engine_neutral():
     assert "shared_buffers" in joined, "PostgreSQL 的参数名缺失"
     assert "innodb_buffer_pool_size" in joined
     assert "InnoDB buffer pool 会占满" not in joined, "文案仍假定 MySQL"
+
+
+def test_blocker_text_does_not_leak_float_vcpu():
+    """采集侧的 vcpu 常是浮点（`4.0`）。直接插进 blocker 会让客户读到
+    「当前仅 4.0」—— 重新生成报告时在真实数据上看到的。"""
+    out = core.eval_rds(
+        _rds(type="db.m6g.xlarge", vcpu=4.0, mem_gib=16.0, cur_usd=0.4600,
+             sus_cpu=69.64, peak_cpu_p95=71.09, dbload_p95=2.328,
+             dbload_max_p95=11.0, freeable_mem_min_gib=0.864), T_AG, BASE)
+    assert out["verdict"] == "upsize-candidate"
+    assert "当前仅 4。" in out["blockers"][0], out["blockers"][0]
+    assert "4.0" not in out["blockers"][0]
