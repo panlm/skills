@@ -716,6 +716,19 @@ def _persistent(res, p95_key, max_key):
 # 不放进 thresholds.json 的理由见 _persistent 的 docstring。
 VETO_TOLERANCE_PCT = 5
 
+# CloudWatch Period=3600 除以 PI 的标称 1 分钟发布周期。
+#
+# 只用于 run 级注记：`mean(Maximum) > 60 x mean(Average)` 否证「按 1 分钟发布」
+# 这个假设（60 个采样点下 max <= 60 x mean 是硬上界）。实测 12 台命中 9 台，
+# 且全部 12 台与 1 秒粒度（3600 点/小时）自洽 —— 所以「PI 按 1 秒发布」与
+# 「Average 被 SampleCount 稀释」两种解释与观测同样自洽，本 skill 判不了。
+# **逐行 blocker 不用这个判别式**：它测的是全机队一致的发布语义，逐行报是噪声。
+# 逐行用的是「峰值单独看是否翻转结论」，见 eval_rds 的 DBLoad 轴。
+#
+# 不进 thresholds.json：物理上界，不是可按 profile 调的策略量，
+# 与 VETO_TOLERANCE_PCT 同类。
+DBLOAD_MINUTE_SAMPLES = 60
+
 
 def _spike_note(label, mx, cause):
     return (f"{label} 持续值未越界，但窗口内曾达 {mx}（单次尖峰，"
@@ -889,6 +902,23 @@ def eval_rds(res, t, base=None):
                      f"vCPU({t['rds_dbload_ratio'] * vcpu})")
             return out
         rv_dbload = max(1, _ceil_div(dbload, t["rds_dbload_ratio"]))
+        # 峰值单独看就会翻转结论 ⇒ 报出来但**不改 verdict**。
+        # 哪条序列代表真实负载取决于 PI 的发布语义（见 DBLOAD_MINUTE_SAMPLES
+        # 的注释：1 秒粒度 vs SampleCount 稀释，两种解释与观测同样自洽），
+        # 本 skill 拿不到，拿不到就不能算。与 _coverage_note() 同一条纪律。
+        #
+        # 输入取 Maximum 序列的 **p95** 而不是 max —— 按单次尖峰否决正是
+        # _persistent() 明令反对的。
+        dbl_max = res.get("dbload_max_p95")
+        if dbl_max is not None and dbl_max / t["rds_dbload_ratio"] > vcpu:
+            out["confidence"] = "low"
+            out["blockers"].append(
+                f"DBLoad 两条序列跨度极大：Average p95 {dbload} 判为可降，而 "
+                f"Maximum 序列 p95 {dbl_max} 单独反推需 "
+                f"{max(1, _ceil_div(dbl_max, t['rds_dbload_ratio']))} vCPU"
+                f"（当前 {vcpu}）。降配前须在 Performance Insights 控制台核对 "
+                f"Average Active Sessions 实际曲线 —— 本 skill 无法判定 Average "
+                f"是细粒度均值还是被 SampleCount 稀释，两者与观测同样自洽")
 
     # ---- 候选池可行性探针。**必须早于所有剩余的 fail-closed** ----
     # 结构性不可能的两种情形（没有更便宜的候选、更便宜的全部跨架构）与任何

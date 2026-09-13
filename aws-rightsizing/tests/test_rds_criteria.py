@@ -326,3 +326,38 @@ def test_rds_storage_check_runs_after_the_pool_probe():
         _rds_storage(candidates=[], cheaper_candidate_exists=False,
                      storage_free_min_gib=0.0), T_AG, BASE)
     assert out["verdict"] == "已合理配置"
+
+
+# ------------------------------------------------- DBLoad 峰值反转校验
+
+def test_dbload_peak_reversal_fires_only_when_it_would_flip_the_verdict():
+    """P7：判据只读 Average 序列，而 Maximum 序列大出两到三个数量级。
+
+    先写的版本判「跨 stat 物理一致性」（mean(Maximum) > 60 x mean(Average)，
+    否证 1 分钟发布周期），实测 12 台命中 **9 台** —— 那测的是 PI 在本 region
+    的发布语义，是全机队一致的属性，逐行报出只是噪声。
+
+    改按「峰值单独看是否翻转结论」判：实测精确命中 2 台。
+    """
+    # db-infra-01：Maximum p95 = 23.0 ⇒ 23/0.5 = 46 vCPU > 2 ⇒ 触发
+    hit = core.eval_rds(_rds(sus_cpu=6.05, peak_cpu_p95=9.67,
+                             dbload_p95=0.186, dbload_max_p95=23.0,
+                             freeable_mem_min_gib=3.167), T_AG, BASE)
+    assert hit["confidence"] == "low"
+    assert any("Performance Insights 控制台" in b for b in hit["blockers"])
+    # db-sit-01：Maximum p95 = 1.0 ⇒ 1.0/0.5 = 2 vCPU，不超过 2 ⇒ 不触发
+    miss = core.eval_rds(_rds(), T_AG, BASE)
+    assert not any("Performance Insights 控制台" in b for b in miss["blockers"])
+    assert miss.get("confidence") is None
+    # db-sit-06：Maximum p95 = 2.0 但 8 vCPU ⇒ 4 <= 8 ⇒ 不触发
+    big = core.eval_rds(_rds(type="db.m6g.2xlarge", vcpu=8, mem_gib=32.0,
+                             cur_usd=0.9190, sus_cpu=0.90, peak_cpu_p95=1.63,
+                             dbload_p95=0.004, dbload_max_p95=2.0,
+                             freeable_mem_min_gib=13.6), T_AG, BASE)
+    assert not any("Performance Insights 控制台" in b for b in big["blockers"])
+
+
+def test_dbload_peak_reversal_absent_field_does_not_fire():
+    out = core.eval_rds(_rds(dbload_max_p95=None), T_AG, BASE)
+    assert out["verdict"] == "downsize-candidate"
+    assert not any("Performance Insights 控制台" in b for b in out["blockers"])
