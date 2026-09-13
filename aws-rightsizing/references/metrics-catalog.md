@@ -256,10 +256,10 @@ per-broker 的 CPU / 磁盘 / URP / 内存 / 吞吐全都有，**唯一缺的是
 
 | 指标 | stat | 用途 | 状态 |
 |---|---|---|---|
-| DBLoad | Average, Maximum | **第一判据** cpu_sustained | 已实测（**仅 PI 已开的实例有**） |
-| CPUUtilization | Average, Maximum | 次级判据 / PI 未开时的替代 | 已实测 |
+| DBLoad | Average, Maximum | **第一判据之一**（与 `CPUUtilization` **并行两轴**，`required_vcpu` 取两轴 max）。`Maximum` 序列的 `full-window` p95 另作**峰值反转校验**：`/ rds_dbload_ratio > vcpu` 时降 confidence 并要求人工去 PI 控制台核对，不改 verdict | 已实测（**仅 PI 已开的实例有**）。两条序列跨度实测 5x–1370x：12 台里 9 台的 `mean(Maximum) > 60 x mean(Average)`，这否证「按 1 分钟发布」；而全部 12 台与 1 秒粒度（3600 点/小时）自洽 ⇒ 「PI 按 1 秒发布」与「Average 被 SampleCount 稀释」两种解释同样成立，本 skill **判不了**，故只标注不改判 |
+| CPUUtilization | Average, Maximum | **并行第二判据**，PI 不可得时升为主判据（`eval_rds` 已实现，不再是承诺）。持续项取 `Average`/`biz-hours` 的 p95；峰值项取 `Maximum`/**`full-window`** 的 **`p95`**（**不是 `max`** —— 与 EC2 侧 `peak_cpu` 口径不同） | 已实测。按 `max` 判会被托管平面的维护动作污染：一台常态 4.00% 的库单峰 88.33%，反推需 3 vCPU 而它只有 2；12 台按 `max` 判，aggressive 只剩 2 台可降、conservative 0 台 |
 | FreeableMemory | Average, Maximum, **Minimum** | mem 反推 + **floor 阻断** | 已实测 |
-| FreeStorageSpace | Average, **Minimum** | 存储过配判据（桶 F） | 已实测 |
+| FreeStorageSpace | Average, **Minimum** | **容量耐久度判据**（`eval_rds`）：`Minimum` 最小值触 `0` ⇒ `blocked` 且文案明写「可用性事故而非成本项」；`Average` 首末差外推剩余天数 < `rds_storage_days_floor` ⇒ `blocked`。**外推不用 `Minimum`** —— 它含 binlog 轮转的锯齿，会把速率算成负数或虚高 | 已实测。本轮之前**采了三十天但全代码库零引用**：一台 400 GB gp3 的 `Minimum` 最小值 = 0.000 GB，而报告里唯一的结论是「FreeableMemory < 15%，降配会 OOM」 |
 | CPUCreditBalance | Average, **Minimum** | blocker：`full-window` 的 `min` 触底 ⇒ `upsize-candidate`。**仅 `db.t*` 发布**，非 burstable 缺失属「不适用」；**存在**则说明窗口内改过规格（实测两台 `db.m6g.xlarge` 有 178/720 的信用序列） | 已实测 |
 | CPUSurplusCreditsCharged | Maximum | **blocker，>0 = 规格已不足**；**仅 `db.t*` 发布**，非 burstable 缺失属"不适用"不是"缺失" | 已实测 |
 | DatabaseConnections | Average, Maximum | 负载画像 | 已实测 |
@@ -499,7 +499,7 @@ grep -nE '^\|' references/metrics-catalog.md | grep -E '\b(Sum|Average|Maximum|M
 | MSK `BytesInPerSec` / `BytesOutPerSec` | **速率** | Average, Maximum | ✅ **不要动**，`Sum` 无意义 |
 | MSK `CPUCreditUsage` | **计数类** | Average, Maximum | ⚠️ 同 EC2 那行，无判据消费 |
 | RDS `DBLoad` / `CPUUtilization` / `DatabaseConnections` | gauge | Average, Maximum | ✅ |
-| RDS `FreeableMemory` / `FreeStorageSpace` / `CPUCreditBalance` | gauge | 含 Minimum | ✅ 下限型判据，`CPUCreditBalance` **已有消费者** |
+| RDS `FreeableMemory` / `FreeStorageSpace` / `CPUCreditBalance` | gauge | 含 Minimum | ✅ 下限型判据，三者**都已有消费者** |
 | RDS `ReadIOPS` / `WriteIOPS` | **速率** | Average, Maximum | ✅ **不要动** |
 | EC `EngineCPUUtilization` / `DatabaseMemoryUsagePercentage` / `ReplicationLag` / `CurrConnections` / `CurrItems` | gauge | Average, Maximum（`ReplicationLag` 取 Maximum） | ✅ |
 | EC `BytesUsedForCache` | **gauge**（瞬时驻留字节） | Average, Maximum | ✅ **不要动**，跨小时求和没有指代 |

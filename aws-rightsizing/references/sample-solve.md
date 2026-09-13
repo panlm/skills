@@ -168,12 +168,24 @@ i-EX-05  verdict=insufficient-data  nb=-         save=-      missing=[]
 
 | 服务 | 字段 | 含义 | 缺失时 |
 |---|---|---|---|
-| 全部 | `sample_n` | **必填。** 该资源**主判据指标**在 biz-hours 档的有效点数：RDS 用 `DBLoad`（未开 PI 时用 `CPUUtilization`）、ElastiCache 用 `EngineCPUUtilization`、MSK 用 `CpuUser+CpuSystem` | `0` 或缺失 ⇒ `insufficient-data`。`0 < sample_n < min_biz_hours_points` ⇒ 照常跑完判据（**否决项照样报出**）并追加样本量 blocker；托管行不设 `confidence` |
+| 全部 | `sample_n` | **必填。** 该资源**主判据指标**在 biz-hours 档的有效点数：RDS 用 `DBLoad`（PI 不可得时用 `CPUUtilization`，两轴是并行关系，见下方 `dbload_p95` 行）、ElastiCache 用 `EngineCPUUtilization`、MSK 用 `CpuUser+CpuSystem` | `0` 或缺失 ⇒ `insufficient-data`。`0 < sample_n < min_biz_hours_points` ⇒ 照常跑完判据（**否决项照样报出**）并追加样本量 blocker；托管行不设 `confidence` |
 | 全部 | `service` | `rds` / `elasticache` / `msk` | **抛错** |
 | 全部 | `type` | 实例类 / node type / broker type 原文 | `KeyError` |
-| RDS / EC / MSK | `cheaper_candidate_exists` | **必填，三个托管服务都要。** 同形态下是否存在更便宜的机型。RDS 同引擎/同部署形态（不得跨引擎、不得改 Multi-AZ）、ElastiCache 同引擎（不得跨 CPU 架构）、MSK 同 broker 机型族系。由采集侧按取回的价目表判定。**仅按价格判定，不含规格适配校验**——该候选可能装不下当前需求，因此 `downsize-candidate` **不保证有钱可省**，`core.py` 会在 `blockers` 里标注适配性未校验（实测：一个 `cache.t4g.medium` 复制组此字段为 `true`，但内存已用到 maxmemory 的 59.24% ⇒ 需节点内存 ≥ 1.830 GiB，同架构下更便宜的两个候选 1.37 GiB 与 0.5 GiB 都装不下 ⇒ 实际可省 $0） | 缺失 ⇒ `metric-missing`（不得假定存在） |
+| RDS / EC / MSK | `cheaper_candidate_exists` | **兼容期字段。给了 `candidates` 就不再读它**（`core.py` 从候选列表派生，消掉一个重复真值源）。未升级采集侧时仍必填。 同形态下是否存在更便宜的机型。RDS 同引擎/同部署形态（不得跨引擎、不得改 Multi-AZ）、ElastiCache 同引擎（不得跨 CPU 架构）、MSK 同 broker 机型族系。由采集侧按取回的价目表判定。**仅按价格判定，不含规格适配校验**——该候选可能装不下当前需求，因此只给这个布尔值时 `downsize-candidate` **不保证有钱可省**，`core.py` 会在 `blockers` 里标注适配性未校验（实测：一个 `cache.t4g.medium` 复制组此字段为 `true`，但内存已用到 maxmemory 的 59.24% ⇒ 需节点内存 ≥ 1.830 GiB，同架构下更便宜的两个候选 1.37 GiB 与 0.5 GiB 都装不下 ⇒ 实际可省 $0）。**给了 `candidates` 就不再有这个问题** —— 适配校验在 `core.py` 里做 | 两者都缺 ⇒ `metric-missing`（不得假定存在） |
 | RDS / EC | `vcpu`、`mem_gib` | 取自 pricing 属性，**不得由 EC2 机型外推** | `spec-unknown` |
-| RDS | `dbload_p95` | Performance Insights `db.load.avg` 的 p95，**第一判据，不是 CPUUtilization** | `metric-missing` |
+| RDS / EC / MSK | `candidates` | 该资源同形态的**全部**候选（含比当前贵的），每项 `{t, usd, vcpu, gib, arch, burst}`。取价用各服务的复合键：RDS `engine` + `deploymentOption`（Multi-AZ 是独立 usagetype、2 倍单价）、ElastiCache `^[A-Z0-9]+-NodeUsage:` 紧邻正则 + `(type, operation)` 双重消歧、MSK `computeFamily` 且排除 Express。`gib` **必须**来自 pricing 的 `memory` / `memoryGib` 属性 | 缺失 ⇒ 回退旧路径（读 `cheaper_candidate_exists`、不出目标），**不 fail-closed** |
+| RDS / EC / MSK | `cur_usd` | 当前规格的按需小时价。**给了 `candidates` 就必填** | 缺失 ⇒ 同上回退（视为采集侧契约违反，不静默选出目标） |
+| RDS / EC / MSK | `arch` | `arm64` / `x86_64`。剥掉 `db.` / `cache.` / `kafka.` 前缀后查 `ec2-types.json`。**只查 `arch`，绝不查内存** —— `cache.t3.medium` 真实 3.09 GiB，EC2 映射得 4.00 GiB，偏 +29%，而 `DatabaseMemoryUsagePercentage` 是相对真实节点内存的百分比，基数错则绝对量全错 | 缺失 ⇒ 同架构筛选全落空 ⇒ 报「跨架构」成因 |
+| EC / MSK | `count` | 节点数 / broker 数，金额按它乘算 | 缺失按 `1` |
+| EC | `engine` | `redis` / `valkey` / `memcached`。判两个主判据指标是否适用 | `metric-missing`（不得假定 Redis） |
+| EC | `has_replica` | 该复制组是否存在副本。区分「无副本故 `ReplicationLag` 不适用」与「采集失败」 | `metric-missing` |
+| RDS | `dbload_p95` | Performance Insights `db.load.avg` 的 p95（`Average` 序列、`biz-hours` 档）。与 `sus_cpu` 是**并行两轴**，`required_vcpu` 取两轴的 max —— 不是主备关系 | **只有两轴都缺**才 `metric-missing`。单缺本字段 ⇒ 只用 CPU 轴 + blocker，且按成因分写「该实例类结构性不支持 PI」（查 `rds-pi-unsupported.json`）与「PI 未开启」：前者要换机型才能拿到，后者改个开关即可，动作不同 |
+| RDS | `dbload_max_p95` | **可选。** `DBLoad` 的 **`Maximum`** 序列在 `full-window` 档的 **p95**（不是 `max` —— 按单次尖峰否决是本 skill 明令反对的）。用于**峰值反转校验**：`dbload_max_p95 / rds_dbload_ratio > vcpu` 时降 `confidence` 并要求人工去 PI 控制台核对，**不改 verdict** | 缺失 ⇒ 不做该校验，其余行为不变 |
+| RDS | `sus_cpu` | `CPUUtilization` / `Average` / `biz-hours` 的 `p95`。CPU 轴的持续项，同时是唯一能产出「CPU 持续项超当前规格 ⇒ `upsize-candidate`」的输入 | 与 `dbload_p95` **两者都缺**才 `metric-missing` |
+| RDS | `peak_cpu_p95` | `CPUUtilization` / `Maximum` / **`full-window`** 的 **`p95`**。**与 EC2 侧的 `peak_cpu`（取 `max`）口径不同**：RDS 的 CPU 尖峰可证明来自托管平面的维护动作（备份窗口、自动小版本升级），实测一台常态 4.00% 的库单峰 88.33%，按 `max` 反推需 3 vCPU 而它只有 2 —— 12 台按 `max` 判，aggressive 只剩 2 台可降、conservative 0 台 | 缺失 ⇒ CPU 轴只用持续项 + blocker（不当 0，那是替实例做假设） |
+| RDS | `pi_enabled` | `describe-db-instances` 的 `PerformanceInsightsEnabled`。为真时把 `rds-pi-unsupported.json` 里的实例类从候选池排除，并在 blocker 里量化放弃的金额 | 缺失 ⇒ 不排除（PI 本来没开的实例已经没有 DBLoad 可失去） |
+| RDS | `storage_free_min_gib` | `FreeStorageSpace` / **`Minimum`** / `full-window` 的 `min`，GiB。触 `0` ⇒ `blocked`，且文案明写这是**可用性事故而非成本项** | 缺失 ⇒ 不评估容量耐久度 + blocker |
+| RDS | `storage_free_first_gib` / `storage_free_last_gib` / `window_days` | `FreeStorageSpace` / **`Average`** / `full-window` 的窗口首末点与窗口天数，用于外推剩余天数。**不用 `Minimum`** —— 它含 binlog 轮转的锯齿，会把速率算成负数或虚高 | 缺失 ⇒ 不外推 |
 | RDS | `surplus_credits` | `CPUSurplusCreditsCharged` 的 `Maximum`（窗口内单小时最大，**不是窗口累计**） | **仅 `db.t*`**：`metric-missing`。非 burstable 结构性不发布该指标，缺失**不构成否决**（否则任何 `db.m*`/`db.r*` 的降配路径都永久不可达）。取到值且 >0 ⇒ `upsize-candidate`，**独立否决项，优先于 DBLoad**，这一半不分机型 |
 | RDS | `freeable_mem_min_gib` | `FreeableMemory` 最小值，GiB，取 **`full-window`** 档（下限型判据，内存低点常在备份/批处理的 off-hours；只取 `biz-hours` 会把危险实例判成安全） | `metric-missing` |
 | EC | `evictions_sum` | `Evictions` 的 **`Maximum`**（`full-window` 档，窗口内单小时最大）。**字段名里的 `_sum` 是历史命名，别照它去采 `Sum`**。它现在只是**尖峰值**，写进 `blockers` 让事件可见；否决与否看下一行 | `metric-missing`（且 `evictions_p95` 也缺 ⇒ 无从判断） |

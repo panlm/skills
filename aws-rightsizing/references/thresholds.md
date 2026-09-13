@@ -508,6 +508,42 @@ p95 无从计算。
 实测触发案例：某 MSK 集群指标仅约 26 小时历史 ⇒ biz-hours 只有 **13–15 个点**；
 两台新建 EC2 ⇒ **154 点**（19 天）与 **54 点**（6 天）。
 
+## `rds_storage_days_floor`：存储耐久度门限（两档同值）
+
+外推口径：`速率 = (FreeStorageSpace/Average 窗口首点 − 末点) / 窗口天数`，
+`剩余天数 = 末点 / 速率`。速率 ≤ 0 时不外推（否则会算出负天数）。
+
+**两个 profile 同值**，且这不是遗漏：它是运维安全边界而非利用率策略 ——
+「多久之后磁盘会满」与「你愿意把 CPU 压到多紧」无关。取值的依据是 RDS storage autoscaling 从触发到扩容完成需要一个变更窗口，
+加上一个业务周期的观察期；比这更短会让告警和变更挤在同一周。
+（具体数值只在 `thresholds.json` 里 —— 这条 lint 正是为此存在。）
+
+**即使同值也必须在两个 profile 都写。** `load_thresholds` 按 profile 取键，
+少写一个会在另一档抛 `KeyError`（这是刻意的：`.get()` 兜底会让判据静默消失）。
+
+## ElastiCache 内存轴：为什么不用 `max_mem_reduction_ratio`
+
+候选须满足的可用内存下限 = `已用可用内存 / (target_mem_p95 / 100)`，
+形式与 EC2 侧 `_required` 的内存项逐字一致，**不新增阈值**。
+
+那道降幅地板在这条阶梯上**结构性不可满足**：
+
+| 相邻两档 | 内存比值 |
+|---|---:|
+| `cache.t4g.micro` → `cache.t4g.small` | 2.74 |
+| `cache.t4g.small` → `cache.t4g.medium` | 2.26 |
+| `cache.t4g.medium` → `cache.m6g.large` | 2.07 |
+
+相邻比值**全部大于 conservative 的 `max_mem_reduction_ratio`**，
+于是从 `cache.m6g.large`（6.38 GiB）往下要求候选 ≥ 3.19 GiB，
+而下一档 `cache.t4g.medium` 只有 3.09 GiB —— 差 3%，永久挡死。实测按比值地板筛，conservative 下 11 个复制组**全部**选不出目标、
+合计 $0，且失败原因会被写成「装不下」而真正的约束是降幅地板。
+
+地板的立论（`mem_used_percent` 不含可回收 page cache、会压低内存 p95）
+在这里也不成立：`DatabaseMemoryUsagePercentage` 是相对 `maxmemory` 的权威
+利用率，没有那个盲区。**CPU 侧的 `max_reduction_ratio` 保留** ——
+vCPU 阶梯是干净的 2 倍，比值表达等价于档数。
+
 ## 候选机型族过滤
 
 三道过滤叠加。**不使用任何 `currentGeneration` 字段**（理由见下）。

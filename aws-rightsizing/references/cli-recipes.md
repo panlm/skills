@@ -1665,6 +1665,16 @@ ap-northeast-1 有 1198 个、us-east-1 有 1371 个、us-west-2 有 1350 个，
 以 inventory 为主循环，缺指标的实例照样出一行、字段为 `null`，由 `core.py`
 判成 `insufficient-data` / `metric-missing`。
 
+> **本节只组装 EC2 行。托管服务（`rds` / `elasticache` / `msk`）的字段契约在
+> `sample-solve.md` 的字段表**，字段名与 EC2 不同（点数字段是 `sample_n`
+> 而非 `cpu_n`），候选池的建法见本节 §7.4。
+>
+> 这条交叉指引不是客套：实测有客户给 7 个 MSK 行填了 `cpu_n`，旧版 core
+> 恰好不读它所以没暴露，换新版后 `dispatch()` 读 `sample_n` → None →
+> fail-closed → **托管服务全军 `insufficient-data`，比不升级更差**。
+> 判别式：`jq '[.[]|select(.service=="msk")]' solver-in.json` 看有没有
+> `sample_n` 与 `candidates` 两个键。
+
 ### §7.0 字段规格（逐字段，缺失一律 `null`，**禁止兜底为 0**）
 
 | 字段 | 必填 | 取法 | 缺失后果 |
@@ -1892,6 +1902,38 @@ jq -c --slurpfile agg $M/agg-ec2-all.json --argjson days "$WINDOW_DAYS" \
 `if . == null then null else .p95 end` 这种写法不能简写成 `.p95 // null`：
 `//` 的 falsy 语义会把 **`0` 换成右值**，而 `p95 = 0`（零流量、零 CPU）是有效值，
 恰恰是闲置信号最强的那些记录。整个 skill 一律用显式 `== null` 判缺失。
+
+### §7.4 托管服务的候选池 `candidates`（三个服务各一套复合键）
+
+`core.py` 的适配校验与选型要一份**同形态全候选**列表，每项
+`{t, usd, vcpu, gib, arch, burst}`。这一步留在采集侧的理由：三个服务的取价
+复合键各有陷阱，都已踩平并有碰撞守卫，搬进判据层等于重踩一遍。
+（判据层只做筛选与排序 —— 与 EC2 侧 `ctx["prices"]` 预先按 `type|operation`
+键好、`core.py` 只筛选是同一分工。）
+
+| 服务 | 价目文件 | 复合键与筛选 | 陷阱 |
+|---|---|---|---|
+| RDS | `rds-price-raw.json` | `databaseEngine` + `deploymentOption` + `instanceType`，且 `locationType == "AWS Region"`、`licenseModel == "No license required"` | **Multi-AZ 是独立 usagetype、2 倍单价**，必须进键；只按 `instanceType` 取会让 Multi-AZ 实例拿到 Single-AZ 价 |
+| ElastiCache | `ec-price-raw.json` | `cacheEngine` + `instanceType`，`usagetype` 须匹配 `^[A-Z0-9]+-NodeUsage:`（区域前缀后**紧邻**） | 宽松匹配会取到 `-ExtendedSupportYr1_Yr2-NodeUsage:`（低 20%），且那条记录 `vcpu` / `memory` 为 `null` ⇒ 整个 ElastiCache 判据落 `spec-unknown` 而消失。另：Valkey 价比 Redis 低 20%，别混 |
+| MSK | `msk-price-raw.json` | **`computeFamily`**（不是 `instanceType`）+ `group == "Broker"`，排除 Express | 用 `instanceType` 取不到任何记录 |
+
+三条通用规则：
+
+1. **`gib` 必须来自 pricing 的 `memory` / `memoryGib` 属性。**
+   实测 `cache.t3.medium` 真实 3.09 GiB，映射到 EC2 `t3.medium` 得 4.00 GiB，
+   偏 +29%；而 `DatabaseMemoryUsagePercentage` 是相对真实节点内存的百分比，
+   基数错则绝对量全错。
+2. **`arch` 剥掉 `db.` / `cache.` / `kafka.` 前缀后查 `ec2-types.json`。
+   只查 `arch`，绝不查内存**（理由同上）。RDS 价目另有
+   `physicalProcessor` 可直接判（含 `Graviton` ⇒ `arm64`）；
+   ElastiCache 价目**没有** arch 属性，只能走机型名。
+3. **加碰撞守卫**：同键取到两个不同价立即报错，不静默取第一条。
+   实测该守卫查出 RDS Aurora 在同一 `(instanceType, engine, deploymentOption)`
+   上有 `InstanceUsage` / `InstanceUsageIOOptimized` 两档（本 region 98 处碰撞），
+   以及 ALB 的 `APE1-TS-LoadBalancerUsage` 只有正确价的 22%。
+
+候选列表要含**比当前贵的机型**（`core.py` 自己按 `usd < cur_usd` 筛），
+这样「同架构下更便宜的候选数为 0」与「更便宜的全部跨架构」两种成因才能区分。
 
 ### §7.3 组装后的必检项
 

@@ -304,15 +304,44 @@ legacy 族清单 → 用途分类 → region 可用性 → 规格硬约束 → �
 
 ### RDS
 
-- **第一判据是 Performance Insights 的 `db.load.avg`，不是 `CPUUtilization`。**
+- **`db.load.avg` 与 `CPUUtilization` 是并行两轴**，`required_vcpu` 取两轴的 max。
   `DBLoad p95 >= vCPU 数` ⇒ CPU 已是瓶颈，一律禁止降配。
+  PI 不可得时（未开启，或该实例类结构性不支持 —— 清单见
+  `references/rds-pi-unsupported.json`）只用 CPU 轴并写明成因；
+  **两轴都缺**才 `metric-missing`。两种 PI 成因要分开写：一个要换机型才能拿到，
+  另一个改个开关即可。
+- **CPU 峰值项取 `Maximum` 序列的 `p95`，不是 `max`。** 与 EC2 侧的 `peak_cpu`
+  口径不同：RDS 的 CPU 尖峰可证明来自托管平面的维护动作（备份窗口、
+  自动小版本升级），实测一台常态 4.00% 的库单峰 88.33%。按 `max` 判，
+  12 台里 aggressive 只剩 2 台可降、conservative 0 台。
+- **CPU 持续项超当前规格 ⇒ `upsize-candidate`**（第三条独立的欠配否决）。
+  实测一台 CPU 持续 69.64% 的 `db.m6g.xlarge` 因 DBLoad 差 0.328 未跨阈值
+  而被判「已合理配置」。
 - 内存用 `FreeableMemory` 反推：`已用 ≈ 实例内存 − FreeableMemory`。
+  越地板 ⇒ `blocked`（**不是** `upsize-candidate`）：InnoDB buffer pool 有意
+  占满可分配内存，低 freeable 对配置正确的库是常态，这条证据支持「缩不了」
+  而非「需要更大的实例」。
+- **`FreeStorageSpace` 是容量耐久度判据**：`Minimum` 触 0 ⇒ `blocked`，
+  且文案明写这是**可用性事故而非成本项**；按 `Average` 首末差外推剩余天数
+  低于 `rds_storage_days_floor` 同样 `blocked`。它排在信用与内存两条**之前** ——
+  实测磁盘写满那台先撞上 OOM 阻断，于是报告只写「降配会 OOM」。
+- `DBLoad` 的 `Maximum` 序列不参与定档，但做**峰值反转校验**：
+  `Maximum p95 / rds_dbload_ratio > vCPU` 时降 `confidence` 并要求人工去
+  PI 控制台核对，**不改 verdict**（两条序列跨度实测 5x–1370x，成因在
+  「PI 按 1 秒发布」与「Average 被 SampleCount 稀释」之间无法从聚合值判定）。
 - `db.serverless` 排除（Aurora Serverless v2 按 ACU 伸缩，无固定规格）。
 - **信用余额触底与 `CPUSurplusCreditsCharged > 0` 是两条独立否决项**，都产出
   `upsize-candidate`。**已能评估**的否决项排在 `cheaper_candidate_exists` 短路
   **之前**（候选集为空不该压掉「这台机器已经不够用了」这条警告）；
   **缺失型** fail-closed 排在它**之后**（候选集为空时补指标也换不来建议，
-  要求它就是让客户白等一个窗口）。
+  要求它就是让客户白等一个窗口）。该短路现在由**候选池可行性探针**实现：
+  它能区分「没有更便宜的候选」与「更便宜的全部跨架构」，而旧的采集侧布尔值
+  两者都只给一句笼统话。
+- **三条托管判据现在产出初选目标机型与月省**（`nonburst` / `burst` /
+  `nb_save_mo` / `b_save_mo`），因此托管节省进头条的路线一/二。
+  `verdict` 仍是 `downsize-candidate` 且必带「目标为 skill 初选、须人工确认」
+  的 blocker —— 人工的角色是**审核初选**，不是选型。托管行 `confidence`
+  只有 `medium` / `low`，永不 `high`。
 - 非生产**不建议停实例**：停止的 RDS 仍收存储费且最多 7 天自动启动，
   桶 C 须改为"快照 + 删除"路径并在 `blockers` 写明。
 
