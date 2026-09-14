@@ -239,8 +239,13 @@ msk-EX-01    verdict=downsize-candidate  bucket=downsize  blockers=[存储只能
 | `cache-EX-01` | `downsize-candidate` | Evictions=0、复制延迟未越界、EngineCPU 12% 与内存 35% 均低于目标。`required_gib_usable = 13.07 × (1 − 0.25) × 35 / 100 = 3.431` GiB——`DatabaseMemoryUsagePercentage` 是可用内存的百分比，故先扣 reserved 再乘 |
 | `msk-EX-01` | `downsize-candidate` | UnderReplicatedPartitions=0；磁盘 18（0–100）低于 `msk_disk_used_max`；handler idle 0.94（0–1）高于 `msk_handler_idle_min` ⇒ 请求处理线程大部分时间空闲；CPU 15% 低于 `msk_target_cpu_p95` |
 
-三个托管判据都**没有候选机型选型**，只输出结论与 `blockers`：node type 的价格与
-规格映射在采集侧，且降配需变更窗口，候选由人工在变更方案里定。
+**本样例的托管行没有 `candidates`**，所以走的是兼容路径：只输出结论与
+`blockers`，`nonburst` / `burst` 两列恒空 —— 上面那四行输出因此仍然是当前实现的
+真实产出。给了 `candidates` + `cur_usd` + `arch`，同一条判据会选出初选目标与月省
+（`nonburst` / `burst` / `nb_save_mo` / `b_save_mo`），并必带一条
+「目标为本 skill 初选、须人工确认」的 blocker；人工的角色是**审核初选**，
+不是选型。口径、代价与候选池为空的五种成因见 `report-template.md` 的
+「托管服务的目标机型」一节。
 
 ## 改动 core.py 后的自检清单
 

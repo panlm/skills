@@ -557,7 +557,7 @@ def _pick_managed_target(res, t, req_vcpu, mem_fit, base, exclude=frozenset()):
 
     `candidates` 缺失 ⇒ 返回 `None`，调用方走改动前的旧路径（读采集侧的
     `cheaper_candidate_exists` 布尔值、不出目标）。**不得 fail-closed** ——
-    实测教训（客户 123456789012）：旧契约缺必填字段时 86 条托管行全部
+    实测教训（真实机队回放）：旧契约缺必填字段时 86 条托管行全部
     fail-closed，比不升级更差。
 
     `mem_fit` 是各服务自己的内存条件（RDS 比 `gib`、ElastiCache 比扣掉

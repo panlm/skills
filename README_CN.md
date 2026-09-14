@@ -26,7 +26,7 @@ npx skills add panlm/skills --list
 | [aws-service-chaos-research](./aws-service-chaos-research/) | 为特定 AWS 服务（RDS、EKS、MSK、ElastiCache 等）研究混沌工程、故障注入和韧性测试场景。识别可用的 FIS Action 及 HA 验证方法。 |
 | [aws-fis-experiment-prepare](./aws-fis-experiment-prepare/) | 生成运行 AWS FIS 实验所需的配置文件（包含实验模板、IAM 角色、Dashboard 的 CFN 模板），然后通过 CloudFormation 自愈迭代部署。支持 Scenario Library 预置场景和自定义单个 FIS Action。AZ 电力中断场景支持**按服务范围裁剪子动作** — 仅包含用户指定服务的子动作，避免影响范围过大。默认实验持续时间 10 分钟。 |
 | [aws-fis-experiment-execute](./aws-fis-experiment-execute/) | 运行已准备好的 AWS FIS 实验。从实验目录名提取模板 ID，通过 FIS API 查询 Actions，发现受影响的应用，经用户明确确认后启动实验，实时监控进度并展示日志洞察，生成结果报告。 |
-| [aws-rightsizing](./aws-rightsizing/) | 基于 CloudWatch 实测利用率（而非估猜）对 AWS 账号做配置优化。**只读** —— 仅 `describe*`/`list*`/`get*`，禁用账单 API，按需价格取自公开价目表。覆盖 EC2/EBS/VPC、RDS、ElastiCache、MSK 以及 EKS 节点级 bin-packing；将每个资源归入降配 / 闲置 / 定时停机候选，并提供 `aggressive`/`conservative` 两套 `sizing_profile` 预设。全部判据集中在确定性的 `references/core.py`，由 100 个测试守护，含一份脱敏真实机队的回归基线。 |
+| [aws-rightsizing](./aws-rightsizing/) | 基于 CloudWatch 实测利用率（而非估猜）对 AWS 账号做配置优化。**只读** —— 仅 `describe*`/`list*`/`get*`，禁用账单 API，按需价格取自公开价目表。覆盖 EC2/EBS/VPC、RDS、ElastiCache、MSK 以及 EKS 节点级 bin-packing；将每个资源归入降配 / 闲置 / 定时停机候选，并提供 `aggressive`/`conservative` 两套 `sizing_profile` 预设。全部判据集中在确定性的 `references/core.py`，含 RDS / ElastiCache / MSK 的初选目标机型（须人工审核），并由逐文件回归门禁守护，含两份脱敏真实机队的回归基线。 |
 | [app-service-log-analysis](./app-service-log-analysis/) | 在 FIS 故障注入实验期间或之后分析 EKS 应用日志。**多集群深度依赖发现** — 自动发现目标 Region 中所有 EKS 集群，为每个集群生成独立 kubeconfig 文件（绝不覆盖 `~/.kube/config`），并行深度扫描所有可访问集群（环境变量、ConfigMap、Secret、ExternalName 等）查找依赖故障注入目标服务的应用。支持实时监控和事后分析，生成综合报告。 |
 
 ## 其他 Skills

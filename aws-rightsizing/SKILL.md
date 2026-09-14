@@ -343,7 +343,8 @@ legacy 族清单 → 用途分类 → region 可用性 → 规格硬约束 → �
   `nb_save_mo` / `b_save_mo`），因此托管节省进头条的路线一/二。
   `verdict` 仍是 `downsize-candidate` 且必带「目标为 skill 初选、须人工确认」
   的 blocker —— 人工的角色是**审核初选**，不是选型。托管行 `confidence`
-  只有 `medium` / `low`，永不 `high`。
+  只有 `low`（样本量低于门限时）或**留空**，永不 `medium` / `high`：
+  上两档由 `evaluate()` 的「有无内存数据」决定，托管侧没有那个轴。
 - 非生产**不建议停实例**：停止的 RDS 仍收存储费且最多 7 天自动启动，
   桶 C 须改为"快照 + 删除"路径并在 `blockers` 写明。
 
@@ -523,18 +524,39 @@ grep -nE '^[[:space:]]*aws eks update-kubeconfig' SKILL.md references/*.md \
 - **改动 `core.py` 或任何 `references/*.json` 后必须跑测试**：
 
 ```bash
-cd aws-rightsizing && for t in tests/test_*.py; do python3 "$t" || exit 1; done
+cd aws-rightsizing && for t in tests/test_*.py; do
+  printf '%-46s' "$t"
+  # 先落变量再打印：`python3 "$t" | tail -1 || exit 1` 的退出码是 tail 的，
+  # 恒为 0，失败会被吞掉——这条门禁本身也栽过同类的坑。
+  out=$(python3 "$t") || { echo "FAIL"; echo "$out" | tail -20; exit 1; }
+  echo "$out" | tail -1
+done
 ```
 
-  八个测试文件分别防：阈值键**双向**覆盖（core.py 读的键必须在 JSON 里、
+  **通过标准是每个文件都打印 `n/n passed`，不是只看退出码。** 缺 `__main__`
+  runner 的文件在 `python3 <file>` 下**退出码 0 而执行 0 条断言**（本机默认
+  python3 不带 pytest，那条命令只是 import 一遍模块）；runner 用手写清单枚举
+  `test_*` 时，漏掉的新函数同样永不执行。两种形态都发生过，实测共 58 条断言
+  这样被跳过、而门禁逐个"成功"。`tests/test_gate_covers_every_test.py` 现在守住
+  这条：它要求每个文件报告的条数等于该文件定义的 `test_*` 个数，
+  所以新增测试文件与新增测试函数都会被强制拉进门禁。
+
+  各文件分别防：阈值键**双向**覆盖（core.py 读的键必须在 JSON 里、
   JSON 里的键必须被读到——孤儿键会让"改 JSON 就能改行为"变成假承诺）、
-  散文复述常量（清单由 `thresholds.json` 生成）、
+  散文复述常量（清单由 `thresholds.json` 生成，含 PI 不支持清单）、
   CSV 契约与实现漂移（四个 producer 全覆盖）、EKS requests 低估、
   sample 里的 verdict 分支不可达、`service` 分派与托管判据与桶 C 三态、
   必填输入的 fail-closed 契约（`sizing_profile` / `min_biz_hours_points` /
-  reserved 内存口径 / 阈值字面量）、
-  以及**真实机队的回归基线**（`tests/fixtures/regression-fleet.json`，
-  两个 profile 的条数与总额逐值断言，且断言采样量守卫真的会触发）。
+  reserved 内存口径 / 阈值字面量）、`agg.jq` 的 `full-window` 档、
+  托管服务的初选目标（选型 helper 与三个服务各自的 fit 边界、候选池为空的五种
+  成因、向后兼容的三条旧路径）、RDS 判据（CPU 并行第二判据、峰值项改判持续态、
+  `FreeStorageSpace`、`DBLoad` 峰值反转、blocker 文案的引擎中立与整数 vCPU）、
+  门禁自身的覆盖（上一段）、
+  **整个 repo 的隐私形态**（账号 ID / 含用户名的本机路径 / 真实实例 ID /
+  access key —— 本 repo 公开，规则见 `AGENTS.md`，例外用 `privacy-exempt` 标记）、
+  以及**两支真实机队的回归基线**（`tests/fixtures/regression-fleet.json` 走 EC2、
+  `regression-managed.json` 走托管三服务，两个 profile 的条数与总额逐值断言，
+  且断言采样量守卫真的会触发）。
   循环用 `tests/test_*.py` 通配，新增文件自动纳入门禁；上面这份清单只是说明。
   **这些是本 skill 全部反复出错点的固化**，不要跳过。
 
@@ -615,7 +637,10 @@ idle > downsize > excluded
   别对整表求和——`cli-recipes.md §6 ③` 修的就是这个漏掉的过滤。
 - 不得把采集侧自建行的节省额写进 `nb_save_mo` / `b_save_mo`（那两列各自背着目标
   机型与 delta，是可审计的；采集侧用 `other_save_mo`）。
-- 不得把托管服务候选小计并进头条数字。
+- 不得把托管服务小计当成第五条口径，也不得在四条口径之外再加一次——托管行的
+  `nb_save_mo` / `b_save_mo` **已经在路线一/二里面**。摘要要做的是单列一行
+  「其中托管服务（目标待人工确认）$X」，把它从 EC2 侧的金额里拆出来
+  （定义在 `report-template.md` 的托管小节）。
 - 摘要里不得只报一条口径——四条并列，各标口径，不相加。
 
 `report-template.md` 原先只防了"每资源两行"，没防跨资源按列相加——两者都要防。
@@ -689,7 +714,6 @@ awk -F, 'NR>1{gsub(/"/,""); print $4}' findings-<profile>.csv | sort | uniq -d
 | **给 `agg.jq` 加了 `full-window` 档后仍按 bucket 全量求和** | `§2.6` 的覆盖度一行是 `group_by(.rid+"|"+.stat) \| map(.n)\|add`，新档让 `n` 翻倍（实测 465 → 930），覆盖度看起来充足 ⇒ 正是该节警告的「偏松」失效 | 覆盖度直接读 `bucket == "full-window"` 那一行，不再拿三档相加 |
 | **「仅某子集机型发布」的指标当成「缺失」fail-closed** | `CPUSurplusCreditsCharged` 只有 T 系列发布，非突发机型该序列结构性不存在。无条件卡 `is None` 会让**突发降配路线在生产上永久不可达**（实测 29 台机队里 25 台被压掉，3 行误判成「已合理配置」），且 `burst_na` 让客户去补一个不可能存在的指标。RDS 侧同一缺陷修于 2026-09-04，EC2 侧因文档误称「已做区分」而漏到 2026-09-10 | **先判适用性，再判缺失**：`if cs["burst"] and sc is None`（EC2）/ `_rds_is_burstable()`（RDS）。回归 fixture 必须用真实值（非突发机型填 `null`），填 0 会让整套基线为一个不可能的输入背书 |
 | **「仅某子集资源发布」的指标，判据先判缺失而不先判适用性** | 「不适用」与「缺失」是两件事：前者是**资源形态**的属性，后者是**采集**的属性。混同的两个方向都错——把「不适用」当「缺失」会让整条路径永久不可达（实测 `CPUSurplusCreditsCharged` 让 25/29 台的突发路线关闭）；把「缺失」当「不适用」会让否决项静默消失。已知成员与状态（**状态过期会让这张清单失效，改判据时一并更新**）：`CPUSurplusCreditsCharged`（仅 `t*` / `db.t*`，**已按适用性分流**）、`CPUCreditBalance`（同，**已按适用性分流**）、`ReplicationLag`（仅有副本时，**已按 `has_replica` 分流**）、`EngineCPUUtilization` 与 `DatabaseMemoryUsagePercentage`（仅 redis/valkey 发布，**已按 `engine` 分流**）。**五个已知成员至此全部完成适用性分流**——新增指标时按本清单比对 | **先解析适用性、再判缺失**，并在该判据处写明落在 fail-closed 还是 fail-open 哪一侧及理由。区分二者的依据必须是**输入里已有的形态字段**（`spec["burst"]` / 实例类前缀 / 引擎 / 节点数），**不得靠指标自身的有无去推断**——那是循环论证。新增指标先按这张清单比对 |
-
 | **假定资源规格在窗口内不变** | `required_vcpu = ceil(cur_vcpu × sus_cpu% / target)` 拿 describe 返回的**当前**规格去乘 CloudWatch 的**整窗口**利用率，而一处都没校验规格没变过。实测两台 `db.m6g.xlarge` 的核心指标 720/720、信用序列 178/720、信用上限 576 对应 2 vCPU ⇒ 窗口内被放大过，它们的百分比混合了两个规格。方向：先小后大 ⇒ 低估节省（保守）；**先大后小 ⇒ 高估节省，是危险方向** | 采集侧派生 `partial_coverage`（同资源内某指标点数 < 最大值的 90%），判据用 `_coverage_note()` 在**每条出口**上留注记。**只标注不校正** —— 判定方向需要逐小时的规格历史，`describe-*` 只返回当前规格。要真正校正须引入配置历史类数据源，超出本 skill 的只读边界 |
 
 ## references

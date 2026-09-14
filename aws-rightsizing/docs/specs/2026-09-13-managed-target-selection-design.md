@@ -284,8 +284,7 @@ req_gib  = (cur_mem_gib − freeable_mem_min_gib) / (1 − rds_freeable_mem_floo
 `db.r6g.xlarge`(32 GiB) 而非 `db.m6g.xlarge`(16 GiB)。要修需要
 引擎内部的缓冲池命中率 / 驻留页计数器，CloudWatch 不发布，**本轮不修**。
 
-**文案必须引擎中立。** 第二支机队（`123456789012`，15 台 RDS 含 1 台
-PostgreSQL）实测抓到：那台 PostgreSQL 被告知去调 `innodb_buffer_pool_size`，
+**文案必须引擎中立。** 第二支机队（15 台 RDS，含 1 台 PostgreSQL）实测抓到：那台 PostgreSQL 被告知去调 `innodb_buffer_pool_size`，
 而 InnoDB 是 MySQL 专有。RDS 行不带 `engine` 字段，所以不猜引擎，
 MySQL 的 `innodb_buffer_pool_size` 与 PostgreSQL 的 `shared_buffers` 都列出来。
 
@@ -535,7 +534,7 @@ dbload_max_p95 / rds_dbload_ratio > cur_vcpu
 布尔值、不出目标、保留 `_FIT_UNVERIFIED` 文案）。同理
 `pi_enabled` / `partial_coverage` 等可选字段缺失不改变既有结论。
 
-这条不是客套。实测教训（客户 123456789012）：旧契约缺两个必填字段时，
+这条不是客套。实测教训（真实机队回放）：旧契约缺两个必填字段时，
 **86 条托管行全部 fail-closed**，升级后比不升级更差。
 新字段一律走"缺失即回退旧行为"，不走 fail-closed。
 

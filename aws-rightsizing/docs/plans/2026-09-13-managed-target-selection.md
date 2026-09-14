@@ -16,7 +16,7 @@
 - **判据不得重新实现。** 适配校验只能在 `core.py`，不得复制到采集侧或报告侧。
 - **取价的复合键留在采集侧。** RDS `engine + deploymentOption + instanceType`（Multi-AZ 是独立 usagetype，2 倍单价）、ElastiCache `^[A-Z0-9]+-NodeUsage:` 紧邻正则 + `(type, operation)` 双重消歧、MSK `computeFamily` 且排除 Express。
 - **ElastiCache / RDS / MSK 的内存一律取 pricing 的 `memory` 属性**，绝不用 EC2 机型映射值（`cache.t3.medium` 真实 3.09 GiB，EC2 映射得 4.00 GiB，偏 +29%）。EC2 机型名映射**只用于查 `arch` 与 `baseline_pct`**。
-- **新字段缺失即回退旧行为，不得 fail-closed。** 实测教训（客户 123456789012）：旧契约缺必填字段时 86 条托管行全部 fail-closed，比不升级更差。
+- **新字段缺失即回退旧行为，不得 fail-closed。** 实测教训（真实机队回放）：旧契约缺必填字段时 86 条托管行全部 fail-closed，比不升级更差。
 - **一律走 `_verdict()` 设 verdict。** 不得写 `out.update(verdict=X, blockers=[...])` —— 那会覆盖已 append 的说明，本文件已在这个覆盖上踩过三次。
 - **`tests/fixtures/regression-fleet.json` 是 EC2 独占的 13 行。** `test_regression_fleet.py` 的 `EXPECTED`（aggressive `route1_nb=527.15` / `route2_max=668.85`，conservative `route1_nb=373.00` / `route2_max=492.72`）本轮必须**逐分不变**，任何变动都是回归。
 - **不碰硬约束清单。** Multi-AZ→Single-AZ、Redis 减副本/减 shard、MSK 减 broker、跨 CPU 架构、Serverless 迁移一律仍不产出。

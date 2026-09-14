@@ -36,6 +36,7 @@
 | [2026-09-13-managed-target-selection.md](./plans/2026-09-13-managed-target-selection.md) | 托管服务判出「可以降」时给出初选目标机型与月省;RDS 加 CPU 并行第二判据(峰值项改判持续态)、`upsize` 出口、`FreeStorageSpace` 耐久度、`DBLoad` 峰值反转校验 |
 | [2026-09-13-managed-target-selection-replay.md](./plans/2026-09-13-managed-target-selection-replay.md) | 上条的真实回放门禁结果:34 项断言逐条对账、三处 spec 初稿算错的数字、回放暴露而单元测试没抓到的两个顺序缺陷 |
 | [2026-09-13-managed-target-selection-two-fleet-diff.md](./plans/2026-09-13-managed-target-selection-two-fleet-diff.md) | 两支机队(776 / 322 判据行)新旧产出三方对照:EC2 路径逐字段未动、托管头条从 \$0 到 24-30%、3 处 verdict 变化(净 −2 假阳性 +1 真实欠配)、第二机队抓出的引擎相关文案缺陷与 Aurora 取价碰撞 |
+| [2026-09-14-doc-drift-and-test-gate.md](./plans/2026-09-14-doc-drift-and-test-gate.md) | 托管选型上线后的文档扫尾:托管节省的头条口径、托管行 confidence 只有 `low` 或留空、样例结语、被空行切断的易错项表、两份 README;门禁补结构性守卫 —— 缺 `__main__` runner 的文件在 `python3 <file>` 下退出码 0 而执行 0 条断言,手写 runner 清单漏掉新函数同理,实测 58 条断言从未在门禁里跑过;并把公开 repo 的隐私规则变成闸门（扫全 repo 拦账号 ID / 本机路径 / 实例 ID / access key）—— 那条规则此前只有文字,4 个 commit 因此把一个真实账号 ID 写进了 spec/plan/注释/docstring,已重写本地历史清除 |
 
 ## 脱敏
 
