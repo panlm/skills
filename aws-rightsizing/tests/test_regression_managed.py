@@ -142,3 +142,21 @@ def test_storage_exhaustion_and_peak_reversal_are_reported():
             if any("Performance Insights 控制台" in b for b in f["blockers"])]
     assert set(hits) == {"db-uat-01", "db-infra-01", "db-sit-05",
                          "db-uat-04"}, hits
+
+
+if __name__ == "__main__":
+    # 退出码必须随失败非零：门禁是 `python3 "$t" || exit 1`，打印 ✗ 后仍 exit 0
+    # 会让整个文件的断言不设防。清单**自动枚举**而不是手写：手写清单漏掉新加的
+    # 函数，门禁照样打印全绿（本文件此前就漏过两条）。
+    tests = [v for k, v in list(globals().items())
+             if k.startswith("test_") and callable(v)]
+    failed = 0
+    for test_fn in tests:
+        try:
+            test_fn()
+            print(f"✓ {test_fn.__name__}")
+        except Exception as e:
+            print(f"✗ {test_fn.__name__}: {e}")
+            failed += 1
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    sys.exit(failed)

@@ -22,6 +22,16 @@
 
 不确定某项是否算隐私 → 当作隐私处理，并问用户。
 
+**这条规则有闸门，不只是文字。** `aws-rightsizing/tests/test_no_private_data.py`
+扫全 repo（git 跟踪文件 + 未忽略的未跟踪文件）拦四种形态：AWS 账号 ID、
+含用户名的本机绝对路径、真实 EC2 实例 ID、access key id。
+提交前跑它。例外在该行加注 `privacy-exempt`（等同于声明"我核实过这行没有真实身份"）。
+
+加闸门的成因：2026-09-13 有 4 个 commit 把一个真实账号 ID 写进了
+`core.py` 注释、一份 spec、一份 plan 和一个测试 docstring —— 而**本规则当时已在
+main 上**。ID 是作为「这条实测教训出自哪支机队」的出处标签写进散文的，形态上不像
+配置，纯靠人看拦不住。已重写本地历史清除（该分支未推送，`main` 从未受影响）。
+
 ## Skill 编辑规则
 
 **严禁直接修改系统目录下的 skill 文件。** 所有 skill 的编辑、创建、调试工作必须在当前 repo (`panlm-skills`) 中进行。

@@ -97,7 +97,7 @@ def test_empty_reason_req_vcpu_is_distinguished_from_floor():
 
 
 def test_missing_candidates_returns_none_not_fail_closed():
-    """实测教训（客户 123456789012）：旧契约缺必填字段时 86 条托管行全部
+    """实测教训（真实机队回放）：旧契约缺必填字段时 86 条托管行全部
     fail-closed，比不升级更差。新字段一律走「缺失即回退旧行为」。"""
     r = _res()
     del r["candidates"]
@@ -318,3 +318,21 @@ def test_msk_without_candidates_keeps_old_behaviour():
     assert out["verdict"] == "downsize-candidate"
     assert out["nonburst"] is None and out["burst"] is None
     assert any("未经校验" in b for b in out["blockers"])
+
+
+if __name__ == "__main__":
+    # 退出码必须随失败非零：门禁是 `python3 "$t" || exit 1`，打印 ✗ 后仍 exit 0
+    # 会让整个文件的断言不设防。清单**自动枚举**而不是手写：手写清单漏掉新加的
+    # 函数，门禁照样打印全绿（本文件此前就漏过两条）。
+    tests = [v for k, v in list(globals().items())
+             if k.startswith("test_") and callable(v)]
+    failed = 0
+    for test_fn in tests:
+        try:
+            test_fn()
+            print(f"✓ {test_fn.__name__}")
+        except Exception as e:
+            print(f"✗ {test_fn.__name__}: {e}")
+            failed += 1
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    sys.exit(failed)
