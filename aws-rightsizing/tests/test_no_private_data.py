@@ -18,7 +18,8 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-EXTS = {".md", ".py", ".json", ".jq", ".sh", ".yaml", ".yml", ".txt", ".toml"}
+EXTS = {".md", ".py", ".json", ".jq", ".sh", ".yaml", ".yml", ".txt",
+        ".toml", ".html", ".htm"}  # .html：面向客户的说明文档也是公开内容
 EXEMPT = "privacy-exempt"
 
 # 允许的占位账号 ID（docs/README.md 的脱敏约定）

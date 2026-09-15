@@ -716,6 +716,11 @@ awk -F, 'NR>1{gsub(/"/,""); print $4}' findings-<profile>.csv | sort | uniq -d
 | **「仅某子集资源发布」的指标，判据先判缺失而不先判适用性** | 「不适用」与「缺失」是两件事：前者是**资源形态**的属性，后者是**采集**的属性。混同的两个方向都错——把「不适用」当「缺失」会让整条路径永久不可达（实测 `CPUSurplusCreditsCharged` 让 25/29 台的突发路线关闭）；把「缺失」当「不适用」会让否决项静默消失。已知成员与状态（**状态过期会让这张清单失效，改判据时一并更新**）：`CPUSurplusCreditsCharged`（仅 `t*` / `db.t*`，**已按适用性分流**）、`CPUCreditBalance`（同，**已按适用性分流**）、`ReplicationLag`（仅有副本时，**已按 `has_replica` 分流**）、`EngineCPUUtilization` 与 `DatabaseMemoryUsagePercentage`（仅 redis/valkey 发布，**已按 `engine` 分流**）。**五个已知成员至此全部完成适用性分流**——新增指标时按本清单比对 | **先解析适用性、再判缺失**，并在该判据处写明落在 fail-closed 还是 fail-open 哪一侧及理由。区分二者的依据必须是**输入里已有的形态字段**（`spec["burst"]` / 实例类前缀 / 引擎 / 节点数），**不得靠指标自身的有无去推断**——那是循环论证。新增指标先按这张清单比对 |
 | **假定资源规格在窗口内不变** | `required_vcpu = ceil(cur_vcpu × sus_cpu% / target)` 拿 describe 返回的**当前**规格去乘 CloudWatch 的**整窗口**利用率，而一处都没校验规格没变过。实测两台 `db.m6g.xlarge` 的核心指标 720/720、信用序列 178/720、信用上限 576 对应 2 vCPU ⇒ 窗口内被放大过，它们的百分比混合了两个规格。方向：先小后大 ⇒ 低估节省（保守）；**先大后小 ⇒ 高估节省，是危险方向** | 采集侧派生 `partial_coverage`（同资源内某指标点数 < 最大值的 90%），判据用 `_coverage_note()` 在**每条出口**上留注记。**只标注不校正** —— 判定方向需要逐小时的规格历史，`describe-*` 只返回当前规格。要真正校正须引入配置历史类数据源，超出本 skill 的只读边界 |
 
+**客户问"这个建议怎么来的"时，用 `docs/method-explained.html`** —— 按服务分章的
+判据说明（公式、十道门、否决项顺序、候选池为空的六种成因、四条口径、页内计算器）。
+**不要把它读进上下文**（75 KB，且内容与本文件同源）；它的作用是给客户看，
+不是给你执行。改判据后须同步它，`tests/test_method_explained.py` 钉住了其中三处。
+
 ## references
 
 | 文件 | 内容 |

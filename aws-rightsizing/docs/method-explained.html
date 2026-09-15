@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rightsizing 计算逻辑说明</title>
+<style>
+  :root{
+    color-scheme: light;
+    --page:#f9f9f7; --surface-1:#fcfcfb;
+    --ink-1:#0b0b0b; --ink-2:#52514e; --ink-muted:#898781;
+    --grid:#e1e0d9; --baseline:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
+    --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --code-bg:#f2f1ec;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])){
+      color-scheme: dark;
+      --page:#0d0d0d; --surface-1:#1a1a19;
+      --ink-1:#ffffff; --ink-2:#c3c2b7; --ink-muted:#898781;
+      --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,0.10);
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+      --code-bg:#232322;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --page:#0d0d0d; --surface-1:#1a1a19;
+    --ink-1:#ffffff; --ink-2:#c3c2b7; --ink-muted:#898781;
+    --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,0.10);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+    --code-bg:#232322;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--page); color:var(--ink-1);
+    font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.65; font-size:15px;
+  }
+  .wrap{max-width:960px; margin:0 auto; padding:32px 24px 80px}
+  header.top{display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:8px}
+  h1{font-size:28px; line-height:1.3; margin:0 0 4px}
+  .sub{color:var(--ink-2); font-size:14px}
+  h2{font-size:20px; margin:44px 0 8px; padding-top:20px; border-top:1px solid var(--grid)}
+  h3{font-size:16px; margin:24px 0 6px}
+  h4.svc{font-size:15px; margin:0 0 8px; padding-bottom:6px; border-bottom:1px solid var(--grid)}
+  p{margin:8px 0}
+  .lead{font-size:16px; color:var(--ink-2)}
+  .card{background:var(--surface-1); border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin:14px 0}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:14px}
+  @media (max-width:720px){.grid2,.grid3{grid-template-columns:1fr}}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13.5px}
+  code{background:var(--code-bg); padding:1px 5px; border-radius:4px}
+  pre{background:var(--code-bg); padding:14px 16px; border-radius:8px; overflow-x:auto; margin:10px 0;
+      font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13.5px; line-height:1.8}
+  table{border-collapse:collapse; width:100%; margin:12px 0; font-size:14px}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--grid); vertical-align:top}
+  th{color:var(--ink-2); font-weight:600; font-size:13px}
+  td.num,th.num{text-align:right; font-variant-numeric:tabular-nums}
+  .tile{background:var(--surface-1); border:1px solid var(--border); border-radius:10px; padding:16px 18px}
+  .tile .v{font-size:30px; font-weight:650; letter-spacing:-0.5px; line-height:1.15}
+  .tile .k{color:var(--ink-2); font-size:13px; margin-top:2px}
+  .tile .n{color:var(--ink-muted); font-size:12px; margin-top:6px}
+  .steps{counter-reset:s; list-style:none; padding:0; margin:12px 0}
+  .steps li{counter-increment:s; position:relative; padding:10px 0 10px 40px; border-bottom:1px solid var(--grid)}
+  .steps li::before{content:counter(s); position:absolute; left:0; top:10px; width:26px; height:26px; border-radius:50%;
+    background:var(--s1); color:#fff; font-size:13px; font-weight:650; display:grid; place-items:center}
+  .gate{padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface-1); font-size:14px}
+  .gate b{display:block; font-size:13.5px}
+  .gate span{color:var(--ink-2); font-size:13px}
+  .chart{background:var(--surface-1); border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin:12px 0}
+  .chart h4{margin:0 0 2px; font-size:15px}
+  .chart .cap{color:var(--ink-muted); font-size:12.5px; margin-bottom:12px}
+  .legend{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:12px; font-size:13px; color:var(--ink-2)}
+  .legend i{display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px}
+  .row{display:grid; grid-template-columns:118px 1fr 84px; align-items:center; gap:10px; margin:7px 0}
+  .row .lbl{font-size:13px; color:var(--ink-2); text-align:right}
+  .track{position:relative; height:22px; background:linear-gradient(var(--grid),var(--grid)) left center/100% 1px no-repeat}
+  .bar{height:18px; border-radius:0 4px 4px 0; position:relative; top:2px;
+       box-shadow:0 0 0 2px var(--surface-1); cursor:default}
+  .val{font-size:12.5px; color:var(--ink-1); white-space:nowrap; font-variant-numeric:tabular-nums}
+  .axis{margin-top:6px; padding-left:128px; padding-right:94px; color:var(--ink-muted); font-size:12px; display:flex; justify-content:space-between}
+  .pill{display:inline-block; font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid var(--border); color:var(--ink-2)}
+  .pill.no{border-color:var(--critical); color:var(--critical)}
+  .pill.yes{border-color:var(--good); color:var(--good)}
+  .note{border-left:3px solid var(--s2); padding:2px 0 2px 14px; color:var(--ink-2); margin:12px 0; font-size:14px}
+  .warnbox{border:1px solid var(--border); border-left:3px solid var(--warning); border-radius:8px; padding:12px 16px; background:var(--surface-1); margin:12px 0}
+  .calc{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; align-items:end}
+  @media (max-width:720px){.calc{grid-template-columns:1fr 1fr}}
+  .calc label{display:block; font-size:12.5px; color:var(--ink-2); margin-bottom:4px}
+  .calc input,.calc select{width:100%; padding:7px 9px; border-radius:7px; border:1px solid var(--baseline);
+    background:var(--page); color:var(--ink-1); font-size:14px; font-family:inherit}
+  .out{margin-top:14px; font-size:14px}
+  .out .big{font-size:22px; font-weight:650}
+  .out hr{border:0; border-top:1px solid var(--grid); margin:12px 0}
+  button.toggle{background:var(--surface-1); color:var(--ink-2); border:1px solid var(--border);
+    border-radius:99px; padding:6px 14px; font-size:13px; cursor:pointer; font-family:inherit; white-space:nowrap}
+  #tip{position:fixed; pointer-events:none; opacity:0; transition:opacity .1s; background:var(--ink-1); color:var(--page);
+    padding:6px 9px; border-radius:6px; font-size:12.5px; z-index:9; white-space:nowrap}
+  .toc{background:var(--surface-1); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin:18px 0 0}
+  .toc ol{margin:6px 0 0; padding-left:22px; columns:2; column-gap:28px; font-size:14px}
+  @media (max-width:720px){.toc ol{columns:1}}
+  .toc a{color:var(--s1); text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .veto{border-left:3px solid var(--critical); padding:2px 0 2px 14px; margin:10px 0; font-size:14px; color:var(--ink-2)}
+  .foot{color:var(--ink-muted); font-size:12.5px; margin-top:40px; border-top:1px solid var(--grid); padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div>
+    <h1>降配建议是怎么算出来的</h1>
+    <div class="sub">示例账号 123456789012 · ap-east-1 · 观测窗口 2026-08-10 → 2026-09-09（30 个完整业务日，业务时区 UTC+8）· 本文数字取保守档</div>
+  </div>
+  <button class="toggle" id="themeBtn">切换深色</button>
+</header>
+
+<p class="lead">结论不是"看着 CPU 低就砍一半"。每一类资源都走同样的两步：<b>先从实测指标反推它真正需要多少资源</b>，再<b>在满足全部硬性约束的规格里挑最便宜的那个</b>。两步都是确定性计算，同一份输入必然得到同一份输出，结论可复算。</p>
+
+<p class="lead" style="font-size:15px">不同的是<b>每类资源的"第一判据"不一样</b>：EC2 看 CPU 与内存利用率，RDS 看活跃会话数，Redis 看单线程引擎 CPU 与 maxmemory 占用，MSK 看请求处理线程空闲率。所以本文按服务分章，每章都能单独读完。</p>
+
+<div class="grid3">
+  <div class="tile"><div class="v">63</div><div class="k">进入判据的资源行</div><div class="n">EC2 29 · RDS 15 · Redis 13 · MSK 6</div></div>
+  <div class="tile"><div class="v">34</div><div class="k">给出了目标规格的行</div><div class="n">EC2 17 · RDS 9 · Redis 8；托管服务的 17 行是<b>初选</b>，须人工审核</div></div>
+  <div class="tile"><div class="v">25.71%</div><div class="k">路线二占按需理论月额</div><div class="n">$5,253.67 / $20,433.84，保守档</div></div>
+</div>
+
+<div class="toc">
+  <b style="font-size:13.5px">本文结构</b>
+  <ol>
+    <li><a href="#s0">先说清三条口径</a></li>
+    <li><a href="#s1">共通机制：两档预设、需求反推、四种结论</a></li>
+    <li><a href="#s2">共通机制：候选池为空的六种成因</a></li>
+    <li><a href="#ec2">EC2</a></li>
+    <li><a href="#ebs">EBS 与快照</a></li>
+    <li><a href="#rds">RDS</a></li>
+    <li><a href="#redis">Redis / Valkey（ElastiCache）</a></li>
+    <li><a href="#msk">MSK</a></li>
+    <li><a href="#eks">EKS</a></li>
+    <li><a href="#idle">闲置与定时停机</a></li>
+    <li><a href="#managed">托管服务目标：初选与人工审核的分界</a></li>
+    <li><a href="#totals">四条汇总口径，不制造单一头条数字</a></li>
+    <li><a href="#gaps">补齐监控可以解锁多少</a></li>
+    <li><a href="#land">落地要求</a></li>
+  </ol>
+</div>
+
+<h2 id="s0">先说清三条口径</h2>
+
+<div class="warnbox">
+  <ol style="margin:4px 0 0; padding-left:20px">
+    <li>所有金额都是<b>公开按需价（On-Demand）的理论值</b>，不含实际账单。被预留实例（RI）或 Savings Plan 覆盖的资源，降配后账单不一定立刻下降——折扣会转移到其他资源或在承诺期内搁置。<b>百分比的分子分母都是按需理论值</b>，分母不是实际账单。</li>
+    <li>只做<b>同形态降配</b>：不改架构、不换 CPU 架构（x86 ↔ Arm）、不降可用性等级。不含 Serverless 化、Spot、减副本、减分片、减 broker、RDS 多可用区改单可用区。</li>
+    <li>指标缺失时一律<b>不给建议</b>，而不是按 0 处理。少省钱是可接受的，误判导致故障不可接受。<b>但"不适用"和"缺失"要分开</b>——例如非突发机型本来就不发布 CPU 信用指标，那不是数据缺口，不该因此关闭它的降配路径。</li>
+  </ol>
+</div>
+
+<h2 id="s1">共通机制：两档预设、需求反推、四种结论</h2>
+
+<h3>两档预设的全部差别，就是"留多少余量"</h3>
+
+<p>反推需求量时，把实测利用率除以一个<b>目标利用率</b>——即"降完之后利用率不要超过这个值"。目标越低 = 余量越大 = 建议越保守。</p>
+
+<table>
+  <thead><tr><th>阈值</th><th class="num">保守档 conservative</th><th class="num">激进档 aggressive</th><th>用在哪里</th></tr></thead>
+  <tbody>
+    <tr><td>CPU 目标（持续项）</td><td class="num">40%</td><td class="num">60%</td><td>EC2 / RDS 的 CPU 轴、Redis 的引擎 CPU</td></tr>
+    <tr><td>CPU 上限（峰值项）</td><td class="num">60%</td><td class="num">85%</td><td>EC2 / RDS 的峰值项</td></tr>
+    <tr><td>内存目标（持续项）</td><td class="num">50%</td><td class="num">70%</td><td>EC2 内存轴、Redis 可用内存反推</td></tr>
+    <tr><td>内存上限（峰值项）</td><td class="num">70%</td><td class="num">85%</td><td>EC2 内存峰值项</td></tr>
+    <tr><td>单次降幅上限</td><td class="num">2 倍</td><td class="num">3 倍</td><td>EC2 的 vCPU 与内存；托管服务的 vCPU（Redis 内存例外，见该章）</td></tr>
+    <tr><td>MSK CPU 目标</td><td class="num">40%</td><td class="num">40%</td><td>两档相同：MSK 的机型阶梯太稀疏，调它不改变结论</td></tr>
+    <tr><td>采样点分档线</td><td class="num">168 点</td><td class="num">168 点</td><td>业务时段有效小时数低于此值 ⇒ 仍给建议，置信度降 low</td></tr>
+  </tbody>
+</table>
+
+<p class="note">两档按<b>风险偏好</b>命名，不按"生产 / 非生产"。原因：这套判据无法验证一台机器到底是不是生产环境，而贵方直接知道自己能接受多激进。两档结果都会交付，对外沿用<b>保守档</b>。</p>
+
+<h3>需求反推：两项取 max</h3>
+
+<p>持续项防"日常不够用"，峰值项防"尖峰被打满"。<b>取两者的大值，峰值项不可省略</b>：</p>
+
+<pre>需要的量 = max(  ceil(现有量 × 持续利用率 ÷ 目标) ,  ceil(现有量 × 峰值利用率 ÷ 上限)  )
+                     └─── 持续项 ───┘            └──── 峰值项 ────┘</pre>
+
+<p><code>ceil</code> 是向上取整：<code>ceil(6.24) = 7</code>。机器不卖半颗核，算出 6.24 就必须给 7——<b>宁可多给，不能少给</b>。</p>
+
+<p class="note">各服务的"持续"与"峰值"取自不同指标，口径也不完全一样（RDS 的峰值项取 <code>Maximum</code> 序列的 p95，而 EC2 取 <code>max</code>）。逐服务在各自章节里写明，这里只讲公式形状。</p>
+
+<h3>四种结论：先看结论列，再看金额</h3>
+
+<table>
+  <thead><tr><th>结论</th><th>触发</th><th>含义</th></tr></thead>
+  <tbody>
+    <tr><td><b class="mono">downsize-candidate</b></td><td>全部门槛通过且候选池非空</td><td>可降配，给出目标规格与月省金额</td></tr>
+    <tr><td><b class="mono">已合理配置</b></td><td>候选池为空，或某道前置门槛未过</td><td>这一行没有可降的目标。<b>报告必须写出是哪一条约束绑定</b>——六种成因见下一节，动作完全不同</td></tr>
+    <tr><td><b class="mono">upsize-candidate</b></td><td><b>持续项</b>反推需求 &gt; 现有规格，或 CPU 信用余额触底，或已在付超额信用费</td><td><b>当前规格已经不足</b>，方向相反。本套判据<b>不产出升配目标机型</b>——选型需要容量规划输入（增长率 / SLA / 峰值形态）</td></tr>
+    <tr><td><b class="mono">blocked</b></td><td>命中该服务的独立否决项（OOM、存储耗尽、驱逐、副本滞后、副本不足…）</td><td>有明确的技术原因不能降。<b>"缩不了"不等于"规格不足"</b>，两者动作不同</td></tr>
+    <tr><td><b class="mono">metric-missing</b></td><td>关键指标缺失且该指标对本资源确实适用</td><td>没有能力判断。<b>必须早于"已合理配置"</b>，否则"判不了"会被伪装成"无需优化"</td></tr>
+    <tr><td><b class="mono">excluded</b></td><td>本版本不评估的形态（加速计算机型、Aurora Serverless v2、Memcached）</td><td>诚实排除，不猜一套未验证的判据</td></tr>
+  </tbody>
+</table>
+
+<div class="veto">
+<b>为什么升配只看持续项。</b>拿峰值项反推"规格不足"，一台 CPU 持续 7.25%、偶发峰值 98% 的闲置小机器会被判成需要扩容。峰值项存在的目的是<b>限制降配幅度</b>，不是判断当前规格不足。
+</div>
+
+<h3>采样量不足 ⇒ 降置信度，不是不出结论</h3>
+
+<p>业务时段有效点数低于 168 时<b>照常产出建议</b>，置信度降为 <code>low</code>，并在阻断项里写明实际点数与占门限比例。只有点数为 <b>0 或缺失</b>才判 <code>insufficient-data</code>——那是"无"，不是"少"，p95 无从计算。</p>
+
+<p><b>为什么改成分档：</b>旧写法在门限之下整段短路，<b>把否决项一起压掉了</b>。实测有一个集群的 <code>UnderReplicatedPartitions = 27</code>、一个 Redis 复制组的 <code>ReplicationLag = 23.88s</code>，都因此没出现在报告里，报告只写了"点数不足"——而否决项读的是持续值与峰值，拿采样量去挡它没有依据。</p>
+
+<p class="note"><b>删除与停机例外。</b>这条分档只放开降配路径（可回滚）。闲置删除与定时停机的动作不可回滚，采样点数保持<b>硬门槛</b>。</p>
+
+<h3>两个容易对不上的口径</h3>
+
+<div class="grid2">
+  <div class="card">
+    <h3 style="margin-top:0">p95 是"最近秩"，不插值</h3>
+    <p>排序后取下标 <code>floor((n − 1) × 0.95)</code>，<b>取的是窗口内真实出现过的那个点，不在两点之间插值</b>。</p>
+    <p style="margin-bottom:0">两个后果：<b>①</b> 相对插值口径系统性偏低，方向上让定档更紧；<b>②</b> p95 永远取不到最大值，所以峰值判据必须另读 <code>max</code>。拿 numpy 或控制台的 p95 来对会差一点，这不是缺陷。</p>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">采样周期不丢峰值，发布环节才丢</h3>
+    <p>实测 6 台机器，<code>period=3600</code> 与 <code>period=60</code> 得到的 <code>Maximum</code> <b>完全相同</b>——<code>Maximum</code> 取周期内已发布点的最大值，不做平均。</p>
+    <p style="margin-bottom:0">峰值损失发生在<b>发布</b>：EC2 基础监控每 5 分钟发布一次，且发布值已经是这 5 分钟的平均。所以"开详细监控"能解锁尖峰型负载的重评，"把 period 调小"不能。</p>
+  </div>
+</div>
+
+<p class="note"><b>窗口按业务本地午夜对齐。</b>不对齐会让同一份数据被切进不同时段档——实测同一实例 <code>peak_cpu</code> 在 18.18% 与 10.59% 之间摆动，足以改变反推出的核数。对齐后满窗口资源的点数是可精确预测的整数：业务时段 = 工作日数 × 11、非业务时段 = 工作日数 × 13、周末 = 周末天数 × 24，三者之和 = 窗口天数 × 24。本次 30 天窗口实测 <b>242 / 286 / 192，合计 720，闭合</b>。</p>
+
+<h2 id="s2">共通机制：候选池为空的六种成因</h2>
+
+<p>"已合理配置"这四个字对贵方没有信息量——<b>下一步动作取决于是哪条约束绑定的</b>。所以候选池为空时，报告必须写出成因，且这六种成因的动作完全不同：</p>
+
+<table>
+  <thead><tr><th>成因</th><th>含义</th><th>贵方的下一步</th></tr></thead>
+  <tbody>
+    <tr><td><b>没有更便宜的候选</b></td><td>已经在该区域该形态的价目地板上</td><td><b>无事可做</b>。补监控、延长窗口都不会改变结论</td></tr>
+    <tr><td><b>更便宜的全部跨 CPU 架构</b></td><td>例如当前是 Graviton，唯一更便宜的是 x86</td><td>这是<b>硬约束</b>不是阈值。若业务确认可接受跨架构迁移，需另立评估（重新编译 / 镜像 / 兼容性）</td></tr>
+    <tr><td><b>需求量超过所有更便宜候选</b></td><td>实测负载本身要求这么多核</td><td><b>规格是合适的</b>。要再降只能先降负载</td></tr>
+    <tr><td><b>被降幅地板挡住</b></td><td>更便宜的候选都低于"一次最多砍 N 倍"这道地板</td><td>这是<b>策略选择</b>：换激进档（2 倍 → 3 倍）就可能有候选，或分两次降</td></tr>
+    <tr><td><b>更便宜的候选装不下内存</b></td><td>核数够但内存不够</td><td>看内存需求的来源是否可调（如 Redis 的数据量、数据库缓冲区参数）</td></tr>
+    <tr><td><b>唯一装得下的候选被排除</b></td><td>例如该实例类不支持 Performance Insights，而 PI 是 RDS 的第一判据</td><td>报告会<b>量化放弃的金额</b>：若接受丢失 PI 可额外省多少，但下一轮该行的第一判据不可得</td></tr>
+  </tbody>
+</table>
+
+<p class="note">这一节是本轮判据的主要改进之一。改进前这六种情形共用一句笼统话，而那句话在后四种成因下是<b>错的</b>——它会让贵方去补一份补了也不会产出建议的监控，再等一个 30 天窗口。</p>
+
+<h2 id="ec2">EC2</h2>
+
+<div class="card">
+  <h4 class="svc">第一判据：<code>CPUUtilization</code> 与 CloudWatch Agent 的 <code>mem_used_percent</code></h4>
+  <p style="margin-bottom:0">CPU 与内存<b>各自</b>走"两项取 max"，持续项取业务时段 <code>Average</code> 序列的 p95，峰值项取 <code>Maximum</code> 序列的 <b><code>max</code></b>——EC2 上的尖峰是真实业务负载，不能按 p95 平滑掉。</p>
+</div>
+
+<pre>需要的 vCPU = max(  ceil(现有 vCPU × CPU_p95 ÷ CPU目标) ,  ceil(现有 vCPU × CPU_max ÷ CPU上限)  )
+需要的内存 = max(  ceil(现有 GiB  × 内存_p95 ÷ 内存目标) ,  ceil(现有 GiB  × 内存_max ÷ 内存上限)  )</pre>
+
+<h3>内存另有三条特殊规则</h3>
+
+<table>
+  <thead><tr><th>情形</th><th>处理</th><th>为什么</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>没有内存指标</b></td>
+      <td>内存需求 <b>= 当前规格</b>（内存维度锁死不动），置信度上限 medium</td>
+      <td>此时只有核数有余量可降。<b>不按 0 处理，也不拍一个下限</b></td>
+    </tr>
+    <tr>
+      <td><b>有内存指标</b></td>
+      <td>完全按实测反推，<b>不设"至少要 N GiB"的绝对下限</b></td>
+      <td>拍一个绝对下限等于在不了解这台机器真实内存画像的情况下替它做假设——会同时对小实例过度保护、对大实例仍然放行</td>
+    </tr>
+    <tr>
+      <td><b>所有情形</b></td>
+      <td>候选内存不得低于 <code>ceil(现有 GiB ÷ 降幅上限)</code></td>
+      <td>见下：内存 p95 被系统性压低，比 CPU <b>更</b>需要这道地板</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="warnbox">
+  <b>为什么内存 p95 是被低估的</b>
+  <p style="margin-bottom:0">CloudWatch Agent 的 <code>mem_used_percent</code> = <code>mem_used ÷ mem_total</code>，<b>不含可回收的 page cache</b>——页缓存被算进"未使用"。但那部分缓存对 I/O 密集型负载有实际价值：换到内存只剩一半的机型上，缓存命中率下降、磁盘 I/O 上升，而这件事在<b>降配前</b>的 <code>mem_used_percent</code> 里完全看不见。CPU 侧没有这个对应的偏差源。</p>
+</div>
+
+<h3>选型：十道硬性门槛，全过才算候选</h3>
+
+<div class="grid3">
+  <div class="gate"><b>1. CPU 架构一致</b><span>x86 不换成 Arm，反之亦然</span></div>
+  <div class="gate"><b>2. 非过时机型族</b><span>已有更新代次替代的族被排除</span></div>
+  <div class="gate"><b>3. 排除 <span class="mono">*-flex</span> 族</b><span>flex 的可持续 CPU 低于标称，但接口报"非突发型"，会被误当满容量机型</span></div>
+  <div class="gate"><b>4. 该区域真的能开</b><span>按当前区域现查可用机型集合，不复用别的区域</span></div>
+  <div class="gate"><b>5. 本地盘属性一致</b><span>带 NVMe 本地盘的不换成不带的</span></div>
+  <div class="gate"><b>6. 同族不许倒退代次</b><span>c6i 不会被换成 c5</span></div>
+  <div class="gate"><b>7. 机型分类合规</b><span>通用 / 计算优化 / 内存优化，或与原分类相同</span></div>
+  <div class="gate"><b>8. EBS 吞吐足够</b><span>实测吞吐需求缺失时直接放弃，不当 0</span></div>
+  <div class="gate"><b>9. 单价必须更低</b><span>否则不构成优化</span></div>
+  <div class="gate"><b>10. 降幅不超上限</b><span>保守档：vCPU 与内存都不得低于现有的 1/2</span></div>
+</div>
+
+<p style="margin-top:14px">剩下的候选里取 <code>vCPU ≥ 需求</code> 且 <code>内存 ≥ 需求</code> 的，<b>按单价升序选第一个</b>。月省 = <code>(现单价 − 目标单价) × 730 × 台数</code>。</p>
+
+<p class="note"><b>取价按 (机型, UsageOperation) 复合键，不只按机型。</b>同一 <code>m5.xlarge</code> 在本区域的按需价：Linux $0.248、RHEL $0.306、Windows $0.432、Windows+SQL Enterprise $1.932——<b>最多差 7.79 倍</b>。只按机型取价会让非 Linux 实例的成本被严重低估，节省金额完全失真。降配不改变操作系统与授权，所以候选沿用当前实例的 <code>UsageOperation</code>。</p>
+
+<h3>第 10 道门（降幅上限）为什么必须存在</h3>
+<p>目标利用率只能保证"按<b>已经测到</b>的负载不越界"，它管不了两类风险：</p>
+<ol style="margin:8px 0; padding-left:22px">
+  <li><b>5 分钟以内的尖峰不可见。</b>基础监控每 5 分钟发布一次且已做平均，一次 30 秒的 100% 尖峰在数据里只显示约 10%。</li>
+  <li><b>30 天窗口看不到月度 / 季度周期</b>（月结批处理、季度对账）。</li>
+</ol>
+<p>窗口错过周期性峰值时，4 核砍到 1 核就是 4 倍不够用。<b>这两条理由与指标种类无关</b>，所以内存也有同样一道地板。</p>
+<p class="note">一个诚实的边界：向上取整会在小规格上吞掉两档预设的差别。<b>现有内存 ≤ 4 GiB 时，两档算出的内存地板完全相同</b>，"更保守"这句承诺在内存这一维上兑现不了；8 GiB 起才开始分道。CPU 侧在小核数上同理。</p>
+
+<h3>突发型（T 系列）是可选的第二条路线</h3>
+<p>T 系列更便宜，但按 CPU 信用模型工作。要给出 T 系列建议，除十道门外还要额外满足三条：</p>
+<ul>
+  <li>窗口内 <code>CPUSurplusCreditsCharged</code> 必须为 0——已经在付超额信用费说明现规格就不够了。</li>
+  <li>标称核数 ≥ 峰值项算出的核数——T 系列的突发上限就是标称核数的 100%，不能靠信用突破。</li>
+  <li><code>标称核数 × 基线% × 0.8</code> ≥ 实际已用核数——基线之内还要留 20% 余量，保证不靠消耗信用就能扛住日常负载。</li>
+</ul>
+<p class="note">两条路线<b>互斥、不可相加</b>：路线一全用非突发机型，任何场景都适用；路线二逐台取更省的一方，前提是逐台确认能接受突发信用模型。</p>
+<p class="note"><b>"当前机型不是 T 系列"不等于"信用指标缺失"。</b>非突发机型结构性不发布 <code>CPUSurplusCreditsCharged</code>，把它当"缺失"去 fail-closed，会让突发路线在整支机队上永久不可达——实测 29 台里 25 台的突发列因此被压掉过。现在<b>先判适用性、再判缺失</b>。</p>
+
+<h3>CPU 信用余额触底（T 系列专有，优先级高于持续项）</h3>
+<p>突发型机器的信用一旦耗尽，CPU 就被限流到基线——<b>此时 <code>CPUUtilization</code> 是被压住的，持续值不能用于定档</b>。所以这条必须排在持续项之前：</p>
+<pre>触底 = 窗口内余额最小值 ≤ 窗口内余额最大值 × 10%     （或窗口内恒为 0）
+     ⇒ upsize-candidate，且两条降配路线全部压掉</pre>
+<p>分母取"窗口内观测到的最大余额"而不是理论信用上限，是为了让 EC2 与 RDS 共用同一套算法。实测分离度很干净：<b>触底样本 0.00%–0.14%，健康样本 85.07%–99.91%，中间没有任何观测点</b>。</p>
+<p class="note">反方向的信号：<b>非突发机型上出现了信用余额序列</b>，说明这台机器<b>在窗口内改过规格</b>。该余额测自另一个规格、不作为否决依据，但本行的利用率百分比混合了两个规格的采样，报告会标出来要求人工复核。</p>
+
+<h3>自己试一下</h3>
+<div class="card">
+  <div class="calc">
+    <div><label for="cv">现有 vCPU</label><input id="cv" type="number" value="32" min="1" step="1"></div>
+    <div><label for="p95">CPU p95（%）</label><input id="p95" type="number" value="4.82" step="0.01"></div>
+    <div><label for="mx">CPU 峰值（%）</label><input id="mx" type="number" value="13.11" step="0.01"></div>
+    <div><label for="pf">预设</label><select id="pf"><option value="c">保守 40/60 · 50/70 · 2倍</option><option value="a">激进 60/85 · 70/85 · 3倍</option></select></div>
+  </div>
+  <div class="calc" style="margin-top:12px">
+    <div><label for="cg">现有内存 GiB</label><input id="cg" type="number" value="64" min="1" step="1"></div>
+    <div><label for="mp95">内存 p95（%）</label><input id="mp95" type="number" value="66.29" step="0.01"></div>
+    <div><label for="mmx">内存 峰值（%）</label><input id="mmx" type="number" value="67.23" step="0.01"></div>
+    <div style="align-self:end;color:var(--ink-muted);font-size:12.5px">内存填 0 = 无内存指标，需求锁定为现有规格</div>
+  </div>
+  <div class="out" id="calcOut"></div>
+</div>
+
+<h3>三个真实例子</h3>
+
+<h4 style="margin-bottom:2px">例 1：<span class="mono">ec2-stg-01</span> — 建议不是"缩"，是"换到匹配的形态"</h4>
+<p>实测 <code>c7i.8xlarge</code>（32 核 / 64 GiB）：CPU p95 <b>4.82%</b>、峰值 13.11%；内存 p95 <b>66.29%</b>、峰值 67.23%。</p>
+<pre>vCPU 需求 = max( ceil(32 × 4.82%  ÷ 40%) , ceil(32 × 13.11% ÷ 60%) ) = max(4, 7) = 7 核
+内存需求 = max( ceil(64 × 66.29% ÷ 50%) , ceil(64 × 67.23% ÷ 70%) ) = max(85, 62) = 85 GiB   ← 比现有 64 GiB 还多</pre>
+<p>这台机器<b>CPU 严重过剩、内存其实偏紧</b>。选出的 <code>r5.4xlarge</code>（16 核 / 128 GiB）核数砍一半、<b>内存翻倍</b>，单价反而更低 —— 月省 <b>$349.23</b>（当前 $1,324.51/mo）。只按"内存用了 66%，别动"的直觉判断，这台就漏掉了。</p>
+<p class="note">这也解释了第 7 道门<b>为什么允许跨机型分类</b>。分类本质上编码的是 vCPU:内存 比例（计算 1:2 / 通用 1:4 / 内存 1:8）。实测比例偏离当前族时，跨分类才是正解——报告里每一条分类变更都显式标出，供人工复核。</p>
+
+<div class="chart" id="chart1">
+  <h4>例 1：现有规格 · 实测需求 · 建议机型</h4>
+  <div class="cap">上半 vCPU（核），下半 内存（GiB）。数值直接标在条形右侧。</div>
+  <div class="legend">
+    <span><i style="background:var(--s1)"></i>现有规格</span>
+    <span><i style="background:var(--s2)"></i>实测需求（含余量）</span>
+    <span><i style="background:var(--s3)"></i>建议机型 r5.4xlarge</span>
+  </div>
+  <div class="row"><div class="lbl">vCPU 现有</div><div class="track"><div class="bar" style="width:100%;background:var(--s1)" data-tip="c7i.8xlarge：32 核"></div></div><div class="val">32 核</div></div>
+  <div class="row"><div class="lbl">vCPU 需求</div><div class="track"><div class="bar" style="width:21.9%;background:var(--s2)" data-tip="按峰值项 ceil(32×13.11%÷60%)=7"></div></div><div class="val">7 核</div></div>
+  <div class="row"><div class="lbl">vCPU 建议</div><div class="track"><div class="bar" style="width:50%;background:var(--s3)" data-tip="r5.4xlarge：16 核，≥ 需求 7 且满足降幅上限 32÷2=16"></div></div><div class="val">16 核</div></div>
+  <div class="axis"><span>0</span><span>32 核</span></div>
+  <div style="height:14px"></div>
+  <div class="row"><div class="lbl">内存 现有</div><div class="track"><div class="bar" style="width:50%;background:var(--s1)" data-tip="c7i.8xlarge：64 GiB"></div></div><div class="val">64 GiB</div></div>
+  <div class="row"><div class="lbl">内存 需求</div><div class="track"><div class="bar" style="width:66.4%;background:var(--s2)" data-tip="按持续项 ceil(64×66.29%÷50%)=85，高于现有规格"></div></div><div class="val">85 GiB</div></div>
+  <div class="row"><div class="lbl">内存 建议</div><div class="track"><div class="bar" style="width:100%;background:var(--s3)" data-tip="r5.4xlarge：128 GiB，≥ 需求 85"></div></div><div class="val">128 GiB</div></div>
+  <div class="axis"><span>0</span><span>128 GiB</span></div>
+</div>
+
+<h4 style="margin-bottom:2px">例 2：<span class="mono">ec2-stg-02</span> — 内存需求决定了突发路线停在哪一档</h4>
+<p>实测 <code>c6i.large</code>（2 核 / 4 GiB）：CPU p95 1.37%、峰值 33.15%；内存 p95 28.90%、峰值 29.56%。需求 = <b>2 核 / 3 GiB</b>。</p>
+<table>
+  <thead><tr><th>路线</th><th>目标机型</th><th>规格</th><th class="num">月省</th><th>为什么是它</th></tr></thead>
+  <tbody>
+    <tr><td>非突发</td><td class="mono">c6a.large</td><td>2 核 / 4 GiB</td><td class="num">$7.88</td><td>同规格里最便宜的合规机型</td></tr>
+    <tr><td>突发（T 系列）</td><td class="mono">t3.medium</td><td>2 核 / 4 GiB</td><td class="num">$36.21</td><td>核数满足峰值项，基线余量够</td></tr>
+  </tbody>
+</table>
+<p>为什么突发路线不继续降到 <code>t3.small</code>（2 GiB）？<b>内存需求是 3 GiB</b>，t3.small 装不下，直接淘汰。这一行的绑定约束是<b>内存</b>，不是核数、也不是降幅地板——报告会写明是哪一条。</p>
+<p>降幅地板拦的是另一类情形：一台 4 GiB 的机器内存 p95 只有 5.175%，按公式反推需求 <b>1 GiB</b>，两档预设都会给出"降到 1 GiB"（4 倍降幅），而同一个保守档允许的 CPU 降幅只有 2 倍。<b>反推值本身没变，变的是不再允许一次砍到那个位置。</b></p>
+
+<h4 style="margin-bottom:2px">例 3：<span class="mono">ec2-pt-04</span> — 平均值很低，但不建议动</h4>
+<p>实测 <code>c7i.xlarge</code>（4 核 / 8 GiB）：CPU p95 只有 <b>7.25%</b>，窗口内峰值 <b>98.03%</b>；内存 p95 29.37%、峰值 72.81%。</p>
+<pre>CPU  持续项 = ceil(4 × 7.25%  ÷ 40%) = 1 核
+CPU  峰值项 = ceil(4 × 98.03% ÷ 60%) = 7 核   ← 取 max，需求 7 核 &gt; 现有 4 核
+内存 峰值项 = ceil(8 × 72.81% ÷ 70%) = 9 GiB  ← 也高于现有 8 GiB</pre>
+<p>需求量比现有规格还高，<b>没有任何候选能通过</b>，判为"已合理配置"、不给建议。</p>
+<p class="note">注意它是<b>"已合理配置"而不是 upsize-candidate</b>：把它推高的是峰值项，持续项远低于现有规格。区别很实际——如果报成升配候选，贵方会去为一台其实很闲的机器扩容。</p>
+
+<h3>判据顺序（短路链，命中一环立即出结论）</h3>
+<ol class="steps">
+  <li><b>规格未知 / 价格未知</b> → 不给建议。没有权威单价时，绝不退回"最小够用"的猜测选型——实测无价格时会推荐出<b>比现状更贵</b>的机型。</li>
+  <li><b>加速计算机型</b>（G/P/Inf/Trn）→ 排除。受限资源是加速器，默认 CloudWatch 没有加速器利用率指标。</li>
+  <li><b>关键指标缺失</b>（CPU / EBS 吞吐）→ <code>metric-missing</code>。必须早于"已合理配置"，否则"没能力判断"会被伪装成"无需优化"。</li>
+  <li><b>CPU 信用余额触底</b>（T 系列）→ <code>upsize-candidate</code>。必须早于持续项：被限流的机器持续值必然偏低。</li>
+  <li><b>候选池非空</b> → <code>downsize</code>，给出目标机型与金额。</li>
+  <li><b>持续项已超现有规格</b> → <code>upsize-candidate</code>；<b>否则</b> → <code>已合理配置</code>。</li>
+</ol>
+
+<h3>本机队 29 台 EC2 的结论分布</h3>
+<table>
+  <thead><tr><th>结论</th><th class="num">台数</th><th>代表实例</th><th>原因</th></tr></thead>
+  <tbody>
+    <tr><td><span class="pill yes">降配候选</span></td><td class="num">17</td><td class="mono">ec2-stg-01</td><td>路线一合计 <b>$2,050.55/mo</b>、路线二 <b>$2,398.49/mo</b></td></tr>
+    <tr><td><span class="pill">已合理配置</span></td><td class="num">4</td><td class="mono">ec2-pt-02 / 03 / 04</td><td>CPU 持续项仅 0.88%–7.25%，但<b>峰值达 91%–98%</b> ⇒ 峰值折算需 7 核 &gt; 现有 4 核</td></tr>
+    <tr><td></td><td class="num"></td><td class="mono">ec2-stg-win-01</td><td><b>内存指标缺失</b> ⇒ 内存需求锁定为当前 64 GiB，只有核数有余量，找不到合规候选（月额 $756.28，单台成本最高的一笔）</td></tr>
+    <tr><td><span class="pill no">升配候选</span></td><td class="num">4</td><td class="mono">ec2-stg-03</td><td>CPU 持续 <b>99.96%</b>——确实在满负荷运行</td></tr>
+    <tr><td></td><td class="num"></td><td class="mono">ec2-stg-04 · ec2-pt-01 · ec2-stg-05</td><td>CPU 持续 51%–78% ⇒ 按保守档目标 40% 反推需 11–16 核，均超现有规格</td></tr>
+    <tr><td><span class="pill">判不了</span></td><td class="num">4</td><td class="mono">t3.medium ×3 · t3.xlarge ×1</td><td>都是 T 系列，本次归档数据缺 <code>CPUCreditBalance</code> 序列 ⇒ 无法排除"信用已耗尽" ⇒ 不给建议。<b>重采即可解除</b>（该序列本身一直发布）</td></tr>
+  </tbody>
+</table>
+<p class="note">注意 <code class="mono">ec2-pt-01</code> 与 <code class="mono">ec2-pt-02/03/04</code> 是<b>同机型、不同结论</b>：前者 CPU 持续 57.18%（持续项就超规格 ⇒ 升配候选），后三者持续项只有 0.88%–7.25%（是<b>峰值项</b>把需求推高的 ⇒ 已合理配置，不是升配）。这个区分很实际——报成升配候选会让贵方去为三台其实很闲的机器扩容。</p>
+
+<h2 id="ebs">EBS 与快照</h2>
+
+<div class="grid2">
+  <div class="card">
+    <h3 style="margin-top:0">卷</h3>
+    <ul style="margin:6px 0 0; padding-left:20px">
+      <li><b><code>gp2 → gp3</code> 全量给出</b>：同容量下 gp3 单价更低。<b>原容量 &gt; 334 GiB 时基线 IOPS 已超 3000</b>，转 gp3 必须显式配置 IOPS，这条会写进阻断项。</li>
+      <li><b>未挂载卷</b>（<code>state=available</code>）进闲置清单，动作是删除。</li>
+      <li><b>容量是否过大判不了</b>：需要 CloudWatch Agent 的 <code>disk_used_percent</code>，且挂载点与卷的映射必须可靠。缺任一项就不产出容量缩减建议，会列进数据缺口。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">快照：只列事实，不判年龄</h3>
+    <p>报告会列出快照清单、容量、创建日期、月额，但<b>不产出删除建议</b>——该不该删取决于 RPO 与合规留存要求，这两样都不在任何 API 里。</p>
+    <p style="margin-bottom:0">同一个"很旧"的快照可能是审计要求的留存副本；"很新"的可能是某个已删除卷唯一的恢复点。<b>"源卷已删除"更不能当删除信号</b>——那恰恰是快照可能是唯一剩余副本的情形。</p>
+  </div>
+</div>
+
+<p class="note"><b>删卷与转存储类型互斥。</b>任何走删除路径的卷都不再出 <code>gp2→gp3</code> 行：前者省全额、后者只省差价，相加就是高估。实测一个未挂载的 gp2 卷曾同时出删除行 $3.60/mo 与转换行 $0.72/mo，两个动作互斥却都进了合计。</p>
+
+<h2 id="rds">RDS</h2>
+
+<div class="card">
+  <h4 class="svc">第一判据是 <code>DBLoad</code>（活跃会话数），CPU 是并行的第二判据</h4>
+  <p><b>为什么不只看 CPU：</b>数据库的瓶颈通常不是 CPU 时间而是<b>并发活跃会话数</b>。Performance Insights 的 <code>db.load.avg</code>（AAS）直接对标 vCPU 数，是数据库容量的正确刻度。</p>
+  <p style="margin-bottom:0"><b>但两轴是并行关系，不是主备：</b><code>required_vcpu</code> 取两轴的大值。实测一台 <code>db.m6g.xlarge</code> 的 <code>DBLoad</code> p95 差 0.328 没跨阈值，按旧写法判"已合理配置"，而它的 <b>CPU 持续 p95 是 69.64%</b> —— 那是升配候选。</p>
+</div>
+
+<h3>判据顺序（顺序本身是判据的一部分）</h3>
+<table>
+  <thead><tr><th style="width:34px">#</th><th>判据</th><th>结论</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>db.serverless</code></td><td><span class="pill">排除</span> Aurora Serverless v2 按 ACU 伸缩，无固定规格</td></tr>
+    <tr><td>2</td><td><code>CPUSurplusCreditsCharged</code> &gt; 0<span style="color:var(--ink-muted)">（仅 <code class="mono">db.t*</code>）</span></td><td><span class="pill no">升配候选</span> 已在付超额信用费</td></tr>
+    <tr><td>3</td><td>CPU 信用余额触底<span style="color:var(--ink-muted)">（仅 <code class="mono">db.t*</code>）</span></td><td><span class="pill no">升配候选</span> 被限流时 CPU 利用率是被压住的，必须先判</td></tr>
+    <tr><td>4</td><td><b>CPU 持续项</b> 反推 &gt; 现有 vCPU</td><td><span class="pill no">升配候选</span> 只用持续项，峰值项不参与</td></tr>
+    <tr><td>5</td><td><code>DBLoad</code> p95 ≥ vCPU 数</td><td><span class="pill no">阻断</span> 会话数已打满，CPU 是瓶颈</td></tr>
+    <tr><td>6</td><td><code>DBLoad</code> p95 ≥ 0.5 × vCPU 数</td><td><span class="pill">已合理配置</span></td></tr>
+    <tr><td>7</td><td><b>候选池可行性探针</b></td><td><span class="pill">已合理配置</span> 六种成因之一，<b>早于所有指标要求</b></td></tr>
+    <tr><td>8</td><td><code>FreeStorageSpace</code> 最小值 = 0，或按消耗速率外推剩余 &lt; 21 天</td><td><span class="pill no">阻断</span> <b>可用性事故，不是成本项</b></td></tr>
+    <tr><td>9</td><td><code>FreeableMemory</code> <b>最小值</b> &lt; 实例内存 × 15%</td><td><span class="pill no">阻断</span> 降配会 OOM</td></tr>
+    <tr><td>10</td><td>以上全过 ⇒ 选型</td><td><span class="pill yes">降配候选</span> 给出目标实例类（初选）与月省</td></tr>
+  </tbody>
+</table>
+
+<div class="veto">
+  <b>第 3 条为什么必须排在第 5 条前面（实测教训）：</b>某 <code>db.t4g.medium</code> 的 <code>DBLoad</code> p95 = 0.547，低于 <code>0.5 × 2 vCPU = 1.0</code>，前置条件"满足"；但同一窗口 <code>CPUCreditBalance</code> 最小值 = 0、<code>CPUSurplusCreditsCharged</code> 单小时最大 730.6 —— 这台机器其实是<b>升配</b>候选。只看 <code>DBLoad</code> 会给出方向完全相反的建议。
+</div>
+
+<div class="veto">
+  <b>第 8 条为什么排在第 9 条前面（实测教训）：</b>回放时磁盘写满那台（<code>FreeStorageSpace</code> 最小值 0 GiB）先撞上内存 OOM 阻断，于是报告只写了"降配会 OOM"，<b>磁盘被写满这件事从未出现</b>——而按它自己的措辞，存储耗尽"优先级高于本行任何降配讨论"。
+</div>
+
+<h3>三个 RDS 专有的口径</h3>
+
+<div class="grid2">
+  <div class="card">
+    <h3 style="margin-top:0">CPU 峰值项取 <code>Maximum</code> 序列的 p95，不是 max</h3>
+    <p>RDS 的 CPU 尖峰可证明来自<b>托管平面的维护动作</b>（备份窗口、自动小版本升级）。实测一台常态 4.00% 的库出现单峰 88.33%，按 <code>max</code> 反推需 3 vCPU 而它只有 2。</p>
+    <p style="margin-bottom:0">按 <code>max</code> 判，12 台里激进档只剩 2 台可降、保守档 0 台。<b>EC2 侧保持取 <code>max</code> 不变</b>——那里的尖峰是真实业务负载。</p>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0"><code>FreeableMemory</code> 必须采 <code>Minimum</code></h3>
+    <p>空闲内存<b>越多越安全</b>，危险点在最小值那一侧。用 <code>Maximum</code> 或 <code>Average</code> 的 p95 是取错了方向，会把危险实例判成安全。</p>
+    <p style="margin-bottom:0">而且要取<b>全窗口</b>而非业务时段：内存低点常落在备份 / 批处理的非业务时段。</p>
+  </div>
+</div>
+
+<h3>内存需求怎么反推</h3>
+<pre>需要的内存 = (实例内存 − FreeableMemory 最小值) ÷ (1 − 15%)</pre>
+<p>分子是实测的"已用内存上界"，除以 <code>(1 − 15%)</code> 是把 OOM 阻断那道地板作为余量留出来——一个候选"装得下"的定义就是<b>降配后 <code>FreeableMemory</code> 仍高于那道地板</b>，所以不再叠加额外余量。</p>
+<div class="warnbox">
+  <b>这个值是真实工作集的<u>上界</u>，方向保守</b>
+  <p style="margin-bottom:0">数据库引擎的缓冲区（MySQL <code>innodb_buffer_pool_size</code> / PostgreSQL <code>shared_buffers</code>）<b>有意占满</b>可分配内存，<code>FreeableMemory</code> 报的是 MemAvailable。所以一个配置正确的库<b>按设计</b>就是低 freeable。这条证据支持"缩不了"，不支持"需要更大的实例"。代价是系统性少省：<b>若变更时同步下调缓冲区参数，可以选更小的实例类</b>——报告会把这句写进每一条 RDS 建议。</p>
+</div>
+
+<h3>选型的两条 RDS 专有规则</h3>
+<ul>
+  <li><b>取价必须带部署形态。</b>Multi-AZ 是独立的计费项、<b>单价约为单可用区的 2 倍</b>。实测同一支机队里两台同规格 <code>db.m6g.2xlarge</code>，单价分别是 $0.92 与 $1.84/h。只按实例类取价会把 Multi-AZ 实例的成本算便宜一半，节省金额随之失真。</li>
+  <li><b>已开 PI 的实例，不支持 PI 的实例类会被排除。</b>但报告会<b>量化放弃的金额</b>：那个更便宜的候选能多省多少、代价是下一轮失去第一判据。取的是"本来装得下、只因排除才没选中"的那一个——否则会报出一笔本来也拿不到的钱。</li>
+</ul>
+
+<p class="note"><b>PI 不可得有两种成因，动作不同：</b>「未开启」改个开关即可；「该实例类结构性不支持」要换机型才能拿到。报告分开写这两种，不写成笼统的"缺 <code>db.load.avg</code>"。</p>
+
+<h3>一条不改结论、但要求人工核对的校验</h3>
+<p><code>DBLoad</code> 的 <code>Maximum</code> 序列 p95 单独反推若超过现有 vCPU，报告会<b>降低置信度并要求去 PI 控制台核对</b>，但<b>不改 verdict</b>。原因：两条序列跨度实测 5 倍到 1370 倍，而成因在"PI 按 1 秒发布"与"Average 被 SampleCount 稀释"之间无法从聚合值判定——<b>拿不到就不能算</b>。本次 15 台里 3 台命中这条注记。</p>
+
+<h3>本次结果</h3>
+<table>
+  <thead><tr><th>结论</th><th class="num">台数</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><span class="pill yes">降配候选</span></td><td class="num">9</td><td>路线一合计 <b>$605.90/mo</b>、路线二 <b>$986.23/mo</b>（两条互斥）</td></tr>
+    <tr><td><span class="pill no">阻断</span></td><td class="num">4</td><td>全部是 <code>FreeableMemory</code> 触地板（可用内存最小值 0.29–1.83 GiB，均低于实例内存的 15%）⇒ 降配会 OOM。<b>这是"缩不了"，不是"规格不足"</b></td></tr>
+    <tr><td><span class="pill">已合理配置</span></td><td class="num">2</td><td>1 台 <code>DBLoad</code> p95 3.04 未低于 <code>0.5 × 2 vCPU</code>；1 台"更便宜的候选都装不下"</td></tr>
+  </tbody>
+</table>
+<p>最大的一条：<code>db.m6g.2xlarge</code> → <code>db.r6g.xlarge</code>，月省 <b>$261.34</b>。注意目标是<b>内存优化族</b>而不是同族的 <code>db.m6g.xlarge</code>——后者只有 16 GiB，装不下反推出的 18.2 GiB 内存需求。<b>内存轴真的在约束选型</b>。</p>
+
+<h2 id="redis">Redis / Valkey（ElastiCache）</h2>
+
+<div class="card">
+  <h4 class="svc">CPU 必须用 <code>EngineCPUUtilization</code>，内存必须用 <code>DatabaseMemoryUsagePercentage</code></h4>
+  <p><b>为什么不用 <code>CPUUtilization</code>：</b>Redis 是<b>单线程</b>处理命令的。节点整机 CPU 里混了后台线程（快照、复制、网络），用它定档会系统性误判。<code>EngineCPUUtilization</code> 才是那个会先打满的线程。</p>
+  <p style="margin-bottom:0"><b>先判引擎，再判指标。</b>这两个指标只有 <code>redis</code> / <code>valkey</code> 发布。<b>Memcached 不评估</b>——它多线程、两个都不发布，需要另一套（CPU 看 <code>CPUUtilization</code>、内存看 <code>BytesUsedForCache</code> 对节点上限），而那套指标的刻度未经实测。<b>发明一套未验证的判据比诚实排除更糟</b>，而报成"缺指标"更糟——那会让贵方去补一个不可能存在的指标。</p>
+</div>
+
+<h3>判据顺序</h3>
+<table>
+  <thead><tr><th style="width:34px">#</th><th>判据</th><th>结论</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>pricing 的 <code>vcpu</code> / <code>memory</code> 属性为空</td><td><span class="pill">规格未知</span> 不外推、不回退 EC2 映射值</td></tr>
+    <tr><td>2</td><td><code>Evictions</code> <b>持续值</b> &gt; 0</td><td><span class="pill no">阻断</span> 内存已不足，降配更糟</td></tr>
+    <tr><td>3</td><td><code>ReplicationLag</code> <b>持续值</b> ≥ 1 秒</td><td><span class="pill no">阻断</span> 副本已跟不上</td></tr>
+    <tr><td>4</td><td>引擎不是 redis / valkey</td><td><span class="pill">排除</span> 本版本不评估</td></tr>
+    <tr><td>5</td><td><b>候选池可行性探针</b></td><td><span class="pill">已合理配置</span> 六种成因之一，<b>早于所有指标要求</b></td></tr>
+    <tr><td>6</td><td><code>EngineCPUUtilization</code> p95 ≥ 40%<br>或 <code>DatabaseMemoryUsagePercentage</code> max ≥ 50%</td><td><span class="pill">已合理配置</span>（保守档目标）</td></tr>
+    <tr><td>7</td><td>以上全过 ⇒ 选型</td><td><span class="pill yes">降配候选</span> 给出目标 node type（初选）与月省</td></tr>
+  </tbody>
+</table>
+
+<p class="note"><b>为什么两条否决项排在"引擎"之前：</b>"这个缓存正在淘汰键"对 Memcached 同样成立，是有效阻断，与能不能降配无关。而"引擎不评估"要排在候选池探针之前——"本版本不评估"比"没有更便宜的候选"靠前，后者会暗示已经评估过了。</p>
+
+<div class="veto">
+  <b>否决项判"持续成立"，不判"曾经出现过一次"。</b>一次 failover 或备份快照造成的尖峰不应该否决整个窗口。本机队多个复制组的 <code>ReplicationLag</code> 持续值都远低于 1 秒，而窗口内最大值达 <b>20.2s / 26.0s</b>；按最大值否决，任何做过 failover 或备份快照的复制组降配路径就永久关闭了。<b>尖峰不否决 ≠ 尖峰不报告</b>——最大值会写进阻断项，让维护事件保持可见，并要求降配前确认该尖峰不是容量不足所致。
+</div>
+
+<div class="veto">
+  <b><code>Evictions</code> 与 <code>ReplicationLag</code> 的缺失处理不对称，这是有依据的。</b><code>Evictions</code> 每个节点都发布，缺失就是真缺失 ⇒ 不给建议。<code>ReplicationLag</code> 只在存在副本时才有意义 ⇒ 按"是否存在副本"分流：有副本却没有序列 = 采集缺口，仍然不给建议；无副本 = 不适用，放行。<b>副本存在性由节点 ID 的分片-成员结构推出，不用节点数代替</b>——"3 分片 × 1 节点"（节点数 3、无副本）是合法配置。
+</div>
+
+<h3>可用内存怎么算——这一步很容易算错 1.33 倍</h3>
+<pre>已用可用内存 = 节点内存 × (1 − reserved-memory-percent) × DatabaseMemoryUsagePercentage ÷ 100
+候选须满足   = 候选节点内存 × (1 − reserved) ≥ 已用可用内存 ÷ 内存目标(50%)</pre>
+<p><code>DatabaseMemoryUsagePercentage</code> 是相对 <b><code>maxmemory</code></b> 的百分比，而 <code>maxmemory</code> = 节点内存 × (1 − reserved)，<b>不是</b>节点内存的百分比。所以这里是<b>乘</b> <code>(1 − reserved)</code>；写成除会得到节点总内存口径，把需求量放大约 1.33 倍。<code>reserved-memory-percent</code> 是集群参数（不是指标），未显式设置时按 AWS 默认 <b>25%</b> 取。</p>
+
+<p><b>节点内存必须取 pricing 接口的真实值，不能用 EC2 同名机型映射。</b>实测 <code>cache.t3.medium</code> 真实内存 3.09 GiB，映射到 EC2 <code>t3.medium</code> 会得到 4.00 GiB，<b>偏高 29%</b>；而 <code>DatabaseMemoryUsagePercentage</code> 是相对真实节点内存的百分比，基数错则绝对量全错。</p>
+
+<p class="note"><b>取价也有两个坑：</b>① 同一个 <code>cache.t3.medium</code> 在价目表里有三个价（正常节点用量 / 两档扩展支持），随机取到会高估 60% 或低估 21%；② <b>Valkey 的价格比 Redis 低约 20%，而两者的计费用量类型逐字相同</b>——只按机型取价会拿 Valkey 的价格去算 Redis 集群，低估 20%。所以取价键是"机型 + 引擎"，与 EC2 侧同构。</p>
+
+<h3>一个刻意的例外：内存不设降幅地板</h3>
+<p>EC2 侧对 vCPU 和内存都有"一次最多砍 N 倍"的地板。<b>Redis 的内存维度没有这道地板</b>，两个理由：</p>
+<ol style="margin:8px 0; padding-left:22px">
+  <li><b>结构上不可满足。</b>ElastiCache 的节点内存不是 2 的幂（0.50 / 1.37 / 3.09 / 6.38 GiB），相邻档比值 2.74 / 2.26 / 2.07 <b>全部大于 2</b>。保守档的 2 倍地板从 <code>cache.m6g.large</code> 往下要求候选 ≥ 3.19 GiB，而下一档只有 3.09 GiB——差 3%，永久挡死。实测按该地板筛，11 个复制组<b>全部选不出目标、合计 $0</b>，而失败原因还会被写成"装不下"，诊断信息指向错误方向。</li>
+  <li><b>立论不成立。</b>那道地板的理由是"<code>mem_used_percent</code> 不含可回收 page cache、会压低内存 p95"。而 <code>DatabaseMemoryUsagePercentage</code> 是相对 <code>maxmemory</code> 的权威利用率，没有那个盲区。</li>
+</ol>
+<div class="warnbox">
+  <b>代价是"降得深"，所以有一道额外的护栏</b>
+  <p style="margin-bottom:0">目标落在<b>同架构价目阶梯的最底档</b>时，强制置信度 <code>low</code> 并写明：<i>倍数余量看着充足但绝对量极小，触底后估错了没有退路（不能再降，任何数据量增长只能升配）</i>。本次 13 个复制组里有 <b>6 个</b>命中这条护栏——它们的数据量确实极小（已用可用内存 0.011–0.022 GiB），但<b>这类建议必须按业务增长预期人工复核</b>，不能只看利用率百分比。</p>
+</div>
+
+<h3>本次结果</h3>
+<table>
+  <thead><tr><th>结论</th><th class="num">组数</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><span class="pill yes">降配候选</span></td><td class="num">8</td><td>路线一 <b>$53.44/mo</b>、路线二 <b>$1,868.95/mo</b>。两条差距极大是因为多数组的目标落在 T 系列（突发）节点上</td></tr>
+    <tr><td><span class="pill">已合理配置</span></td><td class="num">5</td><td><b>3 组</b>"已在价目地板上"（当前就是最便宜的 node type，补指标也不会有建议）、<b>1 组</b>引擎 CPU 10.23% 但内存已用到 <code>maxmemory</code> 的 <b>86.02%</b>（内存未低于目标）、<b>1 组</b>"更便宜的候选都装不下"</td></tr>
+  </tbody>
+</table>
+<p class="note"><b>不产出减副本 / 减分片建议</b>：前者降低可用性等级，后者需要数据重分布。分片倾斜只作为事实陈述列出。</p>
+
+<h2 id="msk">MSK</h2>
+
+<div class="card">
+  <h4 class="svc">CPU 是两个指标<b>逐点相加</b>，且同一命名空间内刻度不统一</h4>
+  <p><b>为什么不能分别算 p95 再相加：</b>Kafka broker 的 CPU 判据是 <code>CpuUser + CpuSystem</code>，而<b>两个序列各自的 p95 之和 ≠ 和的 p95</b>。正确做法是在查询里用表达式 <code>m1+m2</code> 逐点相加，再做时段聚合。</p>
+  <p style="margin-bottom:0">实测对比（某 broker，业务时段）：逐点相加得持续 p95 <b>5.45</b>；分别算 p95 再相加得 5.495。本例只差 0.8%，是因为两个序列的峰值恰好同时出现——<b>这是运气，不是通例</b>。</p>
+</div>
+
+<h3>判据顺序</h3>
+<table>
+  <thead><tr><th style="width:34px">#</th><th>判据</th><th>结论</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>UnderReplicatedPartitions</code> <b>持续值</b> &gt; 0</td><td><span class="pill no">阻断</span> 副本已跟不上</td></tr>
+    <tr><td>2</td><td><b>候选池可行性探针</b></td><td><span class="pill">已合理配置</span> 六种成因之一，<b>早于所有指标要求</b></td></tr>
+    <tr><td>3</td><td><code>KafkaDataLogsDiskUsed</code> max ≥ 50</td><td><span class="pill">已合理配置</span>（<b>0–100</b> 刻度）</td></tr>
+    <tr><td>4</td><td><code>RequestHandlerAvgIdlePercent</code> p95 ≤ 0.7</td><td><span class="pill">已合理配置</span>（<b>0–1</b> 刻度，见下）</td></tr>
+    <tr><td>5</td><td><code>CpuUser+CpuSystem</code> p95 ≥ 40%</td><td><span class="pill">已合理配置</span></td></tr>
+    <tr><td>6</td><td>以上全过 ⇒ 选型</td><td><span class="pill yes">降配候选</span> 给出目标 broker 机型（初选）与月省</td></tr>
+  </tbody>
+</table>
+
+<div class="veto">
+  <b>同一个命名空间内刻度不统一，这是真实踩过的坑。</b>实测 <code>KafkaDataLogsDiskUsed</code> 是 <b>0–100</b>，而 <code>RequestHandlerAvgIdlePercent</code> 是 <b>0–1</b>（实测 0.998–1.002）。把第 4 条写成 <code>&gt; 70%</code>，它就<b>永远不成立</b>，降配建议会被静默吞掉。
+</div>
+
+<div class="veto">
+  <b>第 1 条同样判持续值。</b>本机队 6 个集群的 <code>UnderReplicatedPartitions</code> 持续值<b>全为 0</b>，而窗口内最大值达 <b>30–65</b>——MSK 自动打补丁与 broker 滚动重启必然产生尖峰。按最大值否决，<b>任何被维护过的集群降配路径永久关闭</b>。最大值仍会写进阻断项。
+</div>
+
+<h3>第 2 条为什么必须排在指标缺失之前</h3>
+<p><code>RequestHandlerAvgIdlePercent</code> 只在增强监控档位下发布，<code>DEFAULT</code> 档不发布它（CPU / 磁盘 / 副本 / 内存的 per-broker 数据反而都有）。</p>
+<p><b>但只有确实存在可用的更便宜 broker 机型时，才值得为此开增强监控。</b>实测本次两个 <code>kafka.m7g.large</code> 集群：唯一更便宜的 broker 机型是 <code>kafka.t3.small</code>，而它是 <b>x86</b>——跨 CPU 架构是硬约束禁止项。若先判指标缺失，报告会写"缺 <code>RequestHandlerAvgIdlePercent</code>"，读起来像"开了增强监控就能拿到建议"，而那条建议<b>结构性不可能产出</b>。</p>
+
+<h3>本次结果：6 个集群全部"已合理配置"，但每一行都写明成因</h3>
+<table>
+  <thead><tr><th>成因</th><th class="num">集群数</th><th>贵方的下一步</th></tr></thead>
+  <tbody>
+    <tr><td>更便宜的候选存在但<b>全部跨 CPU 架构</b>（<code>kafka.t3.small</code> 是 x86）</td><td class="num">3</td><td>除非业务确认可接受跨架构迁移，否则无事可做。<b>不必开增强监控</b></td></tr>
+    <tr><td><b>已在价目地板上</b>（当前就是 <code>kafka.t3.small</code>）</td><td class="num">3</td><td>无事可做。次便宜的 broker 机型贵约 4.5 倍</td></tr>
+  </tbody>
+</table>
+<p class="note"><b>不产出减 broker 数建议</b>——需要 partition 重分配，属架构级操作。<b>存储只能扩不能缩</b>，过度预配的日志卷只能在下次重建时修正；这一条与 broker 机型无关，是独立的一行事实。</p>
+
+<h2 id="eks">EKS</h2>
+
+<p>EKS 的浪费主体<b>不在节点利用率</b>，而在 <b>request 超配把节点池撑大</b>。所以这一章的输出形态和别处不同：</p>
+
+<ul>
+  <li><b>节点级建议只出现在节点池聚合行上，不逐节点出。</b>托管节点组的机型只能整池改，逐节点降配是不可单独执行的动作，且与聚合行的节省额重复计数。</li>
+  <li><b>Karpenter 给的是 NodePool 的 <code>requirements</code> / <code>limits</code> 建议</b>，不是具体机型——机型由 NodePool 决定。两者在报告里区分标注。</li>
+  <li><b>pod request 必须按 K8s 的调度口径算</b>：<code>max(Σ 普通容器, 各 init 容器的最大值) + pod overhead</code>。只取第一个容器或逐容器简单求和都会低估——实测一个两容器 <code>250m+50m</code>、init <code>2</code> 核、overhead <code>100m</code> 的 pod，简单求和得 300m，调度口径是 2100m，<b>差 7 倍</b>。</li>
+  <li><b>装箱计算必须把 DaemonSet 与业务 pod 分开</b>：DaemonSet 的 request 是<b>每节点固定开销</b>，随节点数增减，混进总量会系统性高估所需节点数。</li>
+</ul>
+
+<div class="warnbox">
+  <b>缺 Container Insights 不等于 pod 级分析全部不可得</b>
+  <p>六项分析里有四项是"配置比配置"，<b>只需 kubectl</b>：① request 对可分配量的预订率、② 装箱理论最少节点数、③ 空节点组 / 未调度 pod、④ Fargate request 超配。第 ⑤ 项 HPA <code>minReplicas</code> 能读到配置，但判断"是否过高"需要历史负载。只有第 ⑥ 项——<b>pod 实际利用率的历史曲线</b>——真正无法替代。</p>
+  <p style="margin-bottom:0">实测某集群 Container Insights 一条指标都没有，纯 kubectl 仍得出：节点可分配 9.65 vCPU / 34.08 GiB，pod requests 7.79 vCPU / 11.56 GiB ⇒ <b>CPU 预订率 80.7%、内存预订率 33.9%，两者差 2.4 倍</b> ⇒ 机型错配信号明确（该换计算优化族而非通用族）。这个结论不需要任何历史指标。</p>
+</div>
+
+<p class="note">本次 EKS 未产出 pod 级结论：<b>运行环境没有 kubectl</b>，拿不到 pod requests，预订率与装箱全部失效——这比缺 Container Insights 影响更大（后者只挡住第 ⑥ 项）。节点仍然计入分母，只出节点级事实。</p>
+
+<h2 id="idle">闲置与定时停机</h2>
+
+<p>除降配外还有两类判定用到同样的利用率数据，但<b>动作不可回滚，所以门槛更硬</b>：采样点数是硬门槛，不走"降置信度"那条分档。</p>
+
+<div class="grid2">
+  <div class="card">
+    <h3 style="margin-top:0">闲置判定（动作：删除）</h3>
+    <p>三条<b>同时</b>满足：</p>
+    <pre>业务时段 CPU p95 &lt; 5%
+日均网络     &lt; 5 MB / 日
+业务时段采样 ≥ 168 点（硬门槛）</pre>
+    <p><b>网络口径只认一种</b>：全窗口（业务 + 非业务 + 周末三档全算）按 <code>Sum</code> 逐小时相加 ÷ 窗口天数。</p>
+    <p style="margin-bottom:0">为什么不用业务时段外推全天：实测某实例业务时段外推 <b>53.11 MB/日</b>，全窗口真值 <b>71.62 MB/日</b>，差 <b>26%</b>——那台机器夜里更忙（备份类）。闲置门限只有 5 MB，26% 的口径差足以翻转判定。<b>一台夜间跑批的机器不是闲置资源。</b></p>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">定时停机（动作：停机）</h3>
+    <p><b>非业务时段</b>与<b>周末</b>两档<b>各自</b>满足三条：</p>
+    <pre>该档 CPU p95  &lt; 5%
+该档日均网络   &lt; 5 MB / 日
+该档 CPU 峰值  ≤ 20%</pre>
+    <p>输出是<b>候选清单 + 三档实测证据</b>（业务 / 非业务 / 周末各自的 p95、峰值、点数），<b>不是建议</b>。</p>
+    <p style="margin-bottom:0">因为"能不能停"取决于 CloudWatch <b>看不见</b>的信息：定时任务、被动监听的服务、上游依赖、维护窗口，以及"低利用率"是否恰恰是这台机器存在的理由（冷备）。报告里只会写"停机候选，待确认"，<b>不会出现"建议停机"字样</b>。</p>
+  </div>
+</div>
+
+<p class="note">这两类判定的<b>第三态</b>很重要：<b>"判不了"和"不是候选"必须分开呈现</b>。缺少非业务时段或周末数据时，报告写的是<b>"未评估"</b>，不会写成"无候选"——后者读起来像"已经查过、没有可停的"。同理，一条指标序列<b>整条不存在</b>不等于"恒为 0"：一个 3 小时前新建的 NAT 网关同样会显示"恒 0"，而这一行的动作是删除。</p>
+
+<p class="note"><b>RDS 不建议停实例</b>：停止的 RDS 仍收存储费且最多 7 天后自动启动，所以非生产库的这条路径改为"快照 + 删除"，并在阻断项写明。</p>
+
+<h2 id="managed">托管服务目标：初选与人工审核的分界</h2>
+
+<p>本轮判据的另一个主要改进：<b>RDS / Redis / MSK 现在会给出目标规格与月省金额</b>，不再只回答"是不是候选"。改进前这三类的节省额恒为 $0——不是因为没有空间，而是因为判据不选目标。本次两支机队实测，托管层的可优化比例是<b>其按需月额的 23%–30%</b>。</p>
+
+<p>代价是这些目标的性质与 EC2 不同，报告里对应四条硬规则：</p>
+
+<ol class="steps">
+  <li><b>目标是"初选"，人工的角色是审核而不是选型。</b>每条托管建议必带一条阻断项：<i>目标为本 skill 初选，须人工确认变更窗口与回滚预案</i>。</li>
+  <li><b>置信度只有 <code>low</code> 或留空，永远不会是 <code>medium</code> / <code>high</code>。</b>那两档在 EC2 侧的含义是"CPU 与内存两轴都有实测数据"，托管侧没有那个轴，套用等于自造语义。</li>
+  <li><b>摘要单列一行"其中托管服务（目标待人工确认）$X"。</b>它<b>不是</b>第五条口径，而是同一个分子的成分拆分——托管行的金额已经在路线一 / 路线二里面，<b>不能再加一次</b>。</li>
+  <li><b>候选池为空时必须写出六种成因中的哪一条</b>（见前文），不给同一句笼统话。</li>
+</ol>
+
+<div class="warnbox">
+  <b>为什么这个改进不是"变激进了"</b>
+  <p style="margin-bottom:0">加入选型的同时也加入了<b>适配校验</b>，所以它同时删掉了假阳性：实测两个 Redis 复制组（其中一组在本机队）改进前是"降配候选"，改进后变成"已合理配置"——因为校验发现更便宜的候选<b>都装不下</b>当前内存需求，那两行原本的"可省金额"实际是 <b>$0</b>。净效果是<b>少两条假阳性、多一条真实的欠配发现</b>。</p>
+</div>
+
+<h2 id="totals">四条汇总口径，不制造单一头条数字</h2>
+
+<p>报告不给"总共能省多少"的单一数字，这是刻意的。任何单一数字都要求先在两条互斥的降配路线之间选一条，而那是贵方的决定（路线二要逐条确认可接受突发模型），不是本套判据的决定。</p>
+
+<table>
+  <thead><tr><th>口径</th><th>算式</th><th class="num">本次（保守档）</th><th>能否与别的口径相加</th></tr></thead>
+  <tbody>
+    <tr><td><b>路线一</b></td><td>降配行的非突发目标节省额之和</td><td class="num">$2,709.89</td><td>与路线二<b>互斥</b></td></tr>
+    <tr><td><b>路线二</b></td><td>降配行逐条取更省的一方</td><td class="num">$5,253.67</td><td>与路线一<b>互斥</b></td></tr>
+    <tr><td><b>桶 B（闲置）</b></td><td>闲置行的<b>全额</b>月成本之和</td><td class="num">另计</td><td>与任一条路线<b>可以</b>相加（同一资源只进一个桶）</td></tr>
+    <tr><td><b>采集侧</b></td><td><code>gp2→gp3</code>、节点池装箱等已定目标的变更</td><td class="num">另计</td><td>与路线、桶 B <b>都可</b>相加（按构造互斥）</td></tr>
+    <tr><td style="color:var(--ink-2)">其中托管服务</td><td style="color:var(--ink-2)">上面路线数字里属于 RDS / Redis / MSK 的部分</td><td class="num">$659.34 / $2,855.18</td><td><b>不是独立口径</b>，已含在路线一 / 路线二内，不得再加</td></tr>
+  </tbody>
+</table>
+
+<p class="note">三条禁止项：<b>①</b> 不得把两列（非突发 / 突发）按列相加——它们是同一资源上的替代选项；<b>②</b> 不得对闲置行求降配节省额（那是"若须保持运行"的替代方案，该资源已按全额计入桶 B）；<b>③</b> 求和一律带作用域，不得对整表求和。</p>
+
+<h2 id="gaps">补齐监控可以解锁多少</h2>
+<p>有一部分结论是被数据缺口挡住的，不是"没有优化空间"。但请注意<b>最后一列</b>：有些缺口补了也不会产出建议。</p>
+<table>
+  <thead><tr><th>缺口</th><th>被挡住的结论</th><th>补了会有建议吗</th></tr></thead>
+  <tbody>
+    <tr><td>CloudWatch Agent 内存指标</td><td>内存维度锁定为当前规格，置信度上限 medium。其中一台 <code class="mono">r6i.2xlarge</code>（$756.28/mo）是单台成本最高的一笔</td><td><b>会</b></td></tr>
+    <tr><td>CloudWatch Agent 磁盘指标</td><td>完全不产出 EBS 容量缩减建议</td><td><b>会</b>（还需挂载点与卷的可靠映射）</td></tr>
+    <tr><td>EC2 详细监控</td><td>5 分钟以内的尖峰不可见，尖峰型负载需先开详细监控再重评</td><td><b>会</b>，方向可能是"更保守"</td></tr>
+    <tr><td>EKS 集群只读权限</td><td>requests 预订率、装箱率、HPA 配置全部无法分析</td><td><b>会</b>，且这是本次最大的单项缺口</td></tr>
+    <tr><td>RDS Performance Insights（1 台未开）</td><td>该行缺第一判据，只能用 CPU 轴</td><td><b>会</b></td></tr>
+    <tr><td>MSK 增强监控</td><td>缺 <code>RequestHandlerAvgIdlePercent</code></td><td><b>不会</b>——本次 6 个集群已分别确认是"跨架构"或"已在价目地板"，与该指标无关</td></tr>
+    <tr><td>T 系列的 CPU 信用余额序列（4 台）</td><td>无法排除"信用已耗尽"，因此不给建议</td><td><b>会</b>，重采即可（该序列本身一直发布）</td></tr>
+  </tbody>
+</table>
+
+<h2 id="land">落地要求</h2>
+<ul>
+  <li>每条降配建议都附带<b>变更窗口 + 回滚预案</b>要求，不按预设档区分——任何规格变更都需要它们。</li>
+  <li><b>托管服务（RDS / Redis / MSK）的目标规格是初选，须人工审核</b>：可订购型号、维护窗口、参数组、以及业务增长预期都在本套判据的视野之外。目标落在价目阶梯最底档的行<b>尤其</b>要按增长预期复核。</li>
+  <li><b>存储只能扩不能缩</b>，过度预配的 RDS / MSK 存储只能在下次重建时修正。</li>
+  <li>内存降配前须自行确认操作系统与 agent 常驻开销能容纳目标内存——报告给出实测值与推算依据，<b>判断权在执行方</b>。</li>
+  <li>Redis 降配前确认数据量增长预期：本判据基于<b>观测稳态</b>，不含业务增长输入。</li>
+  <li>闲置判定只证明"该窗口内未观察到活动"，<b>不证明可以删除</b>——冷备、被动监听、低频定时任务在指标上都不可见。删除前须核对上下游。</li>
+  <li>结论可复算：同一份采集数据 + 同一个预设，必然得到同一份结论。报告的原始数据与聚合结果随交付物一并提供。</li>
+</ul>
+
+<div class="foot">
+  <b style="color:var(--ink-2)">维护说明（给改判据的人）。</b>本文件是<b>面向客户</b>的判据说明，
+  与 <code>references/core.py</code> 是同一套逻辑的两种表述 —— 改了判据就要改它。
+  三处已被门禁钉住，改漏会让 <code>tests/test_method_explained.py</code> 失败：
+  <b>①</b> 两档预设表的数值必须等于 <code>references/thresholds.json</code>；
+  <b>②</b> 页内交互计算器的 <code>PROFILES</code> 字面量同样必须相等（客户会拿它验算）；
+  <b>③</b> <code>core.py</code> 判的每个服务都必须有对应章节，且目录与章节一一对应。
+  <b>门禁钉不住的是散文</b>：判据顺序、否决项语义、六种成因的措辞，改判据时要人工过一遍本文。
+  本文的机队统计（台数 / 金额 / 命中数）来自一次<b>脱敏</b>的真实运行样例，账号与资源名均为占位符；
+  交付客户时用该客户自己那次运行的数字重填。
+  <br><br>
+  计算逻辑与阈值来自固定的判据核心，同一输入必然得到同一输出。金额基于 2026-09-09 抓取的公开按需价目快照，窗口 2026-08-10 → 2026-09-09（30 个完整业务本地日，UTC+8）。本机队的统计数字（台数、金额、利用率）均来自该窗口的真实采集或其离线复算；标注"实测"的<b>机制类</b>证据（取价倍数、指标刻度、口径偏差等）可能来自本方法在其他账号或区域的验证运行，它们说明的是判据为什么这样写，不是本机队的统计。
+</div>
+
+</div>
+<div id="tip"></div>
+
+<script>
+// 主题切换
+const btn = document.getElementById('themeBtn');
+const root = document.documentElement;
+function syncBtn(){
+  const dark = root.getAttribute('data-theme') === 'dark';
+  btn.textContent = dark ? '切换浅色' : '切换深色';
+}
+btn.addEventListener('click', () => {
+  root.setAttribute('data-theme', root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  syncBtn();
+});
+syncBtn();
+
+// 需求量计算器：CPU + 内存
+const PROFILES = {
+  c: {name:'保守', ct:40, cc:60, mt:50, mc:70, ratio:2},
+  a: {name:'激进', ct:60, cc:85, mt:70, mc:85, ratio:3}
+};
+const ids = ['cv','p95','mx','pf','cg','mp95','mmx'].map(i => document.getElementById(i));
+const out = document.getElementById('calcOut');
+
+function axis(label, cur, sus, peak, target, ceiling, unit, ratio){
+  const a = cur * sus / target, b = cur * peak / ceiling;
+  const ca = Math.ceil(a), cb = Math.ceil(b), req = Math.max(ca, cb);
+  const which = cb >= ca ? '峰值项' : '持续项';
+  const floor = Math.ceil(cur / ratio);
+  return {
+    req, floor,
+    html:
+      '<div class="mono">' + label + ' 持续项 = ceil(' + cur + ' × ' + sus + '% ÷ ' + target + '%) = ceil(' + a.toFixed(2) + ') = <b>' + ca + '</b></div>' +
+      '<div class="mono">' + label + ' 峰值项 = ceil(' + cur + ' × ' + peak + '% ÷ ' + ceiling + '%) = ceil(' + b.toFixed(2) + ') = <b>' + cb + '</b></div>' +
+      '<div style="margin-top:6px">' + label + ' 需要 <span class="big">' + req + '</span> ' + unit +
+      '（由' + which + '决定）' +
+      (req >= cur ? ' <span class="pill no">不低于现有 ' + cur + '，本维度无下调空间</span>'
+                  : ' <span class="pill yes">低于现有 ' + cur + '</span>') + '</div>' +
+      '<div style="margin-top:4px;color:var(--ink-2);font-size:13px">降幅地板：候选' + label +
+      '不得低于 ceil(' + cur + ' ÷ ' + ratio + ') = <b>' + floor + '</b> ' + unit + '</div>'
+  };
+}
+
+function calc(){
+  const cv = Number(ids[0].value), p95 = Number(ids[1].value), mx = Number(ids[2].value);
+  const pf = PROFILES[ids[3].value];
+  const cg = Number(ids[4].value), mp95 = Number(ids[5].value), mmx = Number(ids[6].value);
+  if (!(cv > 0)) { out.textContent = '请输入现有 vCPU。'; return; }
+
+  const cpu = axis('vCPU', cv, p95, mx, pf.ct, pf.cc, '核', pf.ratio);
+  let html = cpu.html;
+
+  let memReq = null, memFloor = null;
+  if (cg > 0 && (mp95 > 0 || mmx > 0)) {
+    const mem = axis('内存', cg, mp95, mmx, pf.mt, pf.mc, 'GiB', pf.ratio);
+    memReq = mem.req; memFloor = mem.floor;
+    html += '<hr>' + mem.html;
+  } else if (cg > 0) {
+    memReq = cg;
+    html += '<hr><div style="color:var(--ink-2)">无内存指标 ⇒ 内存需求锁定为现有 <b>' + cg +
+            '</b> GiB（不动内存），置信度上限 medium。</div>';
+  }
+
+  const cpuRoom = cpu.req < cv;
+  const memRoom = memReq !== null && memReq < cg;
+  html += '<hr><div>' +
+    (cpuRoom || memRoom
+      ? '<b>进入选型：</b>候选须满足 vCPU ≥ ' + cpu.req +
+        (memReq !== null ? ' 且 内存 ≥ ' + memReq + ' GiB' : '') +
+        '，同时 vCPU ≥ ' + cpu.floor +
+        (memFloor !== null ? ' 且 内存 ≥ ' + memFloor + ' GiB' : '') +
+        '（降幅地板），且单价更低。'
+      : '<b>不给降配建议：</b>两个维度的需求量都不低于现有规格。若这是<b>峰值项</b>推高的 ⇒ 判「已合理配置」；若是<b>持续项</b>推高的 ⇒ 判「upsize-candidate，当前规格已不足」。') +
+    '</div>';
+  out.innerHTML = html;
+}
+ids.forEach(el => el.addEventListener('input', calc));
+ids[3].addEventListener('change', calc);
+calc();
+
+// 条形 hover 提示
+const tip = document.getElementById('tip');
+document.querySelectorAll('.bar[data-tip]').forEach(bar => {
+  bar.addEventListener('mousemove', e => {
+    tip.textContent = bar.dataset.tip;
+    tip.style.opacity = 1;
+    tip.style.left = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 12) + 'px';
+    tip.style.top = (e.clientY + 16) + 'px';
+  });
+  bar.addEventListener('mouseleave', () => { tip.style.opacity = 0; });
+});
+</script>
+</body>
+</html>
