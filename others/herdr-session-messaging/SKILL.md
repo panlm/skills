@@ -1,6 +1,6 @@
 ---
-name: messaging-other-sessions
-description: Use when the user points at another running Claude Code session by position, screen location, or title (「第 3 个 agent」「旁边那个」「aws 那个」「第一个」) and wants it messaged, asked something, or told to run a command; also when a cross-session send lands on the wrong session, a listed peer looks unreachable, or a slash command has to run inside someone else's session.
+name: herdr-session-messaging
+description: Use when the user points at another running agent session by position, screen location, or title (「第 3 个 agent」「旁边那个」「aws 那个」「第一个」) and wants it messaged, asked something, or told to run a command; also when a cross-session send lands on the wrong session, a listed peer looks unreachable, or a slash command has to run inside someone else's session. Addressing relies on the herdr pane roster; covers Claude Code peers plus other vendors (codex, gemini, cursor, …) and the sessions herdr cannot see.
 ---
 
 # Messaging Other Sessions
