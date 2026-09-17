@@ -37,6 +37,7 @@ npx skills add panlm/skills --list
 |-------|------|
 | [awesome-skills-deepdive](./others/awesome-skills-deepdive/) | 深度研究工具，用于探索和分析 awesome-skills 注册表中的 Skills。 |
 | [gartner-hype-cycle](./others/gartner-hype-cycle/) | 使用 Gartner 技术成熟度曲线框架分析技术。 |
+| [messaging-other-sessions](./others/messaging-other-sessions/) | 给同一台机器上其他 agent session 寻址并发消息。把「第 3 个 agent」「旁边那个」这类说法解析成真实地址 —— 用 [herdr](https://herdr.dev) 的屏幕花名册与实时 session 列表做 join，再选对通道：同为 Claude Code 走 `SendMessage`，别家 agent（codex / gemini / cursor 等）、斜杠命令和按键走 herdr 的终端通道。含「替人在别人 session 里打字」那两条通道的授权门槛，以及捞长输出的实测容量上限。 |
 | [scp-paradigm](./others/scp-paradigm/) | 应用结构-行为-绩效范式进行行业分析。 |
 | [value-chain-analysis](./others/value-chain-analysis/) | 执行波特价值链分析，用于商业战略。 |
 

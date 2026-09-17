@@ -37,6 +37,7 @@ Experimental or supplementary skills in the `others/` directory:
 |-------|-------------|
 | [awesome-skills-deepdive](./others/awesome-skills-deepdive/) | Deep dive research tool for exploring and analyzing skills from the awesome-skills registry. |
 | [gartner-hype-cycle](./others/gartner-hype-cycle/) | Analyze technologies using the Gartner Hype Cycle framework. |
+| [messaging-other-sessions](./others/messaging-other-sessions/) | Address and message other agent sessions running on the same machine. Resolves "the 3rd agent" / "the one next to it" into a real address by joining the [herdr](https://herdr.dev) pane roster against the live session list, then picks the right channel — `SendMessage` for Claude Code peers, herdr's terminal channel for other vendors (codex, gemini, cursor, …), slash commands, and key presses. Includes an authorization gate for the channels that type into someone else's session, and measured limits for capturing long output. |
 | [scp-paradigm](./others/scp-paradigm/) | Apply the Structure-Conduct-Performance paradigm for industry analysis. |
 | [value-chain-analysis](./others/value-chain-analysis/) | Perform Porter's Value Chain Analysis for business strategy. |
 
