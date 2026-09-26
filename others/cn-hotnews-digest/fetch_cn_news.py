@@ -11,7 +11,7 @@ Package: pinned to `newsnow@1.1.1` (npm, github.com/sorrycc/newsnow) for
 reproducibility — a small standalone scraping CLI, not the ourongxing/newsnow
 web app.
 
-Source-id note (verified 2026-09-26): the original Hermes config used
+Source-id note (verified 2026-09-26): an earlier config used
 `36kr-quick` and `cls-telegraph`, but both are broken upstream — 36kr newsflash
 HTML scraping now hits anti-bot socket resets, and cls's telegraph endpoint
 returns 404 (removed). Swapped to the working JSON-API variants `36kr-renqi`
