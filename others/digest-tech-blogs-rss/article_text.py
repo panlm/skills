@@ -3,7 +3,7 @@
 
 Keeps summarization input bounded: prefers <article>/<main>, strips script/
 style/nav, collapses whitespace, trims to a char budget. Used by the
-aws-daily-blog-digest skill so Claude summarizes clean text, not raw HTML.
+digest skills so Claude summarizes clean text, not raw HTML.
 
 Usage: article_text.py <url> [--max-chars 8000]
 Prints extracted text to stdout; exits 0 even on partial extraction, exits 2
@@ -63,7 +63,7 @@ def main():
     try:
         html = subprocess.run(
             ["curl", "-L", "--connect-timeout", "10", "--max-time", "45", "-sS",
-             "-A", "Mozilla/5.0 (aws-daily-blog-digest)", args.url],
+             "-A", "Mozilla/5.0 (blog-digest)", args.url],
             capture_output=True, text=True, check=True,
         ).stdout
     except subprocess.CalledProcessError:

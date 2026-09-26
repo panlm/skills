@@ -1,5 +1,5 @@
 ---
-name: aws-daily-blog-digest
+name: digest-aws-daily-blog
 description: Use when generating a daily digest/roundup of AWS blog posts — the previous UTC day's full published blog list across all AWS channels, grouped by category, one hyperlinked bullet per post with a short summary. Triggers include "AWS blog digest", "daily AWS blogs", "yesterday's AWS blog posts", or a scheduled daily AWS blog roundup run by an agent (e.g. openclaw).
 ---
 
@@ -13,7 +13,7 @@ Core principle: **the fetch is scripted and exact; the summaries are yours.** Th
 
 ## Quick Reference
 
-Both scripts live in this skill's directory (`~/.claude/skills/aws-daily-blog-digest/`).
+Both scripts live in this skill's directory (`<skill>/`).
 
 | Script | Purpose |
 |---|---|
@@ -24,11 +24,11 @@ Defaults: English only (`en_US`); pass `--locale ""` for all languages.
 
 ## Procedure
 
-1. **Fetch the list.** Run `python3 ~/.claude/skills/aws-daily-blog-digest/fetch_blogs.py` (add `--date` only if the user names a specific day). Parse the JSON: `date`, `count`, `categories` (an ordered map of *Category Name → [posts]*, each post has `title`, `link`, `authors`, `excerpt`, `created`).
+1. **Fetch the list.** Run `python3 <skill>/fetch_blogs.py` (add `--date` only if the user names a specific day). Parse the JSON: `date`, `count`, `categories` (an ordered map of *Category Name → [posts]*, each post has `title`, `link`, `authors`, `excerpt`, `created`).
 
 2. **Empty day?** If `count == 0`, the output is just: `No AWS blog posts were published on {date} (UTC).` Still save the file (step 5). Stop.
 
-3. **Summarize each post — write the summary in Chinese (中文).** For every post, run `python3 ~/.claude/skills/aws-daily-blog-digest/article_text.py "<link>"` and read the returned body. Write **3-5 句中文** that let a reader decide in seconds whether to open it. Only the summary text is Chinese — titles, category names, author names, service names, and all structure stay English.
+3. **Summarize each post — write the summary in Chinese (中文).** For every post, run `python3 <skill>/article_text.py "<link>"` and read the returned body. Write **3-5 句中文** that let a reader decide in seconds whether to open it. Only the summary text is Chinese — titles, category names, author names, service names, and all structure stay English.
    - 讲清这篇到底在说什么、发布或更新了什么。
    - 涉及的具体 AWS 服务 / 功能（服务名保留英文原名，如 Amazon S3、AWS Fargate）。
    - 面向谁、解决什么具体问题。

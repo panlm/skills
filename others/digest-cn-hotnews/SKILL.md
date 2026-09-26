@@ -1,5 +1,5 @@
 ---
-name: cn-hotnews-digest
+name: digest-cn-hotnews
 description: Use when generating a daily digest of Chinese news hot lists — real-time trending topics and newsflashes from 10 platforms (Weibo, Zhihu, Toutiao, 36Kr, Wallstreetcn, Cailianshe, ThePaper, IT之家, Hacker News, Jin10), grouped by platform, one linked bullet per topic. Triggers include "中文热点", "热搜简报", "cn news digest", "微博/知乎热榜", or a scheduled daily hot-list roundup run by an agent (e.g. openclaw).
 ---
 

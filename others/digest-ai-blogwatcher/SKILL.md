@@ -1,5 +1,5 @@
 ---
-name: ai-blogwatcher-digest
+name: digest-ai-blogwatcher
 description: Use when generating a digest of newly published AI/tech blog articles tracked by blogwatcher — the unread posts from the last few days across subscribed blogs, each read in full and given a detailed Chinese summary, grouped by blog. Triggers include "AI博客精选", "blogwatcher digest", "每日AI博客", "unread blog articles", or a scheduled AI-blog roundup run by an agent (e.g. openclaw). Requires blogwatcher-cli.
 ---
 

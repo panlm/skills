@@ -1,5 +1,5 @@
 ---
-name: tech-blogs-rss-digest
+name: digest-tech-blogs-rss
 description: Use when generating a daily digest of top tech blogs — the ~92 engineering/AI blog RSS feeds from the "HN Popularity Contest" OPML (compiled by Evan Schwartz, popularized by Karpathy's "return to RSS"), pulling the last 24h of posts, grouped by source blog, one hyperlinked bullet per post with a short Chinese summary. Triggers include "tech blog digest", "技术博客精选", "Karpathy blogs", "RSS daily digest", or a scheduled daily tech-blog roundup run by an agent (e.g. openclaw).
 ---
 
