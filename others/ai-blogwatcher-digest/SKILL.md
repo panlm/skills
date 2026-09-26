@@ -23,7 +23,7 @@ Core principle: **read the article, write a substantial Chinese summary** — en
 |---|---|
 | `scan_unread.py [--days 3] [--unsafe-client]` | Runs `blogwatcher-cli scan` + `articles --all`, prints unread article blocks in the window + a final `IDS_TO_MARK_READ:` line. |
 
-Pass `--unsafe-client` **only** if the host routes outbound traffic through a loopback proxy (e.g. `HTTPS_PROXY=http://localhost:PORT`): blogwatcher's SSRF guard refuses to connect to a `127.0.0.1` proxy otherwise, and every feed fetch fails. Hosts with a normal (non-loopback) egress path — like hermes-1 — must NOT pass it.
+Pass `--unsafe-client` **only** if the host routes outbound traffic through a loopback proxy (e.g. `HTTPS_PROXY=http://localhost:PORT`): blogwatcher's SSRF guard refuses to connect to a `127.0.0.1` proxy otherwise, and every feed fetch fails. Hosts with a normal (non-loopback) egress path must NOT pass it.
 | `article_text.py <url>` | Fetch one article → clean body text (no HTML). Exit 2 = fetch failed. |
 
 ## Procedure
