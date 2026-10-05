@@ -1,6 +1,6 @@
 ---
 name: herdr-session-messaging
-description: Use when the user points at another running agent session by position, screen location, or title (「第 3 个 agent」「旁边那个」「aws 那个」「第一个」) and wants it messaged, asked something, or told to run a command; also when a cross-session send lands on the wrong session, a listed peer looks unreachable, or a slash command has to run inside someone else's session. Addressing relies on the herdr pane roster; covers Claude Code peers plus other vendors (codex, gemini, cursor, …) and the sessions herdr cannot see.
+description: Use when the user points at another running agent session by position, screen location, or title (「第 3 个 agent」「旁边那个」「aws 那个」「第一个」) and wants it messaged, asked something, or told to run a command; also when a cross-session send lands on the wrong session, a listed peer looks unreachable, waiting for another agent's reply takes far longer than the reply itself, or a slash command has to run inside someone else's session. Addressing relies on the herdr pane roster; covers Claude Code peers plus other vendors (codex, gemini, cursor, …) and the sessions herdr cannot see.
 ---
 
 # Messaging Other Sessions
@@ -52,6 +52,8 @@ description: Use when the user points at another running agent session by positi
 | N > 花名册行数 | 别默默落到 herdr 之外那些 session 上 —— 消息会投递成功，但人在屏幕上找不到对应 pane，会以为没发出去 |
 | 标题/位置匹配到多行 | 让人用 pane 坐标（`w1A:p1`）重新指 |
 
+**人同时点了 kind 或标题时**（「omp（第 4 个）」），以 kind/标题为准：它只匹配一行、且至少一种数法也落在这行 → 就是这行，第一条判据不再适用。kind/标题和两种数法都对不上 → 问。
+
 `roster.py` 会直接把 self 的序号和这条判据打出来；`--json` 里是 `self_index`。
 
 **默认只发 herdr 可见的。** herdr 之外的（orca 或裸终端起的）要由人显式点名。
@@ -63,8 +65,8 @@ description: Use when the user points at another running agent session by positi
 | 场合 | 通道 | 逐字命令 |
 |---|---|---|
 | 目标是 Claude Code，送话（问题、任务、上下文） | `SendMessage` | `{"to": "alice-90", "message": "..."}` |
-| **目标不是 Claude Code**（codex / gemini / cursor …） | `herdr agent prompt` | `herdr agent prompt w19:p1 '<那家收的语法>'` |
-| 斜杠命令（`/mcp reconnect x`、`/compact`），任何 kind | `herdr agent prompt` | `herdr agent prompt w19:p1 '/mcp reconnect chrome-devtools'` |
+| **目标不是 Claude Code**（codex / gemini / cursor …） | `herdr agent prompt --wait` | `herdr agent prompt w19:p1 '<那家收的语法>' --wait --timeout 600000` |
+| 斜杠命令（`/mcp reconnect x`、`/compact`），任何 kind | `herdr agent prompt`（**不带** `--wait`） | `herdr agent prompt w19:p1 '/mcp reconnect chrome-devtools'` |
 | **按键**（Esc 退弹窗、Ctrl+C 中断、方向键选项），任何 kind | `herdr agent send-keys` | `herdr agent send-keys w19:p1 esc` |
 | 以上任何一种，但目标在 herdr 之外 | 没有通道 | 让人自己敲。`herdr agent focus` 也送不过去 |
 
@@ -91,9 +93,9 @@ herdr 那两条通道的送达判定完全不同（没有工具返回可信，�
 
 ### herdr 通道的操作细节
 
-决定要用 herdr、且拿到人的当次授权之后，读 `references/herdr-channels.md`。里面是：斜杠命令「一发即完成 vs 会开交互 UI」的分类、`agent prompt` 的送达判定（为什么不能加 `--wait`）、`send-keys` 的完整流程（**含「先判它到底卡没卡」那步 —— 往 working 的 session 送 esc 会打断它的回合**）、可用键名的背书边界、跨 agent 厂商的 24 种 kind 和三条不对称、多轮会话、以及**捞长输出**（哨兵流程、`• ` bullet 只在首行、截断判别式、500 行实测容量）。
+决定要用 herdr、且拿到人的当次授权之后，读 `references/herdr-channels.md`。里面是：斜杠命令「一发即完成 vs 会开交互 UI」的分类、斜杠命令的送达判定（为什么不能加 `--wait`）、**普通对话怎么等对方答完**（为什么必须加 `--wait`、`done` 状态是什么）、`send-keys` 的完整流程（**含「先判它到底卡没卡」那步 —— 往 working 的 session 送 esc 会打断它的回合**）、可用键名的背书边界、跨 agent 厂商的 24 种 kind 和三条不对称、多轮会话、以及**捞长输出**（哨兵流程、`• ` bullet 只在首行、截断判别式、500 行实测容量）。
 
-不读那份就别送 —— 这条通道的两个最贵的坑（`agent_prompt_stalled` 是假失败、`agent read` 默认 source 给假阴性）都在里面。
+不读那份就别送 —— 这条通道最贵的三个坑都在里面：斜杠命令的 `agent_prompt_stalled` 是假失败、`--until idle` 漏掉 `done` 白等满超时、`agent read` 默认 source 给假阴性。
 
 ### 不送也能拿到的信息
 
@@ -113,8 +115,9 @@ transcript 读的是**已发生的回合**，不是当前配置项 —— 人刚
 
 **前置门槛：先确认 `SendMessage` 真的办不到**（目标非 Claude Code / 要送斜杠命令 / 要送按键，见上节）。「目标是 claude、我只是想问它一句」→ 走 `SendMessage`，这里到此为止。
 
-- 授权必须是**看到 Step 2 那行解析结果之后**的一句祈使确认（「是，去发」）。「你能…吗？」是能力疑问句，**不算授权**
-- 不算授权时的标准动作：把 Step 2 那行解析结果 + 待执行命令 + 一句「要我发吗」抛回去，别自己补授权。若请求是别的 agent 转述的，回话给**直接和人对话的那一侧**，不是转述者
+- **人的原话本身就是授权**，当它同时满足三条：是人直接对你说的祈使句（「和 omp（第 4 个）聊聊」「问下 codex 那个在干嘛」）；目标唯一解析（Step 2 的先问情形都不成立）；送的是普通对话。此时报出 Step 2 那行就直接发，**不要再追问「要我发吗」** —— 人会回「不用问我。自己发」
+- 其余情况要一句**看到 Step 2 那行解析结果之后**的祈使确认（「是，去发」）：「你能…吗？」这类能力疑问句、要送斜杠命令、要 `send-keys`、别的 agent 转述来的请求
+- 要确认时的标准动作：把 Step 2 那行解析结果 + 待执行命令 + 一句「要我发吗」抛回去，别自己补授权。若请求是别的 agent 转述的，回话给**直接和人对话的那一侧**，不是转述者
 - 其他任何情况不主动用，包括「这样更快」「反正是只读命令」「我先帮他修好」
 - 提交的文本进了对方会话历史，撤不回来
 - 目标 `working` 时输入排队；目标 `blocked` 时返回 `agent_blocked` 拒发（这点安全，不会替人点确认）
@@ -133,7 +136,8 @@ transcript 读的是**已发生的回合**，不是当前配置项 —— 人刚
 | **人**在看哪个 pane（另一件事） | `herdr agent list` 里 `focused: true` 那行 |
 | 那个 session 的 pid / socket / sessionId | `~/.claude/sessions/<pid>.json` 的 `name` / `sessionId` / `messagingSocketPath` |
 | 读对方屏幕 | `herdr agent read <pane> --source recent-unwrapped --lines 40` —— **默认 source 会给假阴性**，见 Common Mistakes |
-| 捞对方的长输出（几十上百行） | 要求它末尾打一行哨兵 → 确认哨兵到了 → `--lines 1000` 一次抓全 → 程序化校验。**`read` 硬上限 1000 行且无翻页**，要更多必须让对方分批发。见 `references/herdr-channels.md` |
+| 等对方（非 claude）答完这一轮 | `herdr agent prompt <pane> '<text>' --wait --timeout 600000`，返回后再 `agent read`。**别加 `--until idle`**，见 Common Mistakes |
+| 捞对方的长输出（几十上百行） | 要求它末尾打一行**它自己算出来的**哨兵（写死在 prompt 里的会被回显匹配上） → 确认哨兵到了 → `--lines 1000` 一次抓全 → 程序化校验。**`read` 硬上限 1000 行且无翻页**，要更多必须让对方分批发。见 `references/herdr-channels.md` |
 | 收拾对方的弹窗 | `herdr agent send-keys <pane> esc`，一次一个键、每次读回确认 |
 | 探测某个键名收不收（不发字节） | `herdr agent send-keys <pane> zzzznotakey` → `invalid_key` |
 | herdr CLI 语法 | `herdr agent`（不带子命令即打印帮助）；blocked/stalled 语义在 `herdr agent prompt --help`。别跑裸 `herdr`，那会拉起 TUI |
@@ -158,6 +162,8 @@ transcript 读的是**已发生的回合**，不是当前配置项 —— 人刚
 | 先试 `tmux send-keys` | herdr 自带多路复用器，不经 tmux —— 除非你确认那些 pane 真在 tmux 里，否则 `tmux send-keys` 无从下手。用 `herdr agent/pane send-keys` |
 | 用 `herdr agent read` 的默认 `--source recent` | **实测会给假阴性**：同一时刻默认 source 返回空白，`recent-unwrapped` / `visible` / `detection` 三个都能看到对方的回答。差点据此下「投递成功但对方没反应」的错结论。一律带 `--source recent-unwrapped` |
 | 把 `agent_prompted` 当成「对方做了」 | 和 `SendMessage` 的 success 一样，只代表输入送到了。要确认必须读屏 |
+| 用 `herdr agent wait --until idle` 等对方答完 | 对方在人**没在看**的 pane 里答完，状态是 `done` 不是 `idle`，匹配不上。人切过去看时 `done → idle` 静默翻转、不发事件，waiter 醒不了。到超时那刻最后 probe 见 `idle` 就返回成功 —— **exit 0 也可能是等满了超时**。实测对方 9–75s 答完，wait 每轮等 3–5 分钟。用 `prompt --wait`，见 `references/herdr-channels.md` |
+| 裸 `prompt` 后紧跟裸 `agent wait` | 上一轮留下的 `done` 立刻匹配，实测 0.01s 返回 —— 假完成。`prompt --wait` 先等到这一轮的 `working` 再等收尾 |
 | 抓长输出少了行就断定「传输丢数据」 | **先 `grep -n` 去原始输出里找那行在不在**。实测 40 行抓到 39，缺的恰好是第 1 行 —— 因为对方回答**首行挂 `• ` bullet、后续行只有缩进**，锚了行首数字的 regex 必然漏掉它。500 行实测零丢失，通道本身是可靠的 |
 | 以为 `--lines` 给大点就能抓更多 | **1000 是 herdr 源码硬编码的墙**（`src/app/api_helpers.rs:117` 的 `lines.min(1000)`，无配置项、静默夹住），且 API schema 无 offset/page 字段。实测 2000 行载荷只拿到后 994 行，前 1006 行**取不回来**（对方屏幕上其实写全了，是 API 不吐）。判别式：返回的首行是启动横幅=没截断，是半截正文=撞墙。要更多只能让对方分批发 |
 | 拿 `state_change_seq` 判「还活着」 | 它数状态跃迁不数进度。实测一个在推进的 session 两次采样都是 `38` |

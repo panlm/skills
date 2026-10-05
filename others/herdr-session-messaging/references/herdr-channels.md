@@ -7,7 +7,7 @@
 - **一发即完成**（有回执、不开 UI）：`/mcp reconnect <server>`、`/mcp enable|disable <server>`。已实测 + 二进制侧确认走 inline 分支，不弹 modal，server 名精确匹配
 - **会开交互 UI**（需要方向键/Esc）：不带参数的 `/mcp`、`/model`、`/config` 之类。送这类等于**把别人的 session 停在一个弹窗里**，提交完必须由 `send-keys` 收场。不确定属哪类就别送 —— 先在自己 session 里敲一遍看它开不开 UI
 
-## `agent prompt` 的送达判定
+## `agent prompt` 的送达判定（斜杠命令）
 
 ```bash
 herdr agent prompt <pane> '/mcp reconnect chrome-devtools'   # 不带 --wait
@@ -19,6 +19,40 @@ herdr agent read <pane> --source recent-unwrapped --lines 40
 **算成功**：`agent read` 里看到你那行原文出现在提示符上方**且带回执**。`/mcp reconnect` 的回执是 `Successfully reconnected to <server>`（实测）或 `Couldn't reconnect "<server>"`。只看到原文躺在输入框里没回执 = 没提交成功。agent 状态会一直是 `idle`，**别拿状态当判据**。
 
 `agent_prompted` 返回成功只代表输入送到了，**不代表对方做了** —— 和 `SendMessage` 的 success 同性质。
+
+## 等对方答完一轮（普通对话）
+
+送的是会启动模型回合的普通消息（问题、任务、上下文）时，用 `--wait` 把「送」和「等」合成一条，返回后再读屏：
+
+```bash
+herdr agent prompt <pane> '<text>' --wait --timeout 600000
+herdr agent read <pane> --source recent-unwrapped --lines 120
+```
+
+`--wait` 先要求提交后 5s 内观测到 `working`（以提交前的 `state_change_seq` 为基线，证明**这一轮**真开始了），再等收尾，默认集合是 `idle` / `done` / `blocked`。返回 JSON 的 `agent_status` 说明是哪种：
+
+| `agent_status` | 含义 | 下一步 |
+|---|---|---|
+| `done` | 答完了，人还没看那个 pane | 读屏 |
+| `idle` | 答完了，人正看着它 | 读屏 |
+| `blocked` | 卡在权限框或 `ask` 上等人 | 读屏看框在问什么，交给人，别替人点 |
+
+**`done` 是常态。** pane 不在人当前看的 tab 里、或整个终端窗口没焦点时，herdr 把回合结束记成 `done`（未查看）而不是 `idle`（`src/app/api_helpers.rs` 的 `pane_agent_status`：`(Idle, seen=false) => Done`）。隔着 workspace 聊天几乎总是这样。
+
+两个坑，实测于 herdr 0.9.3（2026-10-05）：
+
+- **`--until idle` 会空等满超时。** `done` 不在集合里，匹配不上。人切过去看时 `done → idle` 是静默翻转：切 tab 只改 `seen`，不发 `PaneAgentStatusChanged`，waiter 醒不了。到超时那一刻 herdr 最后 probe 一次，见 `idle` 就返回成功 —— **exit 0**，看着像等到了，其实等满了整个超时。实测对方 omp 9–75s 就答完，`--until idle` 每轮等 3–5 分钟；没人看那个 pane 时则是等满后报 `timeout`（exit 1）
+- **裸 `prompt` 后紧跟裸 `agent wait` 是假完成。** 上一轮留下的 `done` 立刻匹配，实测 0.01s 返回。`prompt --wait` 有上面那个基线，不会认上一轮的 `done`（源码确认，`src/api/wait.rs` 的 `prompt_agent`）
+
+返回 `agent_prompt_stalled` = 输入已送到，但 5s 内没看到 `working`。**别重发**，会重复。先读屏：
+
+- 已经在答 → `herdr agent wait <pane> --timeout 600000` 补等（不带 `--until`）
+- 已经答完 → 直接读
+- 还没动 → 交给人看
+
+目标正 `working` 时送，输入会排队，`--wait` 可能在**当前那轮**结束时就返回（`--help` 原文：It does not track turns）。读屏确认你那句的回答在不在。
+
+斜杠命令不启动模型回合，**不能**加 `--wait`，见上一节。
 
 ## 用 `send-keys` 驱动对方的交互 UI
 
@@ -79,7 +113,7 @@ qwen, letta, maki, muse
 
 | | `SendMessage`（仅 claude） | `herdr agent prompt`（跨厂商） |
 |---|---|---|
-| 回话 | 对方主动回，回复落进你的对话 | **没有收件箱**。送完就完，答案只在它屏幕上，自己 `agent read` 捞 / `agent wait` 等 |
+| 回话 | 对方主动回，回复落进你的对话 | **没有收件箱**。答案只在它屏幕上：`prompt --wait` 等这一轮结束，再 `agent read` 捞 |
 | 斜杠命令 | 送不了 | 能送，但**语法各家不同** —— `/mcp` 是 Claude Code 的，别家有自己一套 |
 | 寻址 | `tokens.sname` | 非 claude 的 pane **没有 sname**（实测 codex pane：`sname=None`），只能用 `pane_id`。`roster.py` 把它标成 `—(无)` |
 
@@ -98,7 +132,7 @@ codex 的记录里一样有 `agent_session`（`source: "herdr:codex"` + UUID）�
 
 跨厂商也保上下文 —— 第二轮不用重述第一轮的内容，对方从自己的会话历史里取。实测（claude → codex，2026-09-17）：送「记住数字 47 和词 pangolin，只回 ack」得 `ack`，再送「刚才那个数字乘以 3，加上那个词的首字母大写」得 `141 Pangolin`。
 
-代价是每一轮都要自己读屏捞答案（没有收件箱），所以一轮 = `prompt` + `sleep` + `read`。
+代价是每一轮都要自己读屏捞答案（没有收件箱），所以一轮 = `prompt --wait` + `read`，见「等对方答完一轮」。别用固定 `sleep` 代替 `--wait`：短了读到半截，长了白等。
 
 ## 捞长输出
 
@@ -109,14 +143,13 @@ codex 的记录里一样有 `agent_session`（`source: "herdr:codex"` + UUID）�
 **先算容量**：`read` 单次最多给 1000 行（见坑二），历史会话也占额度。想要的行数 ≥ ~900 就直接用下面「超过 ~900 行」那套分批法，别先发再发现装不下 —— 那是十几分钟的沉没成本。
 
 ```bash
-herdr agent prompt <pane> '...输出 N 行...最后一行只写 SENTINEL-DONE'
-sleep <够长>
-herdr agent read <pane> --source recent-unwrapped --lines 60 | tail -5   # 1. 只看哨兵到没到
+herdr agent prompt <pane> '...输出 N 行...最后一行只写 END 加 6×7 的结果，不加空格' --wait --timeout <够长>
+herdr agent read <pane> --source recent-unwrapped --lines 60 | grep -E '^\s*(•\s*)?END42\s*$'  # 1. 只看哨兵到没到
 herdr agent read <pane> --source recent-unwrapped --lines 1000 > /tmp/cap # 2. 到了再一次抓全
 head -1 /tmp/cap                                                         # 3. 首行是横幅=没截断
 ```
 
-1. **让对方自己标结束** —— 要求输出末尾一行哨兵。`agent_status` 回 `idle` 不足以判完（它写着写着也可能是 idle 采样点），哨兵是唯一可靠的完成信号
+1. **让对方自己标结束，哨兵的值要它算出来** —— 要求输出末尾一行哨兵，值由对方计算（「END 加 6×7 的结果」→ `END42`），别把哨兵原样写进 prompt：对方 pane 会回显你那句原文，写死的 `SENTINEL-DONE` 在回显里就能匹配，对方一个字没写也像「到了」。`agent_status` 回 `idle` 不足以判完（它写着写着也可能是 idle 采样点），`--wait` 返回也只说明这一轮停了 —— 哨兵才是唯一可靠的完成信号
 2. **确认哨兵后再一次性抓全，别分段抓拼** —— 两次 `read` 之间屏幕会滚，拼接处会缺行或重行
 3. **程序化校验完整性**，别肉眼扫。编号型载荷用 `comm` 对空缺、`uniq -d` 对重复：
 
@@ -180,10 +213,10 @@ let recent_lines = line_limit.unwrap_or(80);   // ← 不给 --lines 时的默�
 上面「流程」那节的「一次性抓全、别分段抓拼」只在**总量 < 1000 行**时成立 —— 那说的是「同一批输出不要分两次 `read` 去拼」（两次 read 之间屏幕会滚，拼接处缺行）。总量真的超了，唯一的出路在**发送侧**：
 
 ```bash
-herdr agent prompt <pane> '输出第 1 批：0001–0600 行，末尾一行 SENTINEL-B1'
-# 确认 SENTINEL-B1 → 立刻抓走这批
-herdr agent prompt <pane> '继续第 2 批：0601–1200，末尾一行 SENTINEL-B2'
-# 确认 SENTINEL-B2 → 立刻抓走
+herdr agent prompt <pane> '输出第 1 批：0001–0600 行，末尾一行写 B1- 加 6×7 的结果' --wait --timeout <够长>
+# 确认 B1-42 → 立刻抓走这批
+herdr agent prompt <pane> '继续第 2 批：0601–1200，末尾一行写 B2- 加 6×7 的结果' --wait --timeout <够长>
+# 确认 B2-42 → 立刻抓走
 ```
 
 每批 ≤600 行（给历史留出余量），**每批抓完再让它发下一批**。批号写进哨兵，这样能确认自己抓的是哪一批。
@@ -198,6 +231,6 @@ herdr agent prompt <pane> '继续第 2 批：0601–1200，末尾一行 SENTINEL
 
 通道本身在容量内是可靠的：500 行 × 13 字符零丢失，编号无缺无重、hex 全唯一。2000 行的失败**不是传输错误，是 read 窗口装不下**——对方屏幕上确实写全了 2000 行。
 
-**`sleep` 按对方的生成速率估，不是按你的耐心估。** 500 行等了 147s（38s 时才 157 行）。2000 行更反直觉：**前 4 分钟屏幕上一行都没有**（xhigh reasoning 阶段），8m43s 才到 1080 行，全程 ~13 分钟。「几分钟没动静」不等于卡住 —— 按 SKILL.md 的活性判据两次采样比 spinner elapsed，别急着送 esc。
+**`--timeout`（或 `sleep`）按对方的生成速率估，不是按你的耐心估。** 500 行等了 147s（38s 时才 157 行）。2000 行更反直觉：**前 4 分钟屏幕上一行都没有**（xhigh reasoning 阶段），8m43s 才到 1080 行，全程 ~13 分钟。「几分钟没动静」不等于卡住 —— 按 SKILL.md 的活性判据两次采样比 spinner elapsed，别急着送 esc。
 
 设计载荷时就留好校验钩子（连续编号 + 固定宽度字段），比事后猜哪里断了便宜得多。
