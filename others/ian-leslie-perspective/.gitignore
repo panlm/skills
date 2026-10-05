@@ -1,0 +1,3 @@
+# 第三方版权全文（书籍/访谈/文章存档）只留本地，不进仓库；清单见 MANIFEST.md
+references/sources/*
+!references/sources/MANIFEST.md
