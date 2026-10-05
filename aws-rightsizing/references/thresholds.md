@@ -13,6 +13,8 @@
 | `burstable_baseline_headroom` | burstable 候选须保留的基线余量比例 | 同值 |
 | **`max_reduction_ratio`** | 单次降配的 vCPU 降幅上限 | 不同，conservative 更严 |
 | **`max_mem_reduction_ratio`** | 单次降配的**内存**降幅上限 | 不同，conservative 更严 |
+| `target_ebs_p95` | gp2→gp3 另配后，卷的 IOPS / 吞吐持续 p95 占配置量的上限（`core.gp3_plan()`） | 不同，conservative 留更多余量 |
+| `ceiling_ebs_max` | gp2→gp3 另配后，卷的 IOPS / 吞吐分钟峰值占配置量的上限 | 不同，conservative 留更多余量 |
 
 **取值一律读 `references/thresholds.json` 的对应 profile。** 本文件不写数字——
 写了就会与 JSON 各自漂移，`tests/test_no_duplicated_constants.py` 会按

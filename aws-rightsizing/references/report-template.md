@@ -39,7 +39,7 @@ report_output/<account>-<region>-<YYYYMMDD>/
 > 本报告基于资源利用率给出配置优化建议，金额一律为**公开按需（On-Demand）价目**
 > 计算的理论值，**不含实际账单数据**。
 >
-> 因此：被 Reserved Instance 或 Savings Plan 覆盖的资源，降配后账单可能不立即
+> 因此：被 Reserved Instance 或 Savings Plan 覆盖、或以 Spot 购买的资源，降配后账单可能不立即
 > 下降——折扣会转移到其他资源或在承诺期内搁置。报告中的节省金额是"若该资源按
 > 按需价计费"的上限估算，实际财务收益需结合账单数据另行评估。
 
@@ -158,12 +158,12 @@ skill 的决定。留一个"所选口径"的口子，两次运行就会各挑一
 - 无建议的资源照样出行：`verdict=已合理配置` 或 `bucket=excluded`，`cur_cost_mo` 照填。
 - 已停止的 EC2 实例 `cur_cost_mo=0`（计算不计费），其成本落在所属卷那一行。
 - 必须计入：EC2 running、EKS 节点、EBS 卷、快照、NAT 小时费、ALB 小时费、
-  RDS 实例、ElastiCache 节点、MSK broker、EKS 控制面。
+  RDS 实例、ElastiCache 节点、MSK broker、未关联 EIP、EKS 控制面。
   **EKS 节点出的是 `service=eks` 的节点行**（见填法表），**不再另出一份
   `service=ec2` 的行**——两份就是把节点算两遍。ElastiCache 节点与 MSK broker
   没有成员行，成本记在集群/复制组那一行上，靠 `instance_count` 带节点数。
 - 必须在报告里**显式声明为未包含**：数据传输、NAT 数据处理费、ALB LCU、
-  RDS/MSK 存储与备份、CloudWatch、未关联的公有 IPv4（`price-unknown`）。
+  RDS/MSK 存储与备份、CloudWatch、已关联的公有 IPv4（本版本不出建议）。
 
 **任何进入作用域的运行时输入都必须出现在路径或文件名里。**
 
@@ -443,10 +443,13 @@ delete > stop > schedule > storage-type > downsize > request-tuning > next-rebui
   `required_gib_usable`、`nonburst`、`burst`、`nb_*`、`b_*`、`burst_na`、`cur_cat`。
   这类行若有节省额（只有 `gp2→gp3`），走 `other_save_mo`，不碰 `nb_*` / `b_*`。
   **但 `cur_cost_mo` 必须填**——分母要它（见「分母的范围」）：NAT / LB /
-  EKS 控制面按小时价 × `HOURS_PER_MONTH`，EBS 卷与快照按 GB-月价 × 容量。
+  EKS 控制面、未关联 EIP 按小时价 × `HOURS_PER_MONTH`，EBS 卷与快照按 GB-月价 × 容量
+  （gp2 卷照抄 `core.gp3_plan()` 的 `cur_cost_mo`）。
   `cur_usd` 是**小时**单价，只对按小时计费的资源填；EBS 卷与快照留空，
   它们不按小时计价，硬填一个"折算小时价"就是造一个 API 里不存在的数。
-  唯一例外是未关联 EIP：单价取不到，`cur_cost_mo` 也留空（见下方填法表）。
+  例外是取不到当前单价的行：`cur_cost_mo` 留空，并在「未包含项」里点名。**按这一格是否留空
+  来判，不按 verdict 判**：gp2 卷取不到 gp3 单价时 verdict 是 `price-unknown`，但 gp2 月额
+  照填（见下方填法表）。
 - **`sample_points` 是「同行 `window_profile` 那一档」的有效数据点数**，两列必须同档。
   底线是机械的：`window_profile` 记的是同行证据取自哪一档，`sample_points` 记的是
   那一档取到了多少点，**同一行的两个数不许来自两个窗口**。按档分两条分支：
@@ -497,8 +500,9 @@ delete > stop > schedule > storage-type > downsize > request-tuning > next-rebui
 先记住三个列的语义分工，表里每一格都是它的直接推论：
 
 - `verdict` = **规格判据的结论**。没有规格概念的资源（卷、快照、NAT、LB、EIP、
-  控制面）本版本不做规格判断 ⇒ 默认 `excluded`。这一组里只有一个例外，且在下面
-  逐格理由里单独论证：未关联 EIP 取 `price-unknown`（判不了的是价格）。
+  控制面）本版本不做规格判断 ⇒ 默认 `excluded`。例外是**判不了价格**的行取
+  `price-unknown`：gp2 卷取不到 gp3 单价、节点池含专用租户成员、EIP 取价失败
+  （逐格理由见下）。
   **`gp2→gp3` 也是卷，同样是 `excluded`** —— 换存储类型不需要任何利用率数据，
   不是规格判据的结论；这一行的可执行性由 `bucket=downsize` 承载。
 - `bucket` = **归属**。`downsize`＝本行有可执行的优化建议（**不限于降配动作**）；
@@ -529,18 +533,20 @@ delete > stop > schedule > storage-type > downsize > request-tuning > next-rebui
 | EC2 running（判据行，作对照） | `ec2` | 实例机型 | `core.py` 产出 | `core.py` 产出 | `schedule`（`stop_candidate=true` 时）／`downsize`（`verdict=downsize` 时）／否则 `none` | `core.py` 产出 | `biz-hours` | `biz-hours` | `core.py` 产出 | 留空 |
 | EC2 running 且命中闲置 | `ec2` | 实例机型 | `core.py` 产出 | `idle`（`core.py`） | `delete` | `core.py` 产出 | `biz-hours` | `biz-hours` | `core.py` 产出 | 留空 |
 | EC2 `state=stopped` | `ec2` | 实例机型 | `excluded` | `excluded` | `none` | 留空 | 留空 | 留空 | `0` | 留空 |
-| EBS 卷 `gp2` 且可转 `gp3` | `ebs` | `gp2` | `excluded` | `downsize` | `storage-type` | 留空 | 留空 | 留空 | 当前卷月额 | gp3 与 gp2 的月额差 |
+| EBS 卷 `gp2` 且可转 `gp3` | `ebs` | `gp2` | `excluded` | `downsize` | `storage-type` | 留空 | 留空 | 留空 | `core.gp3_plan()` 的 cur_cost_mo | `core.gp3_plan()` 的 other_save_mo（已扣另配 IOPS / 吞吐费） |
+| EBS 卷 `gp2`，取不到 gp3 单价 | `ebs` | `gp2` | `price-unknown` | `excluded` | `none` | 留空 | 留空 | 留空 | `core.gp3_plan()` 的 cur_cost_mo（gp2 单价也缺时为空） | 留空 |
 | EBS 卷 `state=available` | `ebs` | 卷类型原文 | `excluded` | `idle` | `delete` | 留空 | 留空 | 留空 | 当前卷月额 | 留空 |
 | EBS 卷挂在 `state=stopped` 实例上 | `ebs` | 卷类型原文 | `excluded` | `idle` | `delete` | 留空 | 留空 | 留空 | 当前卷月额 | 留空 |
-| EBS 卷 其他（已是 `gp3` / 挂 running 实例） | `ebs` | 卷类型原文 | `excluded` | `excluded` | `none` | 留空 | 留空 | 留空 | 当前卷月额 | 留空 |
+| EBS 卷 其他（已是 `gp3` / 挂 running 实例 / `gp2` 但 `gp3_plan()` 节省额 ≤ 0） | `ebs` | 卷类型原文 | `excluded` | `excluded` | `none` | 留空 | 留空 | 留空 | 当前卷月额 | 留空 |
 | 快照 | `ebs` | `snapshot` | `excluded` | `excluded` | `none` | 留空 | 留空 | 留空 | 快照存储月额 | 留空 |
 | NAT 闲置 | `vpc` | `nat-gateway` | `excluded` | `idle` | `delete` | 留空 | `full-window` | `full-window` | 小时费月额 | 留空 |
 | NAT 活跃 | `vpc` | `nat-gateway` | `excluded` | `excluded` | `none` | 留空 | `full-window` | `full-window` | 小时费月额 | 留空 |
 | ALB / NLB 闲置 | `vpc` | `application`／`network` | `excluded` | `idle` | `delete` | 留空 | `full-window` | `full-window` | 小时费月额 | 留空 |
 | ALB / NLB 活跃 | `vpc` | `application`／`network` | `excluded` | `excluded` | `none` | 留空 | `full-window` | `full-window` | 小时费月额 | 留空 |
-| EIP 未关联 | `vpc` | `eip` | `price-unknown` | `idle` | `delete` | 留空 | 留空 | 留空 | 留空 | 留空 |
+| EIP 未关联 | `vpc` | `eip` | `excluded` | `idle` | `delete` | 留空 | 留空 | 留空 | 小时费月额 | 留空 |
 | EKS 节点池（聚合行） | `eks` | 节点池当前机型 | `downsize` | `downsize` | `downsize` | 留空 | 留空 | 留空 | **留空**（成本在成员行） | (当前节点数 − 理论节点数) × 单节点月额 |
-| EKS 节点（成员行） | `eks` | 节点实例机型 | `excluded` | `excluded` | `none` | 留空 | `biz-hours` | `biz-hours` | 该节点月额 | 留空 |
+| EKS 节点池（聚合行，成员含专用租户） | `eks` | 节点池当前机型 | `price-unknown` | `excluded` | `none` | 留空 | 留空 | 留空 | **留空**（成本在成员行） | 留空 |
+| EKS 节点（成员行） | `eks` | 节点实例机型 | `excluded` | `excluded` | `none` | 留空 | `biz-hours` | `biz-hours` | 该节点月额（专用租户节点为空） | 留空 |
 | EKS 控制面 | `eks` | `control-plane` | `excluded` | `excluded` | `none` | 留空 | 留空 | 留空 | 小时费月额 | 留空 |
 | 桶 E pod request 调优 | `eks` | `pod-requests` | `downsize` | `downsize` | `request-tuning` | 留空 | 留空 | 留空 | 留空（非 AWS 资源） | **留空，不是 `0`** |
 | RDS / ElastiCache / MSK（判据行，作对照） | `core.py` 产出 | `core.py` 产出 | `core.py` 产出 | `core.py` 产出 | `downsize`（`verdict=downsize-candidate` 时）／`next-rebuild-only`（唯一发现是存储过度预配时）／否则 `none` | 留空 | `biz-hours` | `biz-hours` | 采集侧填（见下） | 留空 |
@@ -556,6 +562,9 @@ delete > stop > schedule > storage-type > downsize > request-tuning > next-rebui
   （减节点的整机月额）。走移除路径的行（未挂载卷、闲置 NAT / ALB、未关联 EIP）
   **一律留空**：它们的钱已经以全额 `cur_cost_mo` 记进桶 B 合计，再填一次就是
   同一笔钱两个口径各算一遍。这也是「采集侧合计」限定 `bucket == "downsize"` 的原因。
+  gp2→gp3 的金额由 `core.gp3_plan()` 产出，已扣为不降性能另配的 IOPS / 吞吐费（`cli-recipes.md` §2.7）。`gp3_plan()` 判出节省额 ≤ 0 的卷按「EBS 卷 其他」行填，单价不全的按「取不到 gp3 单价」行填 —— 两者都不带 `other_save_mo`。
+  三行 gp2 卷的 `blockers` 照抄 `core.gp3_plan()` 的 `blockers`（首条即 gp3 的 IOPS / 吞吐
+  配置与依据）——不带它，执行的人只能按 gp3 默认值配，而需要另配的那些卷正是本判据要保护的。
 - **桶 E request 调优行的 `other_save_mo` 是留空，不是 `0`。** 留空＝这一行不承载
   金额（钱记在节点池聚合行上）；`0` 会被读成「调完 request 一分钱不省」，
   而事实相反——它是节点数下降的前提条件。
@@ -564,10 +573,14 @@ delete > stop > schedule > storage-type > downsize > request-tuning > next-rebui
   按优先级表取 `schedule`，降配方案降级进 `blockers`。
   `allow_stop_recommendations=no` 时 `stop_candidate` 留空，这个分支自然不触发——
   **但规则必须先写在这里**，否则第一次把该输入打开时两个 agent 又各自发明一次。
-- **EIP 是 `price-unknown` 而不是 `excluded`。** 未关联公有 IPv4 的单价经 pricing API
-  三条路都取不到（见 `cli-recipes.md`），所以"判不了的是价格，不是该不该释放"。
-  `bucket` 仍是 `idle`（它确实闲置），但 `cur_cost_mo` 留空 ⇒ 它对桶 B 合计贡献 0，
-  报告须在"未包含项"里点名。**不得用记忆里的单价顶替**。
+- **EIP 的单价取自 `AmazonVPC` 的 `group=VPCPublicIPv4Address`**（`cli-recipes.md`「公有 IPv4」一节）。
+  这组记录没有 `productFamily`，此前按 family 查不到，本行曾定为 `price-unknown`、
+  `cur_cost_mo` 留空，桶 B 合计因此漏掉每个未关联 EIP。现在与 NAT / ALB 闲置行同形：
+  `verdict=excluded`、`bucket=idle`、`cur_cost_mo` = 单价 × `HOURS_PER_MONTH`。
+  取价失败时仍回到 `price-unknown`、`cur_cost_mo` 留空，并在「未包含项」里点名——不得用记忆里的单价顶替。
+- **专用租户节点不填成本，含专用租户成员的节点池不出节省额。** 与 `core.py` 对独立 EC2 的
+  处理同源（`_tenancy_lifecycle()`）：Dedicated Host 按整台主机计费，单台节点减少不一定省钱。
+  Spot 节点照按需理论价计，成员行写一条「购买方式为 spot」的披露。
 - **`bucket=idle` 优先于 `verdict` 决定的归属。** 这不是新规则，是 `core.py` 的
   既有行为：`main()` 先查 `is_idle()`，再才按 `verdict` 落桶，所以一台
   `price-unknown` 的闲置实例也进 `idle`。采集侧自建行沿用同一优先级。
@@ -605,7 +618,7 @@ delete > stop > schedule > storage-type > downsize > request-tuning > next-rebui
   所以托管行按「单价 × 节点数/broker 数 × `HOURS_PER_MONTH`」自己算，
   节点数同时写进 `instance_count`。不填 ⇒ 分母漏掉整个托管服务。
 - **`0` 与留空不同。** 已停止实例的 `cur_cost_mo` 是**确定的 `0`**（计算不计费），
-  EIP 的 `cur_cost_mo` 是**留空**（价格未知）。前者进分母贡献 0，
+  `cur_cost_mo` 留空的行（取不到当前单价）是**未知**。前者进分母贡献 0，
   后者根本不在分母里、必须在"未包含项"列出。两者写成同一个值会让
   "已知为零"与"不知道"不可区分。
 

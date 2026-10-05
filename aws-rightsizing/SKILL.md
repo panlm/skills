@@ -32,7 +32,7 @@ description: Use when asked to right-size an AWS account, cut EC2/EBS/RDS/Elasti
 （本文件此前在这里写过一个 `Σ按需理论月省 ÷ Σ按需理论月额`：分子没说是哪条口径，
 于是两个 agent 各挑一条，同一支机队的头条百分比能差三成。算式只留一处。）
 
-**必须在报告里显式写出分母是按需理论月额。** 若客户已买 RI/SP，实际账单基数低于
+**必须在报告里显式写出分母是按需理论月额。** 若客户已买 RI/SP、或实例以 Spot 购买，实际账单基数低于
 按需月额，则同样的绝对节省对应的**实际百分比会更高**，但绝对金额会更低（甚至为 0，
 若折扣只是转移到别的资源）。两者不可混用。
 
@@ -73,7 +73,7 @@ aws ec2 describe-instances --region $R --filters Name=instance-state-name,Values
 ```
 
 `Placement.Tenancy` 非 `default` 的实例（dedicated / host）价格不同，
-**须单独取价或标 `price-unknown` 排除，不得套用 Shared 价格。**
+**由 `core.py` 判 `price-unknown`，不得套用 Shared 价格**（Dedicated Host 按整台主机计费，单台降配不一定省钱）；组装时须把 tenancy 带进 solver-in（`cli-recipes.md` §7.0）。Spot 等非按需购买方式照按需理论价计，只披露。
 
 ## 运行时输入（缺失则询问，不猜）
 
@@ -161,6 +161,7 @@ PARTITION=$(aws sts get-caller-identity --query Arn --output text | cut -d: -f2)
 | 各 namespace 有数据 | `cloudwatch list-metrics --namespace X` | 对应服务无法分析 |
 | CWAgent 内存指标 | `list-metrics --namespace CWAgent --metric-name mem_used_percent` | 内存需求按当前规格保留，confidence 降 medium |
 | CWAgent 磁盘指标 | 同上 `disk_used_percent` | EBS 容量过大判不了 |
+| EBS 卷 IOPS / 吞吐 | `list-metrics --namespace AWS/EBS --metric-name VolumeAvgIOPS` | 为 0 ⇒ 全部 gp2 卷按 gp2 能力对齐另配，节省额偏保守（非 Nitro 宿主不发布该指标） |
 | RDS Performance Insights | `describe-db-instances` 的 `PerformanceInsightsEnabled` | RDS 降配失去第一判据 |
 | MSK enhanced monitoring | `describe-cluster-v2` 的 `EnhancedMonitoring` | `DEFAULT` 档**只缺 `RequestHandlerAvgIdlePercent`**（实测：CPU/磁盘/URP/内存 per-broker 都有）。缺的这一个是降配前置条件 ⇒ 不产出降配建议，但阻断判据仍可算 |
 | EKS Container Insights | `list-metrics --namespace ContainerInsights` | pod 级分析不可得。**不能用"装了 observability addon"推断有指标**——实测装了 addon + agent DaemonSet 该 namespace 仍为 0 |
@@ -297,8 +298,13 @@ legacy 族清单 → 用途分类 → region 可用性 → 规格硬约束 → �
 
 ### EBS
 
-- `gp2 → gp3` 全量清单。**原容量 > 334 GiB 时基线 IOPS 已超 3000，转 gp3 必须
-  显式配 IOPS**，此约束写入 `blockers`。
+- `gp2 → gp3`：**配置量与节省额由 `core.gp3_plan()` 产出**，不要自己算。按 `AWS/EBS` 实测的
+  IOPS / 吞吐（持续项取 p95、峰值项取分钟峰值，阈值键 `target_ebs_p95` / `ceiling_ebs_max`）
+  反推 gp3 要配多少，以 gp3 基线为下限、gp2 能力为上限；超过 `VETO_TOLERANCE_PCT`% 的小时
+  出现秒级触顶、或指标缺失时，直接对齐 gp2 能力。gp2 能力随容量分三档：
+  **> 170 GiB 可突发到 250 MiB/s，≥ 334 GiB 持续 250 MiB/s，> 1000 GiB 基线 IOPS 才超过 3000**
+  （334 GiB 是吞吐的分界点，不是 IOPS 的）。另配费用从节省额里扣，扣完不省就不出转换行。
+  采集见 `cli-recipes.md` §2.7。
 - `state=available` 未挂载卷 → 桶 B。
 - 卷容量是否过大**判不了**（需 CWAgent `disk_used_percent`），须在缺口中列出。
 
@@ -565,6 +571,7 @@ done
 | 部分 | 状态 |
 |---|---|
 | EC2 / EBS / VPC 判据与 solver | **已在真实账号端到端验证**（两个 region：ap-northeast-1 13 台 EC2 / 31 卷 / 2 NAT / 2 ALB；us-west-2 18 台 EC2 / 20 卷 / 4 NAT / 4 ALB）。可复现的样例是 ap-northeast-1 那 13 台的脱敏判据输入 `tests/fixtures/regression-fleet.json`（`tests/test_regression_fleet.py` 逐值断言其产出）；形状与逐字段语义见 `references/sample-solve.md`。**两次运行的原始产出都不提交**——含账号与资源 ID |
+| gp2→gp3（`AWS/EBS` 实测对齐） | 2026-10-04 在验证账号两个 region 普查 14 块在用 gp2 卷（宿主全为 Nitro）：指标语义、15 天后的 rollup、30 天覆盖已逐项对账（spec 2026-10-04 的 T1）。**非 Nitro 宿主的对齐兜底未实测** |
 | **RDS 判据** | **已在 us-west-2 实测跑通**：2 个 MySQL 8.0 Multi-AZ（一个 `db.t4g.*`、一个 `db.m5.*`）+ 1 个 `db.serverless`（按规则排除）。指标名与维度名与文档一致。**burstable 实例类**（`db.t4g.*`）走通了降配路径与阻断路径各一条；**非 burstable 实例类**（`db.m5.*`）此前因判据无条件要求信用指标（而该类结构性不发布）而降配路径不可达，已修复——现在信用否决项只对 `db.t*` 生效。**未实测**：Aurora provisioned、PostgreSQL/Oracle/SQL Server、Single-AZ、只读副本 |
 | **ElastiCache 判据** | **已在 us-west-2 实测跑通**：Redis 7.1 复制组（2 shard × 3 node）+ 单节点。指标名与维度名与文档一致，走通降配路径。**未实测**：Memcached、Valkey、Serverless、非集群模式 |
 | **EKS 判据** | **节点级已在 us-west-2 实测跑通**：1.31 集群 / 1 个托管 nodegroup / 5 节点 / 71 pod，bin-packing 给出理论 4 节点。**pod 级 request 调优未走通**——`ContainerInsights` 命名空间为 0（即便装了 observability addon），拿不到 pod 级历史序列。**未实测**：HPA（集群内 0 个）、Fargate（0 个 profile）、Karpenter（0 个节点） |
@@ -715,6 +722,10 @@ awk -F, 'NR>1{gsub(/"/,""); print $4}' findings-<profile>.csv | sort | uniq -d
 | **「仅某子集机型发布」的指标当成「缺失」fail-closed** | `CPUSurplusCreditsCharged` 只有 T 系列发布，非突发机型该序列结构性不存在。无条件卡 `is None` 会让**突发降配路线在生产上永久不可达**（实测 29 台机队里 25 台被压掉，3 行误判成「已合理配置」），且 `burst_na` 让客户去补一个不可能存在的指标。RDS 侧同一缺陷修于 2026-09-04，EC2 侧因文档误称「已做区分」而漏到 2026-09-10 | **先判适用性，再判缺失**：`if cs["burst"] and sc is None`（EC2）/ `_rds_is_burstable()`（RDS）。回归 fixture 必须用真实值（非突发机型填 `null`），填 0 会让整套基线为一个不可能的输入背书 |
 | **「仅某子集资源发布」的指标，判据先判缺失而不先判适用性** | 「不适用」与「缺失」是两件事：前者是**资源形态**的属性，后者是**采集**的属性。混同的两个方向都错——把「不适用」当「缺失」会让整条路径永久不可达（实测 `CPUSurplusCreditsCharged` 让 25/29 台的突发路线关闭）；把「缺失」当「不适用」会让否决项静默消失。已知成员与状态（**状态过期会让这张清单失效，改判据时一并更新**）：`CPUSurplusCreditsCharged`（仅 `t*` / `db.t*`，**已按适用性分流**）、`CPUCreditBalance`（同，**已按适用性分流**）、`ReplicationLag`（仅有副本时，**已按 `has_replica` 分流**）、`EngineCPUUtilization` 与 `DatabaseMemoryUsagePercentage`（仅 redis/valkey 发布，**已按 `engine` 分流**）。**五个已知成员至此全部完成适用性分流**——新增指标时按本清单比对 | **先解析适用性、再判缺失**，并在该判据处写明落在 fail-closed 还是 fail-open 哪一侧及理由。区分二者的依据必须是**输入里已有的形态字段**（`spec["burst"]` / 实例类前缀 / 引擎 / 节点数），**不得靠指标自身的有无去推断**——那是循环论证。新增指标先按这张清单比对 |
 | **假定资源规格在窗口内不变** | `required_vcpu = ceil(cur_vcpu × sus_cpu% / target)` 拿 describe 返回的**当前**规格去乘 CloudWatch 的**整窗口**利用率，而一处都没校验规格没变过。实测两台 `db.m6g.xlarge` 的核心指标 720/720、信用序列 178/720、信用上限 576 对应 2 vCPU ⇒ 窗口内被放大过，它们的百分比混合了两个规格。方向：先小后大 ⇒ 低估节省（保守）；**先大后小 ⇒ 高估节省，是危险方向** | 采集侧派生 `partial_coverage`（同资源内某指标点数 < 最大值的 90%），判据用 `_coverage_note()` 在**每条出口**上留注记。**只标注不校正** —— 判定方向需要逐小时的规格历史，`describe-*` 只返回当前规格。要真正校正须引入配置历史类数据源，超出本 skill 的只读边界 |
+| **gp2 的 334 GiB 当成 IOPS 分界点** | 334 GiB 是吞吐分界点（持续 250 MiB/s）；基线 IOPS 要到 1000 GiB 才超 3000 ⇒ 334–1000 GiB 的卷被要求白配 IOPS，吞吐照样从 250 掉到 125 | 分档只在 `core.gp2_capability()` |
+| **gp3 吞吐单价当成每 MiB/s** | pricing API 回的单位是 `GiBps-mo`（实测 $40.96），当成每 MiB/s 高估 1024 倍 | `core.gp3_tput_price_per_mibps()` 断言单位后换算，单位不符按缺失 |
+| **按 `productFamily` 查公有 IPv4 单价** | 这组记录没有 `productFamily`，必然查空，曾因此把未关联 EIP 判成取不到价、桶 B 漏计 | `AmazonVPC` + `group=VPCPublicIPv4Address`（`cli-recipes.md`） |
+| **EBS IOPS 用 `VolumeReadOps` ÷ 发布间隔换算** | 又一个换算系数（本 skill 在这类系数上错过三次） | 用 Nitro 的 `VolumeAvgIOPS` / `VolumeAvgThroughput`（已是速率）；缺它们按 gp2 能力对齐 |
 
 **客户问"这个建议怎么来的"时，用 `docs/method-explained.html`** —— 按服务分章的
 判据说明（公式、十道门、否决项顺序、候选池为空的六种成因、四条口径、页内计算器）。

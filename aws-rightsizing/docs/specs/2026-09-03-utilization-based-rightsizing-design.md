@@ -386,6 +386,7 @@ delta_vcpu = eff(当前) − eff(候选)
 ### 6.2 EBS
 
 - `gp2 → gp3` 全量清单。措辞为配置优势陈述（更新一代、IOPS 与吞吐可独立配置），**不含省钱结论**。约束：原 gp2 容量 > 334 GB 时基线 IOPS 已超 3000，转 gp3 必须显式配置 IOPS 否则性能下降。此约束必须写入 `blockers` 字段。
+  > **勘误（2026-10-04）**：334 GiB 是 gp2 吞吐的分界点，不是 IOPS 的；基线 IOPS 要到 1000 GiB 才超 3000。现行规则见 `2026-10-04-pricing-correctness-design.md`。
 - `state=available` 未挂载卷。
 - 超龄快照（`describe-snapshots` 按 `StartTime`）。
 

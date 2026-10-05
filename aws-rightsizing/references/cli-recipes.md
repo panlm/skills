@@ -71,7 +71,7 @@ mkdir -p $IV $M $SP
 
 aws ec2 describe-instances --region $R \
   --filters Name=instance-state-name,Values=running \
-  --query 'Reservations[].Instances[].{id:InstanceId,type:InstanceType,az:Placement.AvailabilityZone,arch:Architecture,op:UsageOperation,ten:Placement.Tenancy,name:Tags[?Key==`Name`]|[0].Value,launch:LaunchTime}' \
+  --query 'Reservations[].Instances[].{id:InstanceId,type:InstanceType,az:Placement.AvailabilityZone,arch:Architecture,op:UsageOperation,ten:Placement.Tenancy,lifecycle:InstanceLifecycle,name:Tags[?Key==`Name`]|[0].Value,launch:LaunchTime}' \
   --output json > $IV/ec2.json
 
 aws ec2 describe-instances --region $R \
@@ -109,6 +109,8 @@ aws kafka list-clusters-v2 --region $R \
 
 aws eks list-clusters --region $R --query 'clusters' --output json > $IV/eks-names.json
 ```
+
+`lifecycle` 对按需实例为 `null`（AWS 不返回该键）——这是值，不是缺失；Spot 为 `spot`。
 
 ### §1.1 五个步骤、六份派生清单（采集前必须先生成）
 
@@ -868,6 +870,86 @@ NLB 侧的对应指标是 `ProcessedBytes` / `ActiveFlowCount`（见
 且**必须先 `list-metrics --namespace AWS/NetworkELB` 校验指标名再采**。
 覆盖度门槛与 `quiet()` 不随指标名变，可原样复用。
 
+### §2.7 EBS gp2 卷的 IOPS / 吞吐 — `AWS/EBS`，维度 `VolumeId` + `InstanceId`
+
+**只为 gp2→gp3 采**（`core.gp3_plan()` 的输入，见 spec 2026-10-04）。四个指标都是
+Nitro 实例专有、已是速率（`VolumeAvgIOPS` 为 Ops/s、`VolumeAvgThroughput` 为 KiB/s），
+**不采 `VolumeReadOps` / `VolumeWriteOps` 做 ÷ 发布间隔换算**——换算系数这一类错本 skill
+犯过三次。非 Nitro 宿主不发布这四个指标，由 `gp3_plan()` 按 gp2 能力对齐兜底。
+
+实测（2026-10-04，验证账号两个 region 14 块在用 gp2 卷）：每小时 `SampleCount` = 60；
+小时 `Maximum` 等于该小时分钟值的最大值，超出 1 分钟数据的 15 天保留期之后仍成立；
+30 天 720/720 点。
+
+```bash
+# ① 范围：gp2、in-use、宿主在 running 清单里（走删除路径的卷不采，见 SKILL.md 资源级互斥）
+jq -c --slurpfile e $IV/ec2.json '($e[0] | map(.id)) as $run
+  | [ .[] | select(.type == "gp2" and .state == "in-use"
+                   and (.attach as $a | $run | index($a)) != null) ]' \
+  $IV/ebs.json > $IV/ebs-gp2-eval.json
+
+# ② 逐指标 list-metrics → 只留当前挂载那条序列 → 生成查询（四批前缀各不相同）
+TYV=$(jq -c '[.[] | {key: .id, value: "gp2"}] | from_entries' $IV/ebs-gp2-eval.json)
+while read -r PFX MN STATS; do
+  aws cloudwatch list-metrics --region $R --namespace AWS/EBS --metric-name "$MN" \
+    --output json </dev/null \
+  | jq --slurpfile vols $IV/ebs-gp2-eval.json -f $S/references/lm-ebs-attached.jq \
+  | jq -c --arg mn "$MN" --arg idname VolumeId --argjson ty "$TYV" \
+       --argjson stats "$STATS" --arg idprefix "$PFX" \
+       -f $S/references/mdq-dims.jq > $M/mdq-ebs-$PFX.json
+done <<'EOF'
+ei VolumeAvgIOPS ["Average","Maximum"]
+et VolumeAvgThroughput ["Average","Maximum"]
+xi VolumeIOPSExceededCheck ["Maximum"]
+xt VolumeThroughputExceededCheck ["Maximum"]
+EOF
+jq -s -c 'add' $M/mdq-ebs-ei.json $M/mdq-ebs-et.json $M/mdq-ebs-xi.json $M/mdq-ebs-xt.json \
+  > $M/mdq-ebs.json
+jq '[.[].Id] | group_by(.) | map(select(length > 1)) | length' $M/mdq-ebs.json   # 须为 0
+# 按 §2 的「提交要求」分批提交 $M/mdq-ebs.json → $M/raw-ebs.json，并跑重复 Label 断言
+
+# ③ 聚合（§3），再拼 gp3_plan() 的输入；行数须等于范围清单
+jq -r --argjson tz $TZ_OFFSET -f $S/references/agg.jq $M/raw-ebs.json > $M/agg-ebs.json
+mkdir -p $O/raw/solver
+jq -c --slurpfile agg $M/agg-ebs.json --argjson win $((WINDOW_DAYS * 24)) \
+   -f $S/references/ebs-gp3-in.jq \
+  $IV/ebs-gp2-eval.json > $O/raw/solver/ebs-gp3-in.json
+[ "$(jq length $O/raw/solver/ebs-gp3-in.json)" = "$(jq length $IV/ebs-gp2-eval.json)" ] \
+  || echo "FAIL: 卷数不符"
+```
+
+**为什么只留当前挂载那条（`lm-ebs-attached.jq`）**：卷在窗口内换过宿主时 `list-metrics`
+回两条序列，`mdq-dims.jq` 的 Label 只编卷 ID，两条撞名会让重复 Label 断言阻断整批。
+
+**为什么取 `full-window`**：gp3 的配置 24 小时生效，夜间备份被限流同样是事故，
+沿用「峰值型取 full-window」的规则（`ebs-gp3-in.jq` 文件头）。
+
+**④ 出 gp3 配置与金额**（单价见 §6.1 的 EBS 取价；结果随 `sizing_profile` 变，文件名带 profile）：
+
+```bash
+python3 - "$S/references" "$SIZING_PROFILE" $SP/ebs-price.json \
+  $O/raw/solver/ebs-gp3-in.json > $O/raw/solver/ebs-gp3-$SIZING_PROFILE.json <<'PY'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import core
+t = core.load_thresholds(sys.argv[2])
+p = json.load(open(sys.argv[3]))
+price = {"gp2_gb_mo": p["gp2_gb_mo"], "gp3_gb_mo": p["gp3_gb_mo"],
+         "gp3_iops_mo": p["gp3_iops_mo"],
+         "gp3_mibps_mo": core.gp3_tput_price_per_mibps(p["gp3_tput_usd"],
+                                                       p["gp3_tput_unit"])}
+json.dump([core.gp3_plan(v, t, price) for v in json.load(open(sys.argv[4]))],
+          sys.stdout, ensure_ascii=False, indent=1)
+PY
+jq -r '[.[].iops_basis] + [.[].tput_basis] | group_by(.) | map({(.[0]): length}) | add' \
+  $O/raw/solver/ebs-gp3-$SIZING_PROFILE.json        # 依据分布，写进报告缺口
+```
+
+填法表 gp2 三行（可转 / 转了不省 / 单价不全）的 `verdict` / `bucket` / `action_type` /
+`cur_cost_mo` / `other_save_mo` 逐格照抄这份产出，见 `report-template.md`；
+**`blockers` 照抄 `gp3_plan()` 的 `blockers`**（首条即 gp3 的 IOPS / 吞吐配置与依据，
+执行转换时按它配，不要用 gp3 默认值）。
+
 ## §3 时区归一化、时段切档与聚合
 
 ```bash
@@ -1526,10 +1608,31 @@ jq '[.PriceList[] | fromjson | {
 |---|---|---|---|
 | MSK broker | `AmazonMSK` | **`computeFamily`**（值形如 `t3.small`，**不带 `kafka.` 前缀**） | `usagetype` 形如 `<区域前缀>-Kafka.<型号>`，须排除 `Express` |
 | ElastiCache | `AmazonElastiCache` | `instanceType`（带 `cache.` 前缀）、**`operation`**、`memory`、`vcpu`、`cacheEngine` | **两道都要**：`usagetype` 匹配 `^[A-Z0-9]+-NodeUsage:`（挡 `ExtendedSupport*`）＋ 键含 `operation`（挡 Valkey / Redis / Memcached 共用同一 usagetype）。见 §5.1 |
-| EBS | `AmazonEC2` | `productFamily=Storage` + `volumeApiName` | — |
+| EBS | `AmazonEC2` | `volumeApiName` + `productFamily`：存储 `Storage`、gp3 另配 IOPS `System Operation`、gp3 另配吞吐 `Provisioned Throughput` | 每个 family 恰好一条（`ebs-price.jq`）；**吞吐单位是 `GiBps-mo`**，换算交给 `core.gp3_tput_price_per_mibps()` |
 | NAT Gateway | `AmazonEC2` | `productFamily=NAT Gateway` | `usagetype` 含 `NatGateway-Hours`（同时命中 `NatGateway-Hours` 与 `RegionalNatGateway-Hours` 两行，实测两行同价故不影响金额）。**不得反推 region 前缀**，见「易错项速查」 |
 | RDS | `AmazonRDS` | `instanceType`（带 `db.` 前缀） | **`usagetype` 须限 `Multi-AZUsage:`**，否则混进 Single-AZ 价 |
 | ELB | `AmazonEC2` / `AWSELB` | `usagetype` + `operation` 双重消歧 | `operation=LoadBalancing:Application` 限 LB 类型；再在 jq 里排除 **`Outposts`** 与 **`-TS-`**。实测 `-TS-` 只有正确价的 **22%–28%**（两 region），随机取到即**低估 3.6–4.5 倍**；`Outposts` 与正确价同值，不影响金额但会破坏「筛完只剩 1 条」这道断言。见 §5.1 |
+
+**EBS（gp2→gp3 用）：**
+
+```bash
+for VT in gp2 gp3; do
+  aws pricing get-products --region us-east-1 --service-code AmazonEC2 \
+    --filters "Type=TERM_MATCH,Field=regionCode,Value=$R" \
+              "Type=TERM_MATCH,Field=volumeApiName,Value=$VT" --output json \
+  | jq '[.PriceList[] | fromjson
+         | (.terms.OnDemand | to_entries[0].value.priceDimensions | to_entries[0].value) as $d
+         | {fam: .product.productFamily, ut: .product.attributes.usagetype,
+            unit: $d.unit, usd: ($d.pricePerUnit.USD | tonumber)}]' \
+  > $SP/ebs-$VT-price-raw.json
+done
+jq -n --slurpfile g2 $SP/ebs-gp2-price-raw.json --slurpfile g3 $SP/ebs-gp3-price-raw.json \
+   -f $S/references/ebs-price.jq > $SP/ebs-price.json
+jq -e 'all(.[]; . != null)' $SP/ebs-price.json >/dev/null \
+  || echo "WARN: EBS 单价不全 ⇒ 全部 gp2 行 price-unknown，先查回包再往下走"
+```
+
+实测（观测值 @2026-10-04，us-west-2）：gp2 回 1 条、gp3 回 3 条；gp3 吞吐 $40.96 / GiBps-mo。
 
 **MSK 是唯一一个属性名与其他服务不同的**：按 `instanceType` 过滤实测返回 **0 条且不报错**
 （试错三轮才定位）。正确写法：
@@ -1546,18 +1649,29 @@ aws pricing get-products --region us-east-1 --service-code AmazonMSK \
       | map(select(.usd>0))'
 ```
 
-### 公有 IPv4 取不到价——标 price-unknown，不得用记忆值顶替
+### 公有 IPv4（未关联 EIP）：按 `group` 取价，不按 `productFamily`
 
-未关联 EIP 的公有 IPv4 单价**经 pricing API 三条路都取不到**（实测）：
+单价在 `AmazonVPC` 里，但这组记录**没有 `productFamily` 属性**——此前按 family 查
+（`AmazonEC2` 的 `IP Address`、`AmazonVPC` 的 `Public IPv4 Address`）必然为空，本节因此
+曾断言「取不到价」、让 EIP 行标 `price-unknown`，桶 B 合计漏掉每个未关联 EIP。
+按 `group` 过滤即得（实测 2026-10-04，us-west-2 与 ap-northeast-1 均为 $0.005 / 小时）：
 
-| 尝试 | 结果 |
-|---|---|
-| `AmazonEC2` 的 `IP Address` 族 | 只含 Wavelength CarrierIP |
-| `AmazonVPC` 的 `Public IPv4 Address` 族 | 不存在该族 |
-| `get-attribute-values` 枚举 | 超时 |
+```bash
+aws pricing get-products --region us-east-1 --service-code AmazonVPC \
+  --filters "Type=TERM_MATCH,Field=regionCode,Value=$R" \
+            'Type=TERM_MATCH,Field=group,Value=VPCPublicIPv4Address' --output json \
+| jq '[.PriceList[] | fromjson
+       | select(.product.attributes.usagetype | endswith("PublicIPv4:IdleAddress"))
+       | .terms.OnDemand | to_entries[0].value.priceDimensions | to_entries[0].value
+       | {unit, usd: (.pricePerUnit.USD | tonumber)}]
+      | if length == 1 and .[0].unit == "Hrs" then .[0].usd
+        else error("公有 IPv4 闲置单价应恰好 1 条且按小时计，实际：\(.)") end' \
+  > $SP/eip-idle-usd.json
+```
 
-按 skill 规则标 `price-unknown`、**不计入合计**，并在报告写明该项金额缺失。
-**不得用记忆里的单价顶替**——那会让一个无法核实的数字混进可核实的合计里。
+同一 `group` 下另有 `InUseAddress` 一条（同价，已关联的地址同样计费），本版本不对它出建议。
+EIP 行的 `cur_cost_mo` = 该单价 × `HOURS_PER_MONTH`（`core.py` 的常量）。
+**取价失败时仍按 `price-unknown` 处理，不得用记忆里的单价顶替。**
 
 ### 价目缓存：用 version 校验，不用时间猜测
 
@@ -1684,6 +1798,8 @@ ap-northeast-1 有 1198 个、us-east-1 有 1371 个、us-west-2 有 1350 个，
 | `type` | 是 | inventory `.type` | `KeyError` |
 | `arch` | 是 | inventory `.arch` | 候选池恒空，无建议 |
 | `operation` | 是 | inventory `.op`（= `UsageOperation`） | `price-unknown` |
+| `tenancy` | 是（组装必检，见 §7.3 ②；`core.py` 缺键时按 `default` 并记 blocker） | inventory `.ten`（= `Placement.Tenancy`） | 非 `default` ⇒ `price-unknown`（Dedicated Host 按整台主机计费） |
+| `lifecycle` | 是（同上；缺键时按按需并记 blocker） | inventory `.lifecycle`（= `InstanceLifecycle`，按需实例为 `null`） | 非 `null` ⇒ 金额照按需理论值算，加一条披露 blocker |
 | `az` | 否 | inventory `.az` | 原样输出，报告里少一列 |
 | `name` | 否 | inventory `.name` | 报告 `resource_name` 列为空 |
 | `count` | 否，默认 1 | 一行一实例时填 `1`；**若按机型分组成一行，填该组实例数** | `core.py` 用它乘 `cur_cost_mo` 与两个 `*_save_mo`。**字段名就是 `count`**——写成 `instance_count`（CSV 输出列名）会被静默忽略、按 1 计算，**按分组规模低估节省额** |
@@ -1862,7 +1978,8 @@ def bnet($rows; $bk; $days):
   | ( [ tsum($rows; "EBSReadBytes"), tsum($rows; "EBSWriteBytes") ]
       | if any(. == null) then null else (add / $wsec / 1048576) end )       as $ebs
   | { rid: $i.id, service: "ec2", type: $i.type, arch: $i.arch,
-      operation: $i.op, az: $i.az, name: $i.name, count: 1,
+      operation: $i.op, tenancy: $i.ten, lifecycle: $i.lifecycle,
+      az: $i.az, name: $i.name, count: 1,
       sus_cpu:  ($cpuA | if . == null then null else .p95 end),
       peak_cpu: ($cpuM | if . == null then null else .max end),
       cpu_n:    ($cpuA | if . == null then null else .n   end),
@@ -1945,7 +2062,7 @@ jq -c --slurpfile agg $M/agg-ec2-all.json --argjson days "$WINDOW_DAYS" \
   || echo "FAIL: 数量不匹配"
 
 # ② 必需字段齐全（service 在内——缺它 core.py 直接抛错）
-jq -r '["rid","service","type","arch","operation","sus_cpu","peak_cpu","sus_mem",
+jq -r '["rid","service","type","arch","operation","tenancy","lifecycle","sus_cpu","peak_cpu","sus_mem",
         "peak_mem","ebs_need","net_mb_day","surplus_credits","cpu_n"] as $F
  | [ .[] as $e | $F[] as $f | select(($e|has($f))|not) | $f ] | unique
  | if length==0 then "OK" else "MISSING: \(.)" end' $O/solver-in.json

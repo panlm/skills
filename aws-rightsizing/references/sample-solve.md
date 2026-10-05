@@ -20,23 +20,23 @@ Sum 系数三处冲突）。样例落在必读路径上，agent 直接照形状�
 ## 输入：solver-in.json（一条一资源）
 
 ```json
-[{"rid":"i-EX-01","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances",
+[{"rid":"i-EX-01","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances","tenancy":"default","lifecycle":null,
   "sus_cpu":10,"peak_cpu":25,"sus_mem":20,"peak_mem":35,
   "ebs_need":5,"surplus_credits":0,"cpu_n":243,"metric_coverage":[]},
 
- {"rid":"i-EX-02","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances",
+ {"rid":"i-EX-02","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances","tenancy":"default","lifecycle":null,
   "sus_cpu":10,"peak_cpu":25,"sus_mem":20,"peak_mem":35,
   "ebs_need":null,"surplus_credits":0,"cpu_n":243,"metric_coverage":["ebs"]},
 
- {"rid":"i-EX-03","service":"ec2","type":"NOSUCH.type","arch":"x86_64","operation":"RunInstances",
+ {"rid":"i-EX-03","service":"ec2","type":"NOSUCH.type","arch":"x86_64","operation":"RunInstances","tenancy":"default","lifecycle":null,
   "sus_cpu":1,"peak_cpu":2,"sus_mem":null,"peak_mem":null,
   "ebs_need":0,"surplus_credits":0,"cpu_n":243,"metric_coverage":[]},
 
- {"rid":"i-EX-04","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances",
+ {"rid":"i-EX-04","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances","tenancy":"default","lifecycle":null,
   "sus_cpu":2,"peak_cpu":5,"sus_mem":10,"peak_mem":15,
   "ebs_need":1,"surplus_credits":0,"cpu_n":154,"metric_coverage":[]},
 
- {"rid":"i-EX-05","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances",
+ {"rid":"i-EX-05","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances","tenancy":"default","lifecycle":null,
   "sus_cpu":2,"peak_cpu":5,"sus_mem":10,"peak_mem":15,
   "ebs_need":1,"surplus_credits":0,"cpu_n":0,"metric_coverage":[]}]
 ```
@@ -53,6 +53,8 @@ Sum 系数三处冲突）。样例落在必读路径上，agent 直接照形状�
 | 字段 | 含义 | 缺失时 |
 |---|---|---|
 | `service` | `ec2` / `rds` / `elasticache` / `msk`，决定走哪条判据 | **抛错**，不回退 `ec2` |
+| `tenancy` | `Placement.Tenancy` 原值 | 非 `default` ⇒ `price-unknown`（专用租户按另一种结构计费）；缺键 ⇒ 按 `default` 计价并记 blocker |
+| `lifecycle` | `InstanceLifecycle` 原值，按需实例为 `null` | 非 `null` ⇒ 金额照按需理论值算并记披露 blocker；缺键 ⇒ 按按需计价并记 blocker |
 | `sus_cpu` / `peak_cpu` | biz-hours 的 Average-p95 / Maximum-max | `null` ⇒ `metric-missing` |
 | `sus_mem` / `peak_mem` | 同上，内存 | `null` ⇒ 内存保持当前规格，confidence 上限 `medium`（样本不足时为 `low`，样本量的问题盖过内存口径） |
 | `ebs_need` | Σ Sum ÷ 窗口秒数 ÷ 1MiB，MB/s | `null` ⇒ `metric-missing`（**不可当 0**，否则跳过带宽校验） |
@@ -84,19 +86,19 @@ cat > solver-ctx.json <<'EOF'
   "offerings": ["m5.large", "m5.xlarge"],
   "legacy_families": [],
   "resources": [
-    {"rid":"i-EX-01","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances",
+    {"rid":"i-EX-01","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances","tenancy":"default","lifecycle":null,
      "sus_cpu":10,"peak_cpu":25,"sus_mem":20,"peak_mem":35,
      "ebs_need":5,"surplus_credits":0,"cpu_n":243,"metric_coverage":[]},
-    {"rid":"i-EX-02","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances",
+    {"rid":"i-EX-02","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances","tenancy":"default","lifecycle":null,
      "sus_cpu":10,"peak_cpu":25,"sus_mem":20,"peak_mem":35,
      "ebs_need":null,"surplus_credits":0,"cpu_n":243,"metric_coverage":["ebs"]},
-    {"rid":"i-EX-03","service":"ec2","type":"NOSUCH.type","arch":"x86_64","operation":"RunInstances",
+    {"rid":"i-EX-03","service":"ec2","type":"NOSUCH.type","arch":"x86_64","operation":"RunInstances","tenancy":"default","lifecycle":null,
      "sus_cpu":1,"peak_cpu":2,"sus_mem":null,"peak_mem":null,
      "ebs_need":0,"surplus_credits":0,"cpu_n":243,"metric_coverage":[]},
-    {"rid":"i-EX-04","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances",
+    {"rid":"i-EX-04","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances","tenancy":"default","lifecycle":null,
      "sus_cpu":2,"peak_cpu":5,"sus_mem":10,"peak_mem":15,
      "ebs_need":1,"surplus_credits":0,"cpu_n":154,"metric_coverage":[]},
-    {"rid":"i-EX-05","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances",
+    {"rid":"i-EX-05","service":"ec2","type":"m5.xlarge","arch":"x86_64","operation":"RunInstances","tenancy":"default","lifecycle":null,
      "sus_cpu":2,"peak_cpu":5,"sus_mem":10,"peak_mem":15,
      "ebs_need":1,"surplus_credits":0,"cpu_n":0,"metric_coverage":[]}
   ]

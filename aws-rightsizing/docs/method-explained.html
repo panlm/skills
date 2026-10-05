@@ -172,6 +172,8 @@
     <tr><td>CPU 上限（峰值项）</td><td class="num">60%</td><td class="num">85%</td><td>EC2 / RDS 的峰值项</td></tr>
     <tr><td>内存目标（持续项）</td><td class="num">50%</td><td class="num">70%</td><td>EC2 内存轴、Redis 可用内存反推</td></tr>
     <tr><td>内存上限（峰值项）</td><td class="num">70%</td><td class="num">85%</td><td>EC2 内存峰值项</td></tr>
+    <tr><td>EBS 目标（持续项）</td><td class="num">40%</td><td class="num">60%</td><td>gp2→gp3 另配 IOPS / 吞吐的持续项</td></tr>
+    <tr><td>EBS 上限（峰值项）</td><td class="num">60%</td><td class="num">85%</td><td>gp2→gp3 另配 IOPS / 吞吐的峰值项</td></tr>
     <tr><td>单次降幅上限</td><td class="num">2 倍</td><td class="num">3 倍</td><td>EC2 的 vCPU 与内存；托管服务的 vCPU（Redis 内存例外，见该章）</td></tr>
     <tr><td>MSK CPU 目标</td><td class="num">40%</td><td class="num">40%</td><td>两档相同：MSK 的机型阶梯太稀疏，调它不改变结论</td></tr>
     <tr><td>采样点分档线</td><td class="num">168 点</td><td class="num">168 点</td><td>业务时段有效小时数低于此值 ⇒ 仍给建议，置信度降 low</td></tr>
@@ -430,7 +432,7 @@ CPU  峰值项 = ceil(4 × 98.03% ÷ 60%) = 7 核   ← 取 max，需求 7 核 &
   <div class="card">
     <h3 style="margin-top:0">卷</h3>
     <ul style="margin:6px 0 0; padding-left:20px">
-      <li><b><code>gp2 → gp3</code> 全量给出</b>：同容量下 gp3 单价更低。<b>原容量 &gt; 334 GiB 时基线 IOPS 已超 3000</b>，转 gp3 必须显式配置 IOPS，这条会写进阻断项。</li>
+      <li><b><code>gp2 → gp3</code> 按实测对齐</b>：同容量下 gp3 存储单价低约 20%，但 gp3 的基线固定为 3000 IOPS / 125 MiB/s，而 gp2 的能力随容量变——<b>大于 170 GiB 可突发到 250 MiB/s，334 GiB 起持续 250 MiB/s，大于 1000 GiB 基线 IOPS 才超过 3000</b>。按 CloudWatch 实测的 IOPS / 吞吐（持续项取 p95、峰值项取分钟峰值）反推 gp3 要配多少，以 gp3 基线为下限、gp2 能力为上限；超过 5% 的小时出现秒级触顶、或指标缺失时，直接对齐 gp2 能力。另配的 IOPS / 吞吐费从节省额里扣掉，扣完不省就不出转换建议。</li>
       <li><b>未挂载卷</b>（<code>state=available</code>）进闲置清单，动作是删除。</li>
       <li><b>容量是否过大判不了</b>：需要 CloudWatch Agent 的 <code>disk_used_percent</code>，且挂载点与卷的映射必须可靠。缺任一项就不产出容量缩减建议，会列进数据缺口。</li>
     </ul>

@@ -32,6 +32,8 @@ TABLE_KEYS = {
     "CPU 上限（峰值项）": "ceiling_cpu_max",
     "内存目标（持续项）": "target_mem_p95",
     "内存上限（峰值项）": "ceiling_mem_max",
+    "EBS 目标（持续项）": "target_ebs_p95",
+    "EBS 上限（峰值项）": "ceiling_ebs_max",
     "单次降幅上限": "max_reduction_ratio",
     "MSK CPU 目标": "msk_target_cpu_p95",
     "采样点分档线": "min_biz_hours_points",

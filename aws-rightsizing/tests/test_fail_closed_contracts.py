@@ -31,7 +31,7 @@ CATS = {"m5.xlarge": "General purpose", "m5.large": "General purpose",
         "t3.large": "General purpose", "g5.xlarge": "Accelerated computing"}
 BASELINE = {"t3.large": 0.3}
 RES = {"rid": "i-T-01", "service": "ec2", "type": "m5.xlarge", "arch": "x86_64",
-       "operation": "RunInstances", "sus_cpu": 30, "peak_cpu": 40,
+       "operation": "RunInstances", "tenancy": "default", "lifecycle": None, "sus_cpu": 30, "peak_cpu": 40,
        "sus_mem": 20, "peak_mem": 35, "ebs_need": 5, "surplus_credits": 0,
        "cpu_n": 13, "metric_coverage": []}
 CACHE = {"rid": "cache-T-01", "service": "elasticache", "has_replica": False, "engine": "redis", "type": "cache.r7g.large",
@@ -50,7 +50,7 @@ T_CATS = {"t3.xlarge": "General purpose", "t3.large": "General purpose"}
 T_BASELINE = {"t3.xlarge": 0.4, "t3.large": 0.3}
 T_FIXTURE = dict(specs=T_SPECS, prices=T_PRICES, cats=T_CATS, baseline=T_BASELINE)
 T_RES = {"rid": "i-T-11", "service": "ec2", "type": "t3.xlarge", "arch": "x86_64",
-         "operation": "RunInstances", "sus_cpu": 10, "peak_cpu": 25,
+         "operation": "RunInstances", "tenancy": "default", "lifecycle": None, "sus_cpu": 10, "peak_cpu": 25,
          "sus_mem": 20, "peak_mem": 35, "ebs_need": 5,
          "credit_balance_min": 575.34, "credit_balance_max": 576.0,
          "cpu_n": 243, "metric_coverage": []}
@@ -537,6 +537,53 @@ def test_zero_and_missing_sample_stay_insufficient():
             f"cpu_n={n!r} 必须 insufficient-data，实际 {out['verdict']}")
 
 
+def test_dedicated_tenancy_is_price_unknown_not_downsized():
+    """dedicated / host ⇒ price-unknown。SKILL.md 早有这条规则，但此前 solver-in
+    不带 tenancy、core.py 看不见它，专用租户实例照样按共享按需价出降配金额。"""
+    t = core.load_thresholds("aggressive")
+    for ten in ("dedicated", "host"):
+        out = _evaluate(dict(RES, rid="i-T-21", cpu_n=243, tenancy=ten), t)
+        assert out["verdict"] == "price-unknown", (ten, out)
+        assert out.get("nb_save_mo") is None and out.get("cur_cost_mo") is None, (ten, out)
+        assert ten in out["burst_na"], (ten, out["burst_na"])
+
+
+def test_spot_is_priced_on_demand_and_disclosed():
+    """Spot 不改金额：价格口径一律按需理论值，Spot 与 RI/SP 同口径，只做披露。"""
+    t = core.load_thresholds("aggressive")
+    base = _evaluate(dict(RES, rid="i-T-22", cpu_n=243), t)
+    spot = _evaluate(dict(RES, rid="i-T-22", cpu_n=243, lifecycle="spot"), t)
+    assert spot["verdict"] == base["verdict"], (base, spot)
+    assert spot["nb_save_mo"] == base["nb_save_mo"], (base, spot)
+    assert any("购买方式为 spot" in b for b in spot.get("blockers") or []), spot
+
+
+def test_missing_tenancy_lifecycle_keys_default_and_say_so():
+    """缺键 ⇒ 按 AWS 默认（共享、按需）计价并记 blocker；结论与带默认值时相同。
+    describe-instances 总会返回 Placement.Tenancy，缺键只可能来自组装。"""
+    t = core.load_thresholds("aggressive")
+    full = _evaluate(dict(RES, rid="i-T-23", cpu_n=243), t)
+    bare = {k: v for k, v in dict(RES, rid="i-T-23", cpu_n=243).items()
+            if k not in ("tenancy", "lifecycle")}
+    out = _evaluate(bare, t)
+    assert out["verdict"] == full["verdict"], (full, out)
+    assert out["nb_save_mo"] == full["nb_save_mo"], (full, out)
+    assert any("组装未带 tenancy / lifecycle" in b for b in out.get("blockers") or []), out
+    assert not any("组装未带" in b for b in full.get("blockers") or []), full
+
+
+def test_insufficient_data_row_carries_cost_only_for_shared_tenancy():
+    """insufficient-data 分支会尽力填成本（不填会让分母漏项）；专用租户不填
+    （共享价不适用），Spot 照填（按需理论值口径）。"""
+    t = core.load_thresholds("aggressive")
+    host = core.evaluate(dict(RES, rid="i-T-24", cpu_n=None, tenancy="host"), _ctx(t, []))
+    spot = core.evaluate(dict(RES, rid="i-T-25", cpu_n=None, lifecycle="spot"), _ctx(t, []))
+    assert host["verdict"] == spot["verdict"] == "insufficient-data", (host, spot)
+    assert host.get("cur_cost_mo") is None, host
+    assert any("租户为 host" in b for b in host.get("blockers") or []), host
+    assert spot.get("cur_cost_mo") is not None, spot
+
+
 if __name__ == "__main__":
     tests = [test_injected_thresholds_missing_sampling_floor_raises,
              test_low_sample_downgrades_instead_of_refusing,
@@ -557,7 +604,11 @@ if __name__ == "__main__":
              test_credit_balance_floor_makes_a_throttled_instance_visible,
              test_credit_balance_applicability_splits_by_current_type,
              test_overspent_credits_suppress_the_burstable_candidate,
-             test_serverless_rds_is_excluded_not_spec_unknown]
+             test_serverless_rds_is_excluded_not_spec_unknown,
+             test_dedicated_tenancy_is_price_unknown_not_downsized,
+             test_spot_is_priced_on_demand_and_disclosed,
+             test_missing_tenancy_lifecycle_keys_default_and_say_so,
+             test_insufficient_data_row_carries_cost_only_for_shared_tenancy]
     failed = 0
     for test_fn in tests:
         try:

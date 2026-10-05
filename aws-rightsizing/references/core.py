@@ -155,6 +155,34 @@ def _eff_vcpu(spec, baseline_pct):
     return spec["vcpu"] * (pct if pct is not None else 1.0)
 
 
+def _tenancy_lifecycle(res):
+    """(专用租户的不取价原因或 None, 披露 blocker 列表)。
+
+    专用租户（dedicated / host）⇒ 不出金额：Dedicated Host 按整台主机计费，
+    不合并主机时单台实例降配一分钱都省不下来。SKILL.md 早有这条规则，但此前
+    solver-in 不带 tenancy，本文件看不到它 —— 规则只写在文字里。
+    非按需购买方式（spot / scheduled / capacity-block）⇒ 金额照按需理论值算：
+    本 skill 的价格口径一律按需，Spot 与 RI/SP 同属「实际账单按另一种价计」，
+    只做披露、不改金额。
+    缺键 ⇒ 取 AWS 默认（共享租户、按需）并记一条 blocker：describe-instances 总会
+    返回 Placement.Tenancy、按需实例本就不返回 InstanceLifecycle，缺键只可能来自
+    组装 —— cli-recipes.md §7.3 ② 在跑判据前拦下漏字段。
+    """
+    notes = []
+    if "tenancy" not in res or "lifecycle" not in res:
+        notes.append("组装未带 tenancy / lifecycle，按 AWS 默认（共享租户、按需）计价")
+    ten = res.get("tenancy")
+    if ten is None:
+        ten = "default"
+    life = res.get("lifecycle")
+    if life is not None:
+        notes.append(f"购买方式为 {life}：金额为按需理论值，实际账单按该方式计")
+    if ten == "default":
+        return None, notes
+    return (f"租户为 {ten}：专用租户按另一种结构计费（Dedicated Host 按整台主机），"
+            f"本版本不取价"), notes
+
+
 def evaluate(res, ctx):
     """判定单个资源。返回 findings 字典。"""
     t = ctx["thresholds"]
@@ -172,6 +200,10 @@ def evaluate(res, ctx):
            "metric_coverage": coverage, "nonburst": None, "burst": None,
            "burst_na": None, "required_vcpu": None, "required_gib": None}
     _coverage_note(out, res)
+    # 专用租户不出金额；Spot 与缺键只加披露。理由见 _tenancy_lifecycle 的 docstring。
+    dedicated, pricing_notes = _tenancy_lifecycle(res)
+    if pricing_notes:
+        out.setdefault("blockers", []).extend(pricing_notes)
 
     # ---- 采样量：分档而非拒绝 ----
     # 阈值用下标取而非 .get()：注入的 thresholds 缺这个键时必须抛 KeyError。
@@ -200,7 +232,10 @@ def evaluate(res, ctx):
         usd = prices.get(f"{itype}|{res.get('operation')}")
         if cs is not None:
             out.update(cur_vcpu=cs["vcpu"], cur_gib=cs["gib"])
-        if usd is not None:
+        if dedicated is not None:
+            # 专用租户的成本不是共享按需价：不填，免得分母按错价计入
+            out.setdefault("blockers", []).append(dedicated)
+        elif usd is not None:
             out.update(cur_usd=usd, cur_cat=cats.get(itype),
                        cur_cost_mo=round(usd * HOURS_PER_MONTH
                                          * res.get("count", 1), 2))
@@ -214,6 +249,10 @@ def evaluate(res, ctx):
         out["burst_na"] = "当前机型规格未知"
         return out
 
+    if dedicated is not None:
+        out["verdict"] = "price-unknown"
+        out["burst_na"] = dedicated
+        return out
     cur_usd = prices.get(f"{itype}|{res.get('operation')}")
     if cur_usd is None:
         out["verdict"] = "price-unknown"
@@ -1431,6 +1470,147 @@ def booking_rates(clusters):
             "mem_pct": round(rm / am * 100, 1) if am else None,
             "pods": len(c.get("pods") or []),
         }
+    return out
+
+
+# ============================================================
+# EBS gp2 → gp3：按 AWS/EBS 实测 IOPS / 吞吐对齐
+# ============================================================
+# 下列数值是 gp2 / gp3 的产品定义（AWS EBS 用户指南），属稳定事实，不是可按
+# profile 调的策略量，故不进 thresholds.json —— 与 VETO_TOLERANCE_PCT 同类。
+GP3_BASE_IOPS = 3000          # gp3 基线 IOPS，含在存储价里
+GP3_BASE_MIBPS = 125          # gp3 基线吞吐，含在存储价里
+GP3_MIBPS_PER_IOPS = 0.25     # gp3 吞吐 / IOPS 比的上限
+GP3_MAX_IOPS_PER_GIB = 500    # gp3 另配 IOPS / 容量比的上限
+GP2_IOPS_PER_GIB = 3          # gp2 基线 IOPS
+GP2_BURST_IOPS = 3000         # gp2 < 1000 GiB 时的突发上限
+GP2_MAX_IOPS = 16000          # gp2 IOPS 封顶（5,334 GiB 起）
+GP2_SMALL_GIB = 170           # ≤ 此容量的 gp2 吞吐最高 128 MiB/s
+GP2_SMALL_MIBPS = 128
+GP2_MAX_MIBPS = 250           # > 170 GiB 的 gp2 吞吐上限（170–334 GiB 靠突发积分）
+
+
+def gp2_capability(size_gib):
+    """gp2 卷能达到的上限 (IOPS, MiB/s)。gp3 的配置以它封顶：迁移承诺「不比现在差」，
+    不是升级 —— 超出 gp2 能力的需求在 gp2 上本来就没有被满足。
+
+    **334 GiB 是吞吐的分界点，不是 IOPS 的。** 此前 SKILL.md 写「> 334 GiB 时基线
+    IOPS 已超 3000」，照做会让 334–1000 GiB 的卷去配 IOPS（白花钱）而吞吐照样从
+    250 掉到 125。基线 IOPS 要到 1000 GiB 才超 3000。
+    """
+    iops = min(GP2_MAX_IOPS, max(GP2_BURST_IOPS, GP2_IOPS_PER_GIB * size_gib))
+    mibps = GP2_SMALL_MIBPS if size_gib <= GP2_SMALL_GIB else GP2_MAX_MIBPS
+    return iops, mibps
+
+
+def gp3_tput_price_per_mibps(usd, unit):
+    """gp3 另配吞吐的单价换成「每 MiB/s 每月」。
+
+    pricing API 回的单位是 **GiBps-mo**（实测 us-west-2 $40.96 / GiBps-mo，描述字段原文
+    「$0.04 per provisioned MiBps-month」）。直接当成每 MiB/s 的价会高估 1024 倍。
+    单位不是 GiBps-mo ⇒ None（按缺失处理），不猜换算。
+    """
+    if usd is None or unit != "GiBps-mo":
+        return None
+    return usd / 1024
+
+
+def _gp3_dim(sus, peak, ex_p95, ex_hours, base, cap, t, label, unit):
+    """一个维度（IOPS 或吞吐）的 gp3 配置量。返回 (配置量, 依据, blocker 或 None)。
+
+    顺序不可调换：缺失 ⇒ 对齐；持续触顶 ⇒ 对齐；否则按实测。
+    「持续触顶」= 触顶序列（小时 Maximum）的 p95 ≥ 1，与否决项同一个持续态口径
+    （`_persistent()`，容忍度 VETO_TOLERANCE_PCT）。「出现过一次即对齐」在验证账号
+    14 块卷里命中 12 块（每块 2–27 / 720 小时），会让一次备份的几秒高峰决定一块卷
+    有没有建议。分钟均值看不见秒级突发：触顶分钟的分钟均值实测只有 382–488 IOPS。
+    按实测时与 `_required()` 同形：持续项对 target_ebs_p95、峰值项对 ceiling_ebs_max 反推。
+    """
+    if sus is None or peak is None or ex_p95 is None:
+        return cap, "missing-parity", (
+            f"{label} 指标缺失（非 Nitro 宿主不发布 VolumeAvg* 与 *ExceededCheck），"
+            f"按 gp2 能力上限 {_n(cap)} {unit} 对齐")
+    if ex_p95 >= 1:
+        return cap, "exceeded-parity", (
+            f"{label} 持续触顶：超过 {VETO_TOLERANCE_PCT}% 的小时出现秒级触顶"
+            f"（共 {_n(ex_hours)} 小时），分钟均值被 gp2 上限压低、不可作定档依据，"
+            f"按 gp2 能力上限 {_n(cap)} {unit} 对齐")
+    need = max(_ceil_div(sus * 100, t["target_ebs_p95"]),
+               _ceil_div(peak * 100, t["ceiling_ebs_max"]))
+    note = None
+    if ex_hours:
+        note = (f"{label} 偶发触顶：窗口内 {_n(ex_hours)} 小时出现秒级触顶，未超过 "
+                f"{VETO_TOLERANCE_PCT}% 的小时，按实测定档；gp3 的 {label} 可在线调高、不停机")
+    return min(cap, max(base, need)), "measured", note
+
+
+def gp3_plan(vol, t, price):
+    """一块 gp2 卷转 gp3 的配置量与按需理论月省。填法表 gp2 行的金额来源。
+
+    vol   = {rid, size_gib, sus_iops, peak_iops, sus_kibs, peak_kibs,
+             iops_exceeded_p95, iops_exceeded_hours,
+             tput_exceeded_p95, tput_exceeded_hours,
+             sample_n, window_points}   —— 缺失一律 None，禁止补 0；后两个可选（覆盖度）
+    t     = load_thresholds(profile)
+    price = {gp2_gb_mo, gp3_gb_mo, gp3_iops_mo, gp3_mibps_mo}   —— 缺失为 None
+
+    三种出口与填法表三行一一对应：可转（downsize / storage-type）、转了不省
+    （excluded / none，按「EBS 卷 其他」填）、单价不全（price-unknown）。
+    """
+    size = vol["size_gib"]
+    cap_iops, cap_mibps = gp2_capability(size)
+
+    def kib(v):
+        return None if v is None else v / 1024
+
+    iops, iops_basis, n1 = _gp3_dim(
+        vol.get("sus_iops"), vol.get("peak_iops"), vol.get("iops_exceeded_p95"),
+        vol.get("iops_exceeded_hours"), GP3_BASE_IOPS, cap_iops, t, "IOPS", "IOPS")
+    mibps, tput_basis, n2 = _gp3_dim(
+        kib(vol.get("sus_kibs")), kib(vol.get("peak_kibs")),
+        vol.get("tput_exceeded_p95"), vol.get("tput_exceeded_hours"),
+        GP3_BASE_MIBPS, cap_mibps, t, "吞吐", "MiB/s")
+    assert mibps <= GP3_MIBPS_PER_IOPS * iops, (vol["rid"], iops, mibps)
+    assert iops == GP3_BASE_IOPS or iops <= GP3_MAX_IOPS_PER_GIB * size, (
+        vol["rid"], iops, size)
+    out = {"rid": vol["rid"], "service": "ebs", "cur": "gp2",
+           "gp3_iops": iops, "gp3_mibps": mibps,
+           "iops_basis": iops_basis, "tput_basis": tput_basis,
+           "cur_cost_mo": None, "gp3_cost_mo": None, "other_save_mo": None,
+           "blockers": [n for n in (n1, n2) if n]}
+    # 覆盖不足只标注、不改结论：采样量决定置信度，不决定给不给建议（SKILL.md 护栏）。
+    # 不标的话，一个 48 小时的配置与 30 天的配置在交付物里看起来一样。
+    cov_n, cov_w = vol.get("sample_n"), vol.get("window_points")
+    if cov_n is not None and cov_w is not None and cov_n < cov_w:
+        out["blockers"].append(
+            f"序列只覆盖窗口的 {_n(cov_n)}/{_n(cov_w)} 小时（卷在窗口内新建或换过宿主）："
+            f"窗口外的需求不可见，按实测定档的配置可能偏低；gp3 的 IOPS / 吞吐可在线调高、不停机")
+    if price.get("gp2_gb_mo") is not None:
+        out["cur_cost_mo"] = round(size * price["gp2_gb_mo"], 2)
+    keys = ("gp2_gb_mo", "gp3_gb_mo", "gp3_iops_mo", "gp3_mibps_mo")
+    missing = [k for k in keys if price.get(k) is None]
+    if missing:
+        out.update(verdict="price-unknown", bucket="excluded", action_type="none")
+        out["blockers"].insert(0, (
+            f"gp2 / gp3 单价不全（{'、'.join(missing)} 缺失），不出节省额。"
+            f"即使这块卷不需另配也要求四个单价齐全：取价按 region 一次取回，"
+            f"缺一条说明取价配方坏了"))
+        return out
+    gp3 = (size * price["gp3_gb_mo"]
+           + (iops - GP3_BASE_IOPS) * price["gp3_iops_mo"]
+           + (mibps - GP3_BASE_MIBPS) * price["gp3_mibps_mo"])
+    save = round(size * price["gp2_gb_mo"] - gp3, 2)
+    out["gp3_cost_mo"] = round(gp3, 2)
+    if save <= 0:
+        out.update(verdict="excluded", bucket="excluded", action_type="none")
+        out["blockers"].insert(0, (
+            f"转 gp3 须另配到 IOPS {_n(iops)} / 吞吐 {_n(mibps)} MiB/s 才不比现在差，"
+            f"月额 ${out['gp3_cost_mo']} 不低于 gp2 的 ${out['cur_cost_mo']}，不出转换建议"))
+        return out
+    out.update(verdict="excluded", bucket="downsize", action_type="storage-type",
+               other_save_mo=save)
+    out["blockers"].insert(0, (
+        f"转 gp3 配置 IOPS {_n(iops)}（依据 {iops_basis}）、吞吐 {_n(mibps)} MiB/s"
+        f"（依据 {tput_basis}）；按需理论月省 ${save}"))
     return out
 
 

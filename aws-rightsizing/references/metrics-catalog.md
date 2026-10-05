@@ -202,7 +202,20 @@ us-west-2 覆盖 2/18 台；`disk_used_percent` 合计只覆盖 3/31 台。
 不要顺手一起改：前者名字里就带 per second、本身已是速率；后者是瞬时驻留字节（gauge），
 跨小时求和得到一个没有指代的数。
 
-**谁在消费这张表：目前一个都没有。** 卷容量是否过大需 `CWAgent disk_used_percent`。
+**Nitro 专有的四个指标（维度 `VolumeId` + `InstanceId`）——`core.gp3_plan()` 的输入**，
+采集见 `cli-recipes.md` §2.7：
+
+| 指标 | 单位 | stat | 用途 |
+|---|---|---|---|
+| `VolumeAvgIOPS` | Ops/s（已是速率） | `Average`（持续项取 full-window p95）、`Maximum`（峰值项取 full-window max） | gp3 IOPS 定档 |
+| `VolumeAvgThroughput` | KiB/s（已是速率） | 同上 | gp3 吞吐定档 |
+| `VolumeIOPSExceededCheck` | 0 / 1（分钟内任一秒超出卷的上限即为 1） | `Maximum`（p95 判持续触顶，`mean × n` 为触顶小时数） | 判实测值是否被 gp2 压低 |
+| `VolumeThroughputExceededCheck` | 同上 | 同上 | 同上 |
+
+实测（2026-10-04，验证账号）：`VolumeAvgIOPS` 小时 `Maximum` 与 (读 + 写) ÷ 60 的分钟最大值
+逐小时一致；超过 15 天的数据小时 `SampleCount` 仍为 60。只在卷挂在**运行中**实例上时发布。
+
+**谁在消费：上面四行计数类指标没有消费者；Nitro 的四个指标由 `core.gp3_plan()` 消费。** 卷容量是否过大需 `CWAgent disk_used_percent`。
 而**EBS 的闲置判据不读任何指标**——`thresholds.md` 定义的是 `state=available`（未挂载）
 与「挂在 `state=stopped` 实例上」，两条都是配置判断。
 本表此前把 `Volume*Ops` 的用途写成「闲置卷判据」、并写「纯 `AWS/EBS` 只能判闲置」，

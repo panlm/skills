@@ -29,7 +29,7 @@ BASELINE = {"t3.small": 0.2, "t3.large": 0.3}
 CATS = {"m5.xlarge": "General purpose", "m5.large": "General purpose",
         "t3.large": "General purpose", "t3.small": "General purpose"}
 RES_EC2 = {"rid": "i-EX", "service": "ec2", "type": "m5.xlarge", "arch": "x86_64",
-           "operation": "RunInstances", "sus_cpu": 5, "peak_cpu": 15,
+           "operation": "RunInstances", "tenancy": "default", "lifecycle": None, "sus_cpu": 5, "peak_cpu": 15,
            "sus_mem": 3, "peak_mem": 5, "ebs_need": 1,
            "surplus_credits": 0, "cpu_n": 243, "metric_coverage": []}
 # 三个 bucket 值与三个 stop_candidate 态都要有资源产出，否则
@@ -494,6 +494,7 @@ REQUIRED_ROWS = (
     "EC2 running 且命中闲置",
     "EC2 `state=stopped`",
     "EBS 卷 `gp2` 且可转 `gp3`",
+    "EBS 卷 `gp2`，取不到 gp3 单价",
     "EBS 卷 `state=available`",
     "EBS 卷挂在 `state=stopped` 实例上",
     "EBS 卷 其他",
@@ -504,6 +505,7 @@ REQUIRED_ROWS = (
     "ALB / NLB 活跃",
     "EIP 未关联",
     "EKS 节点池（聚合行）",
+    "EKS 节点池（聚合行，成员含专用租户）",
     "EKS 节点（成员行）",
     "EKS 控制面",
     "桶 E pod request 调优",

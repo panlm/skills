@@ -56,7 +56,7 @@ MSK_OK = {"rid": "msk-T-01", "service": "msk", "type": "kafka.m7g.xlarge",
           "handler_idle_p95": 0.94, "cpu_total_p95": 15, "sample_n": 243,
           "cheaper_candidate_exists": True}
 EC2_OK = {"rid": "i-T-01", "service": "ec2", "type": "m5.xlarge",
-          "arch": "x86_64", "operation": "RunInstances", "sus_cpu": 10,
+          "arch": "x86_64", "operation": "RunInstances", "tenancy": "default", "lifecycle": None, "sus_cpu": 10,
           "peak_cpu": 25, "sus_mem": 20, "peak_mem": 35, "ebs_need": 5,
           "surplus_credits": 0, "cpu_n": 243, "metric_coverage": []}
 
