@@ -37,7 +37,7 @@ npx skills add panlm/skills --list
 |-------|------|
 | [awesome-skills-deepdive](./others/awesome-skills-deepdive/) | 深度研究工具，用于探索和分析 awesome-skills 注册表中的 Skills。 |
 | [gartner-hype-cycle](./others/gartner-hype-cycle/) | 使用 Gartner 技术成熟度曲线框架分析技术。 |
-| [herdr-session-messaging](./others/herdr-session-messaging/) | 给同一台机器上其他 agent session 寻址并发消息。把「第 3 个 agent」「旁边那个」这类说法解析成真实地址 —— 用 [herdr](https://herdr.dev) 的屏幕花名册与实时 session 列表做 join，再选对通道：同为 Claude Code 走 `SendMessage`，别家 agent（codex / gemini / cursor 等）、斜杠命令和按键走 herdr 的终端通道。含「替人在别人 session 里打字」那两条通道的授权门槛（人直接点名、目标唯一解析时，原话即授权），等别家 agent 答完一轮的可靠做法（`prompt --wait`；`--until idle` 漏掉 `done` 状态，会白等满整个超时），以及捞长输出的实测容量上限。 |
+| [herdr-session-messaging](./others/herdr-session-messaging/) | 给同一台机器、或远端机器上的其他 agent session 寻址并发消息。旧的 [herdr](https://herdr.dev) TUI 和 herdr-core（`hc`）+ herdr-app 都支持，两套同时在跑也行。它能把「第 3 个 agent」「右边那个」「最下面那个远程的」这类说法解析成真实地址：拿屏幕上的花名册去对 Claude Code 当前活着的 session 列表。花名册在旧 herdr 里是 pane，在 herdr-app 里是 space → tab → terminal。hc 这边要从 terminal 的前台进程一路往下，找到登记过的那个 claude。解析完再选通道：对方是 Claude Code 就走 `SendMessage`；别家 agent（codex / gemini / cursor 等）、斜杠命令和按键走 `hc send` / `hc keys`，或者 `herdr agent prompt` / `send-keys`；远端机器上的 agent 本机哪份清单都看不到，走同样的通道，只是地址换成远端的：hc 写 `<机器>/tN`，旧 herdr 用 `ssh` 加远端的 herdr CLI。含「替人在别人 session 里打字」那两条通道的授权门槛（人直接点名、目标唯一解析时，原话即授权），等别家 agent 答完一轮的可靠做法（`prompt --wait`；`--until idle` 漏掉 `done` 状态，会白等满整个超时），以及捞长输出的实测容量上限。 |
 | [scp-paradigm](./others/scp-paradigm/) | 应用结构-行为-绩效范式进行行业分析。 |
 | [value-chain-analysis](./others/value-chain-analysis/) | 执行波特价值链分析，用于商业战略。 |
 

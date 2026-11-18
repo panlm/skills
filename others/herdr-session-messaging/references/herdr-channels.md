@@ -144,7 +144,7 @@ codex 的记录里一样有 `agent_session`（`source: "herdr:codex"` + UUID）�
 
 ```bash
 herdr agent prompt <pane> '...输出 N 行...最后一行只写 END 加 6×7 的结果，不加空格' --wait --timeout <够长>
-herdr agent read <pane> --source recent-unwrapped --lines 60 | grep -E '^\s*(•\s*)?END42\s*$'  # 1. 只看哨兵到没到
+herdr agent read <pane> --source recent-unwrapped --lines 60 | grep -E '^\s*([•●]\s*)?END42\s*$'  # 1. 只看哨兵到没到（codex 挂 •，Claude Code 挂 ●）
 herdr agent read <pane> --source recent-unwrapped --lines 1000 > /tmp/cap # 2. 到了再一次抓全
 head -1 /tmp/cap                                                         # 3. 首行是横幅=没截断
 ```
@@ -234,3 +234,40 @@ herdr agent prompt <pane> '继续第 2 批：0601–1200，末尾一行写 B2- �
 **`--timeout`（或 `sleep`）按对方的生成速率估，不是按你的耐心估。** 500 行等了 147s（38s 时才 157 行）。2000 行更反直觉：**前 4 分钟屏幕上一行都没有**（xhigh reasoning 阶段），8m43s 才到 1080 行，全程 ~13 分钟。「几分钟没动静」不等于卡住 —— 按 SKILL.md 的活性判据两次采样比 spinner elapsed，别急着送 esc。
 
 设计载荷时就留好校验钩子（连续编号 + 固定宽度字段），比事后猜哪里断了便宜得多。
+
+## 远端机器（ssh endpoint）
+
+herdr 客户端可以挂远端机器（侧栏 `machines` 下 Local 以外的那些）。远端 pane 跑在远端的 herdr server 上，本机 `herdr agent list`、`roster.py`、`ListAgents` **都看不到**。通道只有一条：ssh 到远端，跑远端的 herdr CLI。命令和参数跟本机完全一样。
+
+### 发现
+
+```bash
+jq '.ssh[]' ~/.local/state/herdr/client/endpoints.json
+# {"id": "<hex>", "label": "<侧栏名>", "target": "<ssh 目标>", "session": "default", "enabled": true}
+jq . ~/.local/state/herdr/client/ssh-metadata/<id>.json
+# {"target": "...", "metadata": {"os": "linux", "executable": "~/.local/bin/herdr"}}
+```
+
+- `target` 是 ssh 目标，按本机 `~/.ssh/config` 解析。herdr 自己的桥接用的是临时 ssh config 加 ControlMaster（`ps` 里能看到 `ssh -C -F …/herdr-ssh-<pid>-0/config … remote-client-bridge`）。但直接 `ssh <target>` 不依赖那条桥，各走各的连接。
+- `ssh-metadata` 里的 `executable` 是远端 herdr 的绝对路径。远端非登录 shell 的 PATH 里不一定有它，先用 `ssh <target> 'command -v herdr'` 确认；找不到就改用这个绝对路径。
+
+### 发送和读回
+
+```bash
+ssh <target> "herdr agent prompt w1:p1 '<text>' --wait --timeout 600000"
+ssh <target> "herdr agent read w1:p1 --source recent-unwrapped --lines 40"
+```
+
+- **引号嵌套**：外层双引号交给本机 shell，内层单引号交给远端 shell。因此 `<text>` 里不能有单引号；`$` 要写成 `\$`，否则会在本机就被展开。
+- **stderr 噪音**：ssh 的 ProxyCommand 会往 stderr 打警告（实测有 SSM 插件版本过旧的提示）。解析 JSON 前要么丢掉 stderr（`2>/dev/null`），要么从第一个 `{` 开始截。
+- **状态语义和本机一样**。`focused` 反映的是人此刻在本机客户端里看没看那个远端 pane。实测人正看着它时，`--wait` 返回的是 `idle`，不是 `done`。
+- **没有收件箱**，和跨厂商时一样：远端 claude 的回答只在它的屏幕上，`SendMessage` 到不了。
+- **授权门槛和 SKILL.md 的 🔴 一致**，而且多一层：这等于在**另一台主机**上执行命令。
+
+### 实测（2026-10-19，两端都是 herdr 0.9.5，远端 kind=claude）
+
+送「只回复一行：PONG 加上 6 乘 7 的结果」：
+
+- `agent_prompted` 返回时 `agent_status=idle`，`name` 是 herdr 给它起的 agent 名，`tokens.sname` 为 `None`。
+- `read` 里看到 `● PONG42`，对方用了 2s。
+- 哨兵 grep `^\s*([•●]\s*)?PONG42\s*$` 命中。
